@@ -559,7 +559,7 @@ version.)
 
 ## Tests
 
-`dotnet test` runs 54 tests. They cover the scenarios the library is designed around — identical signals, a
+`dotnet test` runs 55 tests. They cover the scenarios the library is designed around — identical signals, a
 phase-shifted sine, a +6 dB copy, a stronger second harmonic, a brighter candidate, slower attack, longer release,
 added noise, a small timing offset, a bright attack only, clipping, unusable input, different sample rates, JSON
 round trips, determinism under parallel use — as well as the individual analyzers (FFT, STFT calibration, resampler,

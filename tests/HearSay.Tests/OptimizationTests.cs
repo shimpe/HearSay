@@ -463,6 +463,22 @@ public class OptimizationTests
     }
 
     [Fact]
+    public void TaggedStep_IsRecordedWithItsType()
+    {
+        var session = new ToneOptimizationSession(new ToneComparer().PrepareTarget(Render(0.6)), [Brightness, Attack]);
+        SynthParameterState before = State(("brightness", 0.4), ("attack", 0.1));
+        var step = new OptimizationStep(OptimizationStepType.Exploration, before, before.With("brightness", 0.45), "brightness");
+
+        session.Evaluate(step, Render(0.45));
+
+        OptimizationObservation observation = session.History.Latest!;
+        Assert.Equal(OptimizationStepType.Exploration, observation.StepType);
+        Assert.Equal(0.45, observation.Parameters.Values["brightness"]);
+        Assert.Equal("Exploration:brightness", observation.CandidateId);
+        Assert.True(observation.AnalysisDuration > TimeSpan.Zero);
+    }
+
+    [Fact]
     public void ClosedLoop_GuidanceReducesLoss()
     {
         var comparer = new ToneComparer();

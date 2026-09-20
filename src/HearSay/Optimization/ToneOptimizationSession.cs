@@ -54,7 +54,7 @@ public sealed record ToneOptimizationSessionState(
 /// Measurement and bookkeeping side of a closed-loop sound-matching run. The session does not drive a synthesizer and
 /// is not an optimizer: the caller renders candidates and decides on the next parameters. The session analyses each
 /// candidate, records it, keeps the parameter-effect model up to date and answers questions about progress,
-/// sensitivities and promising next steps. <see cref="Evaluate"/> may be called from several threads.
+/// sensitivities and promising next steps. <c>Evaluate</c> may be called from several threads.
 /// </summary>
 public sealed class ToneOptimizationSession
 {
@@ -149,6 +149,17 @@ public sealed class ToneOptimizationSession
         }
 
         return result;
+    }
+
+    /// <summary>Analyses the candidate rendered for the <see cref="OptimizationStep.After"/> state of a tagged step.</summary>
+    /// <param name="step">The step that was taken; its type is stored with the observation.</param>
+    /// <param name="renderedCandidate">Audio rendered with <see cref="OptimizationStep.After"/>.</param>
+    /// <param name="renderDuration">Optional time the render took.</param>
+    public ToneComparisonResult Evaluate(OptimizationStep step, AudioNote renderedCandidate, TimeSpan? renderDuration = null)
+    {
+        ArgumentNullException.ThrowIfNull(step);
+        string? id = step.PrimaryParameterId is null ? null : $"{step.Type}:{step.PrimaryParameterId}";
+        return Evaluate(step.After, renderedCandidate, step.Type, id, renderDuration);
     }
 
     /// <summary>Progress of the run, including stagnation; null before the first evaluation.</summary>
