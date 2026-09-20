@@ -159,6 +159,15 @@ public sealed class ToneDifferenceAnalyzer : IToneDifferenceAnalyzer
         }
 
         double totalMs = Math.Max(1.0, envelope.TargetDurationMs);
+        double wholeNoteCentroidDelta = 0;
+        foreach (DescriptorComparison d in measurements.Descriptors)
+        {
+            if (d.FeatureId == ToneFeatureIds.SpectralCentroid)
+            {
+                wholeNoteCentroidDelta = d.Difference;
+            }
+        }
+
         foreach (TimeSegmentComparison segment in measurements.TimeSegments)
         {
             double share = MathUtil01((segment.TargetEndMs - segment.TargetStartMs) / totalMs);
@@ -186,7 +195,9 @@ public sealed class ToneDifferenceAnalyzer : IToneDifferenceAnalyzer
             double centroidRatio = segment.TargetCentroidHz > 0 && segment.CandidateCentroidHz > 0
                 ? Math.Abs(Math.Log(segment.CandidateCentroidHz / segment.TargetCentroidHz))
                 : 0.0;
-            if (centroidRatio >= Math.Log(1.0 + (2.0 * thresholds.MinimumFrequencyRatio)))
+            bool repeatsWholeNote = Math.Abs(wholeNoteCentroidDelta) > 0
+                && Math.Abs(segment.CentroidDifferenceHz - wholeNoteCentroidDelta) < 0.25 * Math.Abs(wholeNoteCentroidDelta);
+            if (centroidRatio >= Math.Log(1.0 + (2.0 * thresholds.MinimumFrequencyRatio)) && !repeatsWholeNote)
             {
                 double importance = Importance(centroidRatio, 0.25, 0.7 * persistence, confidence * 0.9);
                 result.Add(new ToneDifference(

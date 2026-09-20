@@ -39,6 +39,12 @@ public sealed record EnvelopeProfile
     /// <summary>RMS window that was used, in milliseconds. Timings shorter than this are resolution limited.</summary>
     public double WindowMs { get; init; }
 
+    /// <summary>
+    /// Silence, in milliseconds, that was placed in front of the note before the envelope was computed. Point <c>i</c> of
+    /// <see cref="LevelsDb"/> lies at <c>i * HopMs - LeadInMs</c>; all other times are relative to the start of the note.
+    /// </summary>
+    public double LeadInMs { get; init; }
+
     /// <summary>Envelope in dB relative to its peak, floored at <see cref="EnvelopeOptions.FloorDb"/>.</summary>
     [JsonIgnore]
     public float[] LevelsDb { get; init; } = [];

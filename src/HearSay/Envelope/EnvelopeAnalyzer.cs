@@ -30,6 +30,29 @@ public sealed class EnvelopeAnalyzer : IEnvelopeAnalyzer
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
+        // Synth renders usually start exactly at the onset. Half a window of silence in front lets the envelope
+        // start from zero, so that the beginning of a fast attack is observed instead of being cut off.
+        int hop = Math.Max(1, (int)Math.Round(options.HopMs * sampleRate / 1000.0));
+        int window = WindowLength(sampleRate, fundamentalHz, options.MinimumWindowMs);
+        int leadIn = ((window / 2) + hop - 1) / hop * hop;
+        double leadInMs = 1000.0 * leadIn / sampleRate;
+        var padded = new float[samples.Length + leadIn];
+        samples.CopyTo(padded.AsSpan(leadIn));
+
+        EnvelopeProfile profile = AnalyzePadded(padded, sampleRate, fundamentalHz, options);
+        return profile with
+        {
+            LeadInMs = leadInMs,
+            DurationMs = 1000.0 * samples.Length / sampleRate,
+            OnsetMs = Math.Max(0.0, profile.OnsetMs - leadInMs),
+            PeakMs = Math.Max(0.0, profile.PeakMs - leadInMs),
+            SustainStartMs = profile.SustainStartMs is double s ? Math.Max(0.0, s - leadInMs) : null,
+            ReleaseStartMs = profile.ReleaseStartMs is double r ? Math.Max(0.0, r - leadInMs) : null,
+        };
+    }
+
+    private static EnvelopeProfile AnalyzePadded(ReadOnlySpan<float> samples, int sampleRate, double? fundamentalHz, EnvelopeOptions options)
+    {
         int hop = Math.Max(1, (int)Math.Round(options.HopMs * sampleRate / 1000.0));
         double hopMs = 1000.0 * hop / sampleRate;
         int window = WindowLength(sampleRate, fundamentalHz, options.MinimumWindowMs);
@@ -76,9 +99,10 @@ public sealed class EnvelopeAnalyzer : IEnvelopeAnalyzer
         double t10 = startsHigh ? 0.0 : RisingCrossing(relative, index10, 0.1) * hopMs;
         double attackMs = Math.Max(0.0, (t90 - t10) / 0.8);
         double attackConfidence = startsHigh ? (relative[0] >= 0.9 ? 0.5 : 0.4) : 0.9;
-        if (attackMs < windowMs)
+        if (attackMs <= 1.25 * windowMs)
         {
-            attackConfidence *= 0.7;
+            // Resolution limited: the RMS window itself takes this long to rise.
+            attackConfidence *= 0.5;
         }
 
         var profile = new EnvelopeProfile
@@ -190,10 +214,18 @@ public sealed class EnvelopeAnalyzer : IEnvelopeAnalyzer
         double sustainStartMs = Math.Max(runStart * hopMs, profile.PeakMs + decayMs);
 
         // Release: starts where the envelope leaves the plateau for good.
-        int releaseStart = runStart + runLength - 1;
+        // Walk forward until the level drops clearly (1.5 dB) below the sustain level, which is robust against
+        // ripple, then back along the fall to where it began, which removes most of the bias of that threshold.
+        int plateauEnd = runStart + runLength - 1;
+        int releaseStart = plateauEnd;
         while (releaseStart < n - 1 && levels[releaseStart + 1] >= sustainDb - 1.5)
         {
             releaseStart++;
+        }
+
+        while (releaseStart > plateauEnd && levels[releaseStart] < sustainDb - 0.3)
+        {
+            releaseStart--;
         }
 
         double? releaseMs;
@@ -280,7 +312,8 @@ public sealed class EnvelopeAnalyzer : IEnvelopeAnalyzer
             int centre = f * hop;
             int a = Math.Max(0, centre - half);
             int b = Math.Min(samples.Length, centre - half + window);
-            result[f] = b > a ? Math.Sqrt((prefix[b] - prefix[a]) / (b - a)) : 0.0;
+            // Dividing by the full window treats everything outside the recording as silence.
+            result[f] = b > a ? Math.Sqrt((prefix[b] - prefix[a]) / window) : 0.0;
         }
 
         return result;
