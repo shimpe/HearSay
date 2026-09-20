@@ -22,6 +22,9 @@ synth parameters → synth render → candidate audio → HearSay comparison →
 * Deterministic: the same input and configuration always give the same output.
 * Thread-safe core: all caches are immutable after initialization.
 
+**New here? Start with the [tutorial](docs/tutorial.md)**: eleven hands-on steps from a first comparison to a closed
+loop that finds synth parameters, backed by a runnable sample. This README is the reference.
+
 ## Contents
 
 - [Installation](#installation)
@@ -392,8 +395,9 @@ to explore is up to the caller. The closed-loop demo shows a 60-line strategy th
 
 Tag steps with `OptimizationStepType` (`Exploration`, `Exploitation`, `Validation`). `session.SuggestExperiments()`
 (`NextExperimentAdvisor`) ranks exploration candidates by `ExpectedInformationGain`: the share of the *current* error
-whose dependence on that parameter is still unknown. Untried values of boolean and categorical parameters are proposed
-one by one. Exploitation steps from guidance follow. `Reason` is diagnostic text; decide on the numbers.
+whose dependence on that parameter is still unknown. It never proposes a state that is already in the history: it
+tries the other side of the current value, then wider steps. Untried values of boolean and categorical parameters are
+proposed one by one. Exploitation steps from guidance follow. `Reason` is diagnostic text; decide on the numbers.
 
 ### Checkpointing and reproducibility
 
@@ -434,7 +438,9 @@ HearSay.sln
 │   └── HearSayJson.cs    System.Text.Json options (camelCase, enums as strings, double[,] as rows)
 ├── tests/HearSay.Tests               xUnit
 ├── benchmarks/HearSay.Benchmarks     BenchmarkDotNet
+├── docs/tutorial.md                  step-by-step tutorial
 └── samples
+    ├── HearSay.Tutorial              companion program of the tutorial, one method per step
     ├── HearSay.Demo                  compare two WAV files
     └── HearSay.OptimizationDemo      closed loop with a built-in test synth
 ```
@@ -488,6 +494,9 @@ dotnet run -c Release --project samples/HearSay.Demo
 
 # Closed loop with a five-parameter test synth (Brightness, Attack, Release, NoiseAmount, Harmonic2Amount)
 dotnet run -c Release --project samples/HearSay.OptimizationDemo [-- --verbose]
+
+# The tutorial's companion program (all steps, or one step by number)
+dotnet run -c Release --project samples/HearSay.Tutorial [-- 9]
 ```
 
 `HearSay.Demo` on its generated example pair (the candidate is brighter, has a slower attack, a shorter release and a
@@ -559,7 +568,7 @@ version.)
 
 ## Tests
 
-`dotnet test` runs 55 tests. They cover the scenarios the library is designed around — identical signals, a
+`dotnet test` runs 56 tests. They cover the scenarios the library is designed around — identical signals, a
 phase-shifted sine, a +6 dB copy, a stronger second harmonic, a brighter candidate, slower attack, longer release,
 added noise, a small timing offset, a bright attack only, clipping, unusable input, different sample rates, JSON
 round trips, determinism under parallel use — as well as the individual analyzers (FFT, STFT calibration, resampler,

@@ -108,25 +108,37 @@ public sealed class NextExperimentAdvisor
                 continue;
             }
 
-            double step = parameter.RecommendedMinStep is double min && parameter.Range > 0
-                ? Math.Max(min, ExplorationStep * parameter.Range * 0.5)
-                : ExplorationStep * parameter.Range;
+            double step = Math.Max(parameter.RecommendedMinStep ?? 0.0, ExplorationStep * parameter.Range);
             if (parameter.Kind == SynthParameterKind.Integer)
             {
                 step = Math.Max(1.0, Math.Round(step));
             }
 
-            // Step towards the side with more room, so the probe stays inside the range.
+            // Start on the side with more room. Rendering a state twice teaches nothing, so skip probes that are
+            // already in the history: try the other side, then wider steps.
             double direction = parameter.MaxValue - current >= current - parameter.MinValue ? 1.0 : -1.0;
-            double suggested = parameter.Coerce(current + (direction * step));
-            if (suggested == current)
+            double? suggested = null;
+            for (int widen = 0; widen < 3 && suggested is null; widen++)
+            {
+                foreach (double sign in (ReadOnlySpan<double>)[direction, -direction])
+                {
+                    double value = parameter.Coerce(current + (sign * step * (1 << widen)));
+                    if (value != current && !WasEvaluated(observations, currentState, parameter, value, space))
+                    {
+                        suggested = value;
+                        break;
+                    }
+                }
+            }
+
+            if (suggested is null)
             {
                 continue;
             }
 
             result.Add(new ExperimentSuggestion(
                 parameter.Id,
-                suggested,
+                suggested.Value,
                 OptimizationStepType.Exploration,
                 unknown,
                 string.Create(CultureInfo.InvariantCulture, $"{unknown:P0} of the current error has an unknown dependence on '{parameter.Id}'.")));
@@ -155,6 +167,39 @@ public sealed class NextExperimentAdvisor
         }
 
         return result;
+    }
+
+    /// <summary>True when the history already contains the current state with only this parameter set to the given value.</summary>
+    private static bool WasEvaluated(
+        IReadOnlyList<OptimizationObservation> observations,
+        SynthParameterState currentState,
+        SynthParameter probed,
+        double value,
+        SynthParameterSpace space)
+    {
+        foreach (OptimizationObservation observation in observations)
+        {
+            bool same = true;
+            foreach (SynthParameter parameter in space.Parameters)
+            {
+                double expected = parameter.Id == probed.Id
+                    ? value
+                    : currentState.Values.TryGetValue(parameter.Id, out double c) ? c : parameter.Value;
+                double actual = observation.Parameters.Values.TryGetValue(parameter.Id, out double a) ? a : parameter.Value;
+                if (Math.Abs(expected - actual) > 1e-9 * Math.Max(1.0, parameter.Range))
+                {
+                    same = false;
+                    break;
+                }
+            }
+
+            if (same)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void AddUntriedValues(List<ExperimentSuggestion> result, SynthParameter parameter, double current, IReadOnlyList<OptimizationObservation> observations)

@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.Demo", "samples\Hea
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.OptimizationDemo", "samples\HearSay.OptimizationDemo\HearSay.OptimizationDemo.csproj", "{7172B8D5-10EF-444B-9071-0B525D72157A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.Tutorial", "samples\HearSay.Tutorial\HearSay.Tutorial.csproj", "{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -91,6 +93,18 @@ Global
 		{7172B8D5-10EF-444B-9071-0B525D72157A}.Release|x64.Build.0 = Release|Any CPU
 		{7172B8D5-10EF-444B-9071-0B525D72157A}.Release|x86.ActiveCfg = Release|Any CPU
 		{7172B8D5-10EF-444B-9071-0B525D72157A}.Release|x86.Build.0 = Release|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Debug|x64.Build.0 = Debug|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Debug|x86.Build.0 = Debug|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Release|x64.ActiveCfg = Release|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Release|x64.Build.0 = Release|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Release|x86.ActiveCfg = Release|Any CPU
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -101,5 +115,6 @@ Global
 		{86379F50-169F-44C9-B783-994DB266920D} = {66320409-64EC-F7C5-3DEF-65E7510DAAD1}
 		{96D98A30-9A43-4367-A7A8-56DEC99F808F} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 		{7172B8D5-10EF-444B-9071-0B525D72157A} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
+		{A1E5C7EF-07A6-45A1-9A63-6C716F38C9D7} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal

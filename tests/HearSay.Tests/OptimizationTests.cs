@@ -406,6 +406,35 @@ public class OptimizationTests
     }
 
     [Fact]
+    public void Advisor_NeverProposesAStateThatWasAlreadyRendered()
+    {
+        var space = new SynthParameterSpace([Cutoff]);
+        var model = new LocalLinearEffectModel(space, Schema);
+        var history = new OptimizationHistory();
+        var advisor = new NextExperimentAdvisor();
+        OptimizationObservation current = Observation(0, State(("cutoff", 0.5)), 0.5, (ToneFeatureIds.HighBandEnergy, 4.0));
+        history.Add(current);
+        model.Observe(current);
+
+        var proposed = new List<double>();
+        for (int i = 1; i <= 3; i++)
+        {
+            ExperimentSuggestion suggestion = advisor.Advise(
+                current.Features, current.Parameters, model.EstimateJacobian(current.Parameters), space, Schema, history)[0];
+            proposed.Add(suggestion.SuggestedValue);
+
+            // The probe turns out to be uninformative (no feature change), so the advisor keeps asking.
+            OptimizationObservation probe = Observation(i, State(("cutoff", suggestion.SuggestedValue)), 0.5, (ToneFeatureIds.HighBandEnergy, 4.0)) with { MeasurementConfidence = 0.0 };
+            history.Add(probe);
+        }
+
+        Assert.Equal(3, proposed.Distinct().Count());
+        Assert.DoesNotContain(0.5, proposed);
+        Assert.Equal(0.55, proposed[0], 9);
+        Assert.Equal(0.45, proposed[1], 9);
+    }
+
+    [Fact]
     public void HistoryAndJacobian_RoundTripThroughJson()
     {
         var history = new OptimizationHistory();
