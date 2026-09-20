@@ -8,12 +8,29 @@ namespace HearSay.Models;
 /// normalized magnitude of 1 means "clearly different" for every feature.
 /// </param>
 /// <param name="IsLogarithmic">True when the raw value is on a logarithmic scale (dB, cents).</param>
-public sealed record FeatureDefinition(string Id, string Unit, double TypicalScale, bool IsLogarithmic);
+/// <param name="DefaultWeight">
+/// Suggested weight of the feature in a weighted error vector: one over the square root of the size of the feature
+/// group it belongs to (envelope, bands, harmonics, ...). This keeps a group with many correlated entries, such as the
+/// per-harmonic levels, from drowning out a group with a single entry, such as the attack time.
+/// </param>
+public sealed record FeatureDefinition(string Id, string Unit, double TypicalScale, bool IsLogarithmic, double DefaultWeight = 1.0);
 
 /// <summary>Ordered description of a dense feature vector. The order is deterministic for a given configuration.</summary>
 /// <param name="Features">Definitions in vector order.</param>
 public sealed record FeatureVectorSchema(IReadOnlyList<FeatureDefinition> Features)
 {
+    /// <summary>The default weights of all features, ready to be adjusted and passed to weighting helpers or guidance.</summary>
+    public IReadOnlyList<OptimizationFeatureWeight> DefaultWeights()
+    {
+        var weights = new OptimizationFeatureWeight[Features.Count];
+        for (int i = 0; i < weights.Length; i++)
+        {
+            weights[i] = new OptimizationFeatureWeight(Features[i].Id, Features[i].DefaultWeight);
+        }
+
+        return weights;
+    }
+
     /// <summary>Returns the position of a feature in the vector, or -1 when it is not part of the schema.</summary>
     /// <param name="featureId">Feature id.</param>
     public int IndexOf(string featureId)

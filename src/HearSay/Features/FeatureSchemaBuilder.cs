@@ -18,17 +18,17 @@ public static class FeatureSchemaBuilder
         {
             new(ToneFeatureIds.Loudness, "dB", 6.0, true),
             new(ToneFeatureIds.Pitch, "cents", 10.0, true),
-            new(ToneFeatureIds.AttackTime, "ms", 20.0, false),
-            new(ToneFeatureIds.DecayTime, "ms", 100.0, false),
+            new(ToneFeatureIds.AttackTime, "ms", 10.0, false),
+            new(ToneFeatureIds.DecayTime, "ms", 50.0, false),
             new(ToneFeatureIds.SustainLevel, "dB", 6.0, true),
-            new(ToneFeatureIds.ReleaseTime, "ms", 100.0, false),
+            new(ToneFeatureIds.ReleaseTime, "ms", 50.0, false),
             new(ToneFeatureIds.SpectralCentroid, "Hz", 500.0, false),
             new(ToneFeatureIds.SpectralRolloff, "Hz", 1000.0, false),
             new(ToneFeatureIds.SpectralBandwidth, "Hz", 500.0, false),
             new(ToneFeatureIds.SpectralFlatness, "dB", 6.0, true),
             new(ToneFeatureIds.SpectralSlope, "dB/oct", 3.0, true),
             new(ToneFeatureIds.SpectralFlux, "", 0.1, false),
-            new(ToneFeatureIds.ZeroCrossingRate, "Hz", 500.0, false),
+            new(ToneFeatureIds.ZeroCrossingRate, "Hz", 2000.0, false),
             new(ToneFeatureIds.CrestFactor, "dB", 3.0, true),
             new(ToneFeatureIds.HarmonicToNoiseRatio, "dB", 10.0, true),
             new(ToneFeatureIds.Inharmonicity, "cents", 10.0, true),
@@ -68,7 +68,47 @@ public static class FeatureSchemaBuilder
             }
         }
 
+        // Default weights: every feature group gets the same total (squared) weight.
+        var groupSizes = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (FeatureDefinition feature in features)
+        {
+            string group = GroupOf(feature.Id);
+            groupSizes[group] = groupSizes.GetValueOrDefault(group) + 1;
+        }
+
+        for (int i = 0; i < features.Count; i++)
+        {
+            features[i] = features[i] with { DefaultWeight = 1.0 / Math.Sqrt(groupSizes[GroupOf(features[i].Id)]) };
+        }
+
         return new FeatureVectorSchema(features);
+    }
+
+    /// <summary>
+    /// Name of the group a feature belongs to: loudness, pitch, envelope, shape (scalar spectral and temporal
+    /// descriptors), noise, harmonicshape, bands, segments or harmonics. Groups are used for the default weights.
+    /// </summary>
+    /// <param name="featureId">Feature id.</param>
+    public static string GroupOf(string featureId)
+    {
+        ArgumentNullException.ThrowIfNull(featureId);
+        if (ToneFeatureIds.TryGetHarmonicNumber(featureId) is not null)
+        {
+            return "harmonics";
+        }
+
+        return featureId switch
+        {
+            ToneFeatureIds.Loudness => "loudness",
+            ToneFeatureIds.Pitch => "pitch",
+            ToneFeatureIds.HarmonicToNoiseRatio or ToneFeatureIds.Inharmonicity => "noise",
+            _ when featureId.StartsWith("envelope.", StringComparison.Ordinal) => "envelope",
+            _ when featureId.StartsWith("harmonic.", StringComparison.Ordinal) => "harmonicshape",
+            _ when featureId.StartsWith("spectral.band.", StringComparison.Ordinal) => "bands",
+            _ when featureId.StartsWith("spectral.detail.", StringComparison.Ordinal) => "bands",
+            _ when featureId.StartsWith("segment.", StringComparison.Ordinal) => "segments",
+            _ => "shape",
+        };
     }
 
     /// <summary>Normalizes a raw vector: <c>normalized = raw / typicalScale</c>, optionally clipped.</summary>

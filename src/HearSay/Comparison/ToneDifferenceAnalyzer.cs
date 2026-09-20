@@ -320,26 +320,34 @@ public sealed class ToneDifferenceAnalyzer : IToneDifferenceAnalyzer
         const int Reach = 4;
         for (int b = 1; b < diff.Count - 1; b++)
         {
-            // Prominence: how far this band sticks out from its wider neighbourhood.
-            double sum = 0;
-            int count = 0;
+            // Prominence: how far this band sticks out from its neighbourhood on both sides. Requiring both sides
+            // keeps the edge of a broad difference (a shelf) from being mistaken for a narrow peak.
+            double left = 0, right = 0;
+            int leftCount = 0, rightCount = 0;
             for (int j = Math.Max(0, b - Reach); j <= Math.Min(diff.Count - 1, b + Reach); j++)
             {
-                if (Math.Abs(j - b) >= 2)
+                if (j <= b - 2)
                 {
-                    sum += diff[j];
-                    count++;
+                    left += diff[j];
+                    leftCount++;
+                }
+                else if (j >= b + 2)
+                {
+                    right += diff[j];
+                    rightCount++;
                 }
             }
 
-            if (count == 0)
+            if (leftCount == 0 || rightCount == 0)
             {
                 continue;
             }
 
-            double prominence = diff[b] - (sum / count);
+            double prominenceLeft = diff[b] - (left / leftCount), prominenceRight = diff[b] - (right / rightCount);
+            double prominence = Math.Abs(prominenceLeft) < Math.Abs(prominenceRight) ? prominenceLeft : prominenceRight;
+            bool sameSide = Math.Sign(prominenceLeft) == Math.Sign(prominenceRight);
             bool isLocalExtreme = Math.Abs(diff[b]) >= Math.Abs(diff[b - 1]) && Math.Abs(diff[b]) >= Math.Abs(diff[b + 1]);
-            if (Math.Abs(prominence) >= 4.0 && Math.Abs(diff[b]) >= 4.0 && isLocalExtreme && Math.Sign(prominence) == Math.Sign(diff[b]))
+            if (sameSide && Math.Abs(prominence) >= 4.0 && Math.Abs(diff[b]) >= 4.0 && isLocalExtreme && Math.Sign(prominence) == Math.Sign(diff[b]))
             {
                 AddLevel(result, ToneFeatureIds.Resonance, diff[b], "dB", 6.0, 0.75, confidence * 0.8, true, edges[b], edges[b + 2]);
             }

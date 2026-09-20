@@ -53,8 +53,11 @@ public sealed record BandOptions
     /// <summary>Boundary between the aggregate mid and high bands of the difference vector, in Hz.</summary>
     public double MidHighSplitHz { get; init; } = 3000.0;
 
-    /// <summary>Lowest relative band energy, in dB, that is represented; keeps empty bands comparable.</summary>
-    public double FloorDb { get; init; } = -80.0;
+    /// <summary>
+    /// Lowest relative band energy, in dB, that is represented. Energy this far below the total is inaudible next to the
+    /// rest of the note; flooring it keeps leakage and transient residue in empty bands out of the difference vector.
+    /// </summary>
+    public double FloorDb { get; init; } = -60.0;
 }
 
 /// <summary>Weights of the component distances in <see cref="Models.SimilarityScores.Overall"/>. They are normalized to sum to 1.</summary>
