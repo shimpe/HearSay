@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>OptimizationBenchmarks-20260920-232859</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.15.8, Windows 11 (10.0.26200.9457/25H2/2025Update/HudsonValley2)
+13th Gen Intel Core i7-13700KF 3.40GHz, 1 CPU, 24 logical and 16 physical cores
+.NET SDK 10.0.301
+  [Host]   : .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3
+  ShortRun : .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3
+</code></pre>
+<pre><code>Job=ShortRun  IterationCount=3  LaunchCount=1  
+WarmupCount=3  
+</code></pre>
+
+<table>
+<thead><tr><th>Method          </th><th>Observations</th><th>Mean  </th><th>Error </th><th>StdDev</th><th>Gen0</th><th>Gen1</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>EffectModelUpdate</td><td>50</td><td>958.2 ns</td><td>263.19 ns</td><td>14.43 ns</td><td>0.0973</td><td>-</td><td>1544 B</td>
+</tr><tr><td>JacobianEstimation</td><td>50</td><td>56,501.2 ns</td><td>4,628.12 ns</td><td>253.68 ns</td><td>1.0986</td><td>-</td><td>17696 B</td>
+</tr><tr><td>PredictionFromJacobian</td><td>50</td><td>625.9 ns</td><td>139.01 ns</td><td>7.62 ns</td><td>0.0372</td><td>-</td><td>584 B</td>
+</tr><tr><td>EffectModelUpdate</td><td>500</td><td>7,256.8 ns</td><td>455.57 ns</td><td>24.97 ns</td><td>0.5569</td><td>0.0076</td><td>8784 B</td>
+</tr><tr><td>JacobianEstimation</td><td>500</td><td>595,112.3 ns</td><td>61,293.27 ns</td><td>3,359.69 ns</td><td>2.9297</td><td>-</td><td>60896 B</td>
+</tr><tr><td>PredictionFromJacobian</td><td>500</td><td>622.5 ns</td><td>71.36 ns</td><td>3.91 ns</td><td>0.0372</td><td>-</td><td>584 B</td>
+</tr></tbody></table>
+</body>
+</html>

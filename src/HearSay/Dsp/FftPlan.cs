@@ -1,18 +1,23 @@
 using System.Collections.Concurrent;
+using System.Numerics;
 
 namespace HearSay.Dsp;
 
 /// <summary>
 /// Precomputed tables for an in-place radix-2 complex FFT of one size. Plans are immutable after
-/// construction and cached per size, so they can be shared freely between threads.
+/// construction and cached per size, so they can be shared freely between threads. The butterflies are vectorized
+/// with <see cref="Vector{T}"/>; only IEEE add, subtract and multiply are used, so the vectorized and the scalar path
+/// produce bit-identical results.
 /// </summary>
 public sealed class FftPlan
 {
     private static readonly ConcurrentDictionary<int, FftPlan> Cache = new();
 
     private readonly int[] bitReversal;
-    private readonly float[] cosTable;
-    private readonly float[] sinTable;
+
+    // Twiddle factors per stage, stored contiguously: the stage with half-length h uses entries [h, 2h).
+    private readonly float[] stageCos;
+    private readonly float[] stageSin;
 
     private FftPlan(int size)
     {
@@ -33,13 +38,16 @@ public sealed class FftPlan
             bitReversal[i] = reversed;
         }
 
-        cosTable = new float[size / 2];
-        sinTable = new float[size / 2];
-        for (int i = 0; i < size / 2; i++)
+        stageCos = new float[size];
+        stageSin = new float[size];
+        for (int half = 1; half < size; half <<= 1)
         {
-            double angle = 2.0 * Math.PI * i / size;
-            cosTable[i] = (float)Math.Cos(angle);
-            sinTable[i] = (float)Math.Sin(angle);
+            for (int k = 0; k < half; k++)
+            {
+                double angle = Math.PI * k / half;
+                stageCos[half + k] = (float)Math.Cos(angle);
+                stageSin[half + k] = (float)-Math.Sin(angle);
+            }
         }
     }
 
@@ -79,18 +87,42 @@ public sealed class FftPlan
             }
         }
 
-        for (int length = 2; length <= n; length <<= 1)
+        int width = Vector.IsHardwareAccelerated ? Vector<float>.Count : int.MaxValue;
+        ReadOnlySpan<float> cos = stageCos, sin = stageSin;
+        for (int half = 1; half < n; half <<= 1)
         {
-            int half = length >> 1;
-            int step = n / length;
+            int length = half << 1;
+            if (half >= width)
+            {
+                for (int start = 0; start < n; start += length)
+                {
+                    for (int k = 0; k < half; k += width)
+                    {
+                        int a = start + k, b = a + half;
+                        var wr = new Vector<float>(cos.Slice(half + k));
+                        var wi = new Vector<float>(sin.Slice(half + k));
+                        var ar = new Vector<float>(real.Slice(a));
+                        var ai = new Vector<float>(imaginary.Slice(a));
+                        var br = new Vector<float>(real.Slice(b));
+                        var bi = new Vector<float>(imaginary.Slice(b));
+                        Vector<float> tr = (br * wr) - (bi * wi);
+                        Vector<float> ti = (br * wi) + (bi * wr);
+                        (ar - tr).CopyTo(real.Slice(b));
+                        (ai - ti).CopyTo(imaginary.Slice(b));
+                        (ar + tr).CopyTo(real.Slice(a));
+                        (ai + ti).CopyTo(imaginary.Slice(a));
+                    }
+                }
+
+                continue;
+            }
+
             for (int start = 0; start < n; start += length)
             {
-                for (int k = 0, tableIndex = 0; k < half; k++, tableIndex += step)
+                for (int k = 0; k < half; k++)
                 {
-                    float wr = cosTable[tableIndex];
-                    float wi = -sinTable[tableIndex];
-                    int a = start + k;
-                    int b = a + half;
+                    float wr = cos[half + k], wi = sin[half + k];
+                    int a = start + k, b = a + half;
                     float tr = (real[b] * wr) - (imaginary[b] * wi);
                     float ti = (real[b] * wi) + (imaginary[b] * wr);
                     real[b] = real[a] - tr;

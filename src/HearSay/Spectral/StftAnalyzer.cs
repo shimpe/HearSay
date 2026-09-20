@@ -1,3 +1,4 @@
+using System.Numerics;
 using HearSay.Dsp;
 
 namespace HearSay.Spectral;
@@ -68,7 +69,20 @@ public sealed class StftAnalyzer : IStftAnalyzer
 
             plan.Forward(real, imaginary);
             Span<float> row = magnitudes.AsSpan(frame * bins, bins);
-            for (int k = 0; k < bins; k++)
+            int k = 0;
+            if (Vector.IsHardwareAccelerated)
+            {
+                // Square root is correctly rounded in both paths, so the result does not depend on the hardware.
+                var scaleVector = new Vector<float>(scale);
+                for (; k <= bins - Vector<float>.Count; k += Vector<float>.Count)
+                {
+                    var re = new Vector<float>(real, k);
+                    var im = new Vector<float>(imaginary, k);
+                    (Vector.SquareRoot((re * re) + (im * im)) * scaleVector).CopyTo(row.Slice(k));
+                }
+            }
+
+            for (; k < bins; k++)
             {
                 row[k] = MathF.Sqrt((real[k] * real[k]) + (imaginary[k] * imaginary[k])) * scale;
             }

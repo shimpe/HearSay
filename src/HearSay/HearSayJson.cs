@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -34,6 +35,9 @@ public static class HearSayJson
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+
+            // The output is consumed by programs and agents, not embedded in HTML: keep quotes and non-ASCII readable.
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
         options.Converters.Add(new JsonStringEnumConverter());
         options.Converters.Add(new Matrix2DConverter());

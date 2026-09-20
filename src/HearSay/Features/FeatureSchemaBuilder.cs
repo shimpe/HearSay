@@ -78,7 +78,12 @@ public static class FeatureSchemaBuilder
 
         for (int i = 0; i < features.Count; i++)
         {
-            features[i] = features[i] with { DefaultWeight = 1.0 / Math.Sqrt(groupSizes[GroupOf(features[i].Id)]) };
+            // The zero-crossing rate of a harmonic sound jumps when the waveform shape changes slightly. It stays in
+            // the vector for diagnostics and learning, but does not steer guidance unless a weight is given explicitly.
+            double weight = features[i].Id == ToneFeatureIds.ZeroCrossingRate
+                ? 0.0
+                : 1.0 / Math.Sqrt(groupSizes[GroupOf(features[i].Id)]);
+            features[i] = features[i] with { DefaultWeight = weight };
         }
 
         return new FeatureVectorSchema(features);
