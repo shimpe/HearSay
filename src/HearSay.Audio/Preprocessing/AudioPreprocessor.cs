@@ -143,8 +143,12 @@ public sealed class AudioPreprocessor : IAudioPreprocessor
                 firstFrame++;
             }
 
+            // The tail may have its own, lower threshold: a decaying note is audible long after it has fallen 40 dB.
+            double tailThreshold = options.TailThresholdDb is double tailDb
+                ? peakMs * MathUtil.DbToPower(Math.Max(tailDb, OnsetThresholdDb(meanSquares, peakMs, options) + (tailDb - options.OnsetThresholdDb)))
+                : threshold;
             int lastFrame = meanSquares.Length - 1;
-            while (lastFrame > firstFrame && meanSquares[lastFrame] < threshold)
+            while (lastFrame > firstFrame && meanSquares[lastFrame] < tailThreshold)
             {
                 lastFrame--;
             }

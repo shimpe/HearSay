@@ -16,6 +16,13 @@ public sealed record PreprocessingOptions
     public double OnsetThresholdDb { get; init; } = -40.0;
 
     /// <summary>
+    /// Level, in dB relative to the envelope peak, below which the end of the note is cut off; null uses
+    /// <see cref="OnsetThresholdDb"/>. A lower value keeps more of a decaying tail. Like the onset threshold it is
+    /// raised when the recording has a noise floor.
+    /// </summary>
+    public double? TailThresholdDb { get; init; }
+
+    /// <summary>
     /// When the recording has an audible noise floor that reaches <see cref="OnsetThresholdDb"/>, the onset threshold
     /// is raised to this many dB above the estimated floor instead.
     /// </summary>

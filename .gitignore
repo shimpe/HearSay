@@ -58,3 +58,5 @@ nunit-*.xml
 
 # BenchmarkDotNet output
 BenchmarkDotNet.Artifacts/
+demo-results/
+result/

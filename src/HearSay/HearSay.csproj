@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HearSay</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.2.0</Version>
+    <Description>Audio-to-operator-matrix solver: takes a monophonic target sound and finds a playable operator-matrix patch for a synthesis profile.</Description>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HearSay.Audio/HearSay.Audio.csproj" />
+    <ProjectReference Include="../HearSay.Modeling/HearSay.Modeling.csproj" />
+    <ProjectReference Include="../HearSay.Synthesis/HearSay.Synthesis.csproj" />
+    <ProjectReference Include="../HearSay.Synthesis.Fm7Compatible/HearSay.Synthesis.Fm7Compatible.csproj" />
+    <ProjectReference Include="../HearSay.SuperCollider/HearSay.SuperCollider.csproj" />
+    <ProjectReference Include="../HearSay.OperatorMatrix/HearSay.OperatorMatrix.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HearSay.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

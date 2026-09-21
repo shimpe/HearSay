@@ -7,6 +7,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HearSay.Modeling/HearSay.Modeling.csproj" />
+    <ProjectReference Include="../../src/HearSay.OperatorMatrix/HearSay.OperatorMatrix.csproj" />
+    <ProjectReference Include="../../src/HearSay.Synthesis.Fm7Compatible/HearSay.Synthesis.Fm7Compatible.csproj" />
   </ItemGroup>
 
   <ItemGroup>

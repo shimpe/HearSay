@@ -113,8 +113,9 @@ public static class PatchCompiler
         int steps = blockCount + 1;
         double controlRate = (double)sampleRate / controlBlockSize;
 
-        // The gate closes in the first block that starts at or after the end of the note.
-        int gateOffBlock = (request.NoteSamples + controlBlockSize - 1) / controlBlockSize;
+        // The gate closes in the control block that contains the end of the note, as measured on scsynth: a gate
+        // message takes effect at the start of the block its time stamp falls into.
+        int gateOffBlock = request.NoteSamples / controlBlockSize;
         double midiNote = request.EffectiveMidiNote;
 
         bool[] audible = patch.FindAudibleOperators();
@@ -146,7 +147,10 @@ public static class PatchCompiler
 
             if (op.Frequency.Mode == OperatorFrequencyMode.Fixed || pitchRatio is null)
             {
-                frequencies[k] = [(float)op.FrequencyHz(request.FrequencyHz)];
+                // Single precision in the order of the exported SynthDef: (freq * factor) + detune.
+                frequencies[k] = op.Frequency.Mode == OperatorFrequencyMode.Fixed
+                    ? [(float)(op.Frequency.FixedFrequencyHz + op.DetuneHz)]
+                    : [((float)request.FrequencyHz * (float)(op.Frequency.Ratio * Math.Pow(2.0, op.FineTuneCents / 1200.0))) + (float)op.DetuneHz];
             }
             else
             {

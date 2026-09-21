@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/HearSay.SuperCollider/HearSay.SuperCollider.csproj" />
     <ProjectReference Include="../../src/HearSay.OperatorMatrix/HearSay.OperatorMatrix.csproj" />
+    <ProjectReference Include="../../src/HearSay/HearSay.csproj" />
     <ProjectReference Include="../../src/HearSay.Synthesis.Fm7Compatible/HearSay.Synthesis.Fm7Compatible.csproj" />
   </ItemGroup>
 

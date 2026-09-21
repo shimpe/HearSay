@@ -328,7 +328,10 @@ public sealed class SuperColliderFm7Exporter : IPatchExporter
         if (text.Contains('E', StringComparison.Ordinal))
         {
             // SuperCollider needs a digit on both sides of the decimal point and a lower-case exponent.
-            text = ((double)(float)value).ToString("0.0###############", CultureInfo.InvariantCulture);
+            // Through decimal, so that the shortest round-trip digits survive: 1E-05 becomes 0.00001.
+            text = decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal exact)
+                ? exact.ToString("0.0###########################", CultureInfo.InvariantCulture)
+                : ((double)(float)value).ToString("0.0###############", CultureInfo.InvariantCulture);
         }
         else if (!text.Contains('.', StringComparison.Ordinal))
         {
