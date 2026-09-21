@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.Synthesis.Tests", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.SuperCollider.Tests", "tests\HearSay.SuperCollider.Tests\HearSay.SuperCollider.Tests.csproj", "{11F2CEC8-A309-4E28-87C2-92383114645E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.IntegrationTests", "tests\HearSay.IntegrationTests\HearSay.IntegrationTests.csproj", "{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -217,6 +219,18 @@ Global
 		{11F2CEC8-A309-4E28-87C2-92383114645E}.Release|x64.Build.0 = Release|Any CPU
 		{11F2CEC8-A309-4E28-87C2-92383114645E}.Release|x86.ActiveCfg = Release|Any CPU
 		{11F2CEC8-A309-4E28-87C2-92383114645E}.Release|x86.Build.0 = Release|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Debug|x64.Build.0 = Debug|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Debug|x86.Build.0 = Debug|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Release|x64.ActiveCfg = Release|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Release|x64.Build.0 = Release|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Release|x86.ActiveCfg = Release|Any CPU
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -236,5 +250,6 @@ Global
 		{B3B20770-CBB9-4A37-9B64-A9EFB3F4101A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{C2298EB7-D4A5-41D6-B206-31BC51FA30C0} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{11F2CEC8-A309-4E28-87C2-92383114645E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{83DA5F56-9D71-4ACB-9030-1D360FECC1A8} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

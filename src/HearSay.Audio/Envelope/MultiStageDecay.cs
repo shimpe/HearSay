@@ -85,7 +85,7 @@ public static class MultiStageDecay
         double confidence = Math.Clamp((n - 5) / 20.0, 0.0, 1.0);
         bool twoStage = bestBreak > 0
             && bestSse < 0.5 * whole.sse
-            && whole.sse / n > 0.25
+            && whole.sse / n > 0.04
             && bestFirst.slope < bestSecond.slope
             && Math.Abs(bestFirst.slope) > 1.8 * Math.Abs(bestSecond.slope);
         if (!twoStage)
