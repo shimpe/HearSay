@@ -281,7 +281,21 @@ The SynthDef is an instrument, not a recording: `freq` transposes ratio operator
 (`BackendExportValidation`: overall, spectral, envelope and partial distance, largest sample difference). This measures
 reference renderer against backend, never target against candidate.
 
-EQUIVALENCE_RESULTS
+Measured with SuperCollider 3.14.1 and sc3-plugins 3.14.0 (`tests/HearSay.SuperCollider.Tests`):
+
+| Test set | Patches | Equivalent | Sample-exact (< 0.1 % of peak) | Worst overall distance |
+| --- | --- | --- | --- | --- |
+| Random patches in six families: sparse, dense, self-feedback, circular, fixed and detuned, moving (edge envelopes, pitch envelope, vibrato); five notes each at different pitches, velocities and note lengths that do not fall on a block boundary | 30 | 30 | 29 | 0.00003 |
+| The twelve reference patches | 12 | 12 | 12 | 0.00000 |
+| Best patch of every round trip below (`--supercollider`) | 12 | 12 | — | 0.00000 |
+| Instrument check: another pitch, another velocity, early note-off, fixed-frequency operator | 2 notes | 2 | 2 (difference 0) | — |
+
+Typical largest sample difference is 1e-5 (-100 dB): the reference renderer holds the -100 dB floor of an exponential
+envelope where SuperCollider has already freed the synth. The one random patch that is not sample-exact differs by
+0.6 % of its peak while its spectral distance is 0.00008: strong feedback amplifies rounding differences until the
+waveforms part, and the sound stays the same. Two things only showed up against the real UGen and are now part of
+the renderer: a gate-off takes effect in the control block that contains it, and operator frequencies are computed
+in single precision in the order of the SynthDef.
 
 The tests are skipped on machines without SuperCollider (`HEARSAY_SCLANG` overrides the search for `sclang`).
 
@@ -306,8 +320,37 @@ The tests are skipped on machines without SuperCollider (`HEARSAY_SCLANG` overri
 penalties for unmatched partials), which separates "right frequencies, wrong amplitudes" from "wrong spectral
 structure". Example output of `hearsay analyze`:
 
-```json
-ANALYSIS_EXAMPLE
+```jsonc
+// hearsay analyze bell/target.wav --f0 330        (abridged)
+{
+  "fundamentalHz": 330,
+  "durationSeconds": 2.359,
+  "noteOffSeconds": 2.005,                  // the hidden patch was played for 2.000 s
+  "releaseTailSeconds": 0.354,
+  "amplitudeDecay": {
+    "fastRateDbPerSecond": -24.1,           // struck sound: fast first stage …
+    "slowRateDbPerSecond": -10.0,           // … slow second stage
+    "breakSeconds": 0.37,
+    "breakLevelDb": -10.6,
+    "isTwoStage": true
+  },
+  "partials": [                              // relative frequencies, not forced onto n × f0
+    { "relativeFrequency": 1.000, "levelDb": -29.8 },
+    { "relativeFrequency": 2.500, … }, { "relativeFrequency": 2.641, … }, { "relativeFrequency": 2.760, … },
+    { "relativeFrequency": 4.500, … }, { "relativeFrequency": 6.000, … }, { "relativeFrequency": 8.000, … },
+    { "relativeFrequency": 8.161, … }, …
+  ],
+  "inharmonicity": 0.57,
+  "partialTracks": [
+    { "relativeFrequency": 1.0005, "peakLevelDb": -20.1, "birthSeconds": 0.02, "deathSeconds": 2.33,
+      "decay": { "fastRateDbPerSecond": -17.2, … }, "frequencyDriftCents": … },
+    …
+  ],
+  "centroidHz": [ 1574, 404, 339 ],          // start, middle and end of the held note: brightness dies quickly
+  "bands": [ { "name": "mid", "initialDb": …, "decay": { … }, "lateDb": … }, … ],
+  "pitch": { "hasMovement": … },             // ignored for this target: an inharmonic note has no pitch to track
+  "beating": { "rateHz": …, "isPresent": … }
+}
 ```
 
 ## Objective versus diagnosis
@@ -387,8 +430,8 @@ Patch
 | --- | --- | --- | --- |
 | A. Target analysis | everything in the table above; render request from fundamental, note-off and tail | — | 0 |
 | B. Structural hypotheses | prior providers propose up to 128 structures; each is screened at three modulation scales | Coarse | 5 % |
-| Survivors | the best 32 get a short continuous optimization; duplicates by canonical regime, frequency structure and loss terms are dropped; 8 distinct basins remain | Normal | 20 % |
-| C–E. Deep optimization | three rounds of successive halving (8 → 6 → 3 basins). Per basin: CMA-ES over everything smooth at once for small patches, otherwise one connected operator group at a time. Runs restart with twice the population, alternately from the best patch and from where the basin began. A basin that stagnates tries three topology mutations; a better child replaces its parent | Normal | 40 % |
+| Survivors | the best 32 get a short continuous optimization; duplicates by canonical regime, frequency structure and loss terms are dropped; 6 distinct basins remain, the best of every structural family first, because early losses are deceptive: an additive structure sounds roughly right at once, a deep stack only after its amounts have been found | Normal | 15 % |
+| C–E. Deep optimization | three rounds of successive halving (6 → 4 → 3 basins). Per basin: CMA-ES over everything smooth at once for small patches, otherwise one connected operator group at a time. A basin keeps its run between rounds, so the adapted covariance is never thrown away; only a stagnated run is replaced, by one with twice the population that starts alternately from the best patch and from where the basin began. A basin that stagnates also tries three topology mutations; a better child replaces its parent | Normal | 35 % |
 | Finalists | one long run each, the best finalist getting the longest | Normal | 75 % of the rest |
 | F. Local refinement | probe each smooth parameter, regime-specific Jacobian of the HearSay feature vector, trust-region guidance steps accepted only when the objective agrees; then a narrow final polish | Detailed | the rest |
 

@@ -179,6 +179,29 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void ScreenedMutations_FindTheEdgeThatIsMissing()
+    {
+        // Target: the bass reference, a 1:1 stack whose modulator feeds back into itself. Candidate: the same patch
+        // without that feedback edge.
+        ReferencePatch bass = ReferencePatches.Find("bass")!;
+        RenderRequest request = RenderRequest.Create(bass.FrequencyHz, 0.6, 0.2);
+        RenderedAudio audio = Renderer.Render(bass.Patch, request);
+        PreparedObjectiveTarget target = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, bass.FrequencyHz));
+        var evaluator = new PatchEvaluator(Renderer, new AudioObjective(), target, request, 1000, 0.02, null, 8);
+        OperatorMatrixPatch incomplete = bass.Patch with { ModulationMatrix = bass.Patch.ModulationMatrix.Without(1, 1) };
+
+        IReadOnlyList<TopologyMutation> proposals = new TopologyMutator(Fm7).ProposeScreened(incomplete, target.Analysis, evaluator, new Random(1), 4);
+
+        // The first half of the list comes from screening. Feedback on the modulator and a second modulator at the same
+        // ratio brighten the modulator in much the same way, so either may come first; the missing edge must be there.
+        Assert.Contains("add edge OP2 -> OP2", proposals.Take(2).Select(static p => p.Description));
+        Assert.InRange(evaluator.Used, 20, 200);
+        Assert.Equal(4, proposals.Count);
+        Assert.Equal(4, proposals.Select(static p => p.Description).Distinct().Count());
+        Assert.All(proposals, p => Assert.True(PatchCompatibilityValidator.Instance.Validate(p.Patch, Fm7).IsCompatible));
+    }
+
+    [Fact]
     public void Evaluator_CountsRendersCachesAndStopsAtTheBudget()
     {
         PatchEvaluator evaluator = Evaluator(budget: 5);

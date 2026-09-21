@@ -19,6 +19,9 @@ public sealed record TopologyMutation(OperatorMatrixPatch Patch, string Descript
 /// </summary>
 public sealed class TopologyMutator
 {
+    private const double NeutralAmount = 0.12;
+    private const double NeutralLevel = 0.03;
+
     private readonly SynthesisCapabilities _capabilities;
     private readonly IReadOnlyList<double> _ratios;
 
@@ -60,6 +63,141 @@ public sealed class TopologyMutator
         return result;
     }
 
+    /// <summary>
+    /// Proposes structural additions by trying them: every edge that could be added between audible operators and every
+    /// new modulator at a simple ratio is rendered at two amounts with everything else left alone, and the variants
+    /// that help most are returned, already at the better of the two amounts. Random mutations of the other kinds
+    /// (removals, ratio moves, output routing) fill up the list. A blind random pick would rarely hit the one edge
+    /// that matters; this costs about a hundred renders and finds it.
+    /// </summary>
+    /// <param name="patch">Patch to vary.</param>
+    /// <param name="analysis">Target analysis.</param>
+    /// <param name="evaluator">Evaluator of the search; screening renders count against its budget.</param>
+    /// <param name="random">Random source of the search.</param>
+    /// <param name="count">Number of mutations wanted.</param>
+    /// <param name="maxScreened">Largest number of variants rendered for screening.</param>
+    public IReadOnlyList<TopologyMutation> ProposeScreened(OperatorMatrixPatch patch, TargetAnalysis analysis, PatchEvaluator evaluator, Random random, int count, int maxScreened = 160)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(analysis);
+        ArgumentNullException.ThrowIfNull(evaluator);
+        ArgumentNullException.ThrowIfNull(random);
+        int n = patch.OperatorCount;
+        bool[] audible = patch.FindAudibleOperators();
+        var used = new List<int>();
+        int free = -1;
+        for (int i = 0; i < n; i++)
+        {
+            if (audible[i])
+            {
+                used.Add(i);
+            }
+            else if (free < 0)
+            {
+                free = i;
+            }
+        }
+
+        var candidates = new List<TopologyMutation>();
+        foreach (int destination in used)
+        {
+            foreach (int source in used)
+            {
+                if (EdgeAllowed(source, destination) && patch.ModulationMatrix.Find(source, destination) is not { Enabled: true })
+                {
+                    foreach (double amount in new[] { 0.3, 0.6, 1.2 })
+                    {
+                        candidates.Add(new TopologyMutation(patch.WithEdge(new ModulationEdge(source, destination, true, amount)), $"add edge OP{source + 1} -> OP{destination + 1}"));
+                    }
+                }
+            }
+        }
+
+        if (free >= 0)
+        {
+            OperatorEnvelope envelope = TemporalPriors.BrightnessEnvelope(analysis);
+            foreach (int destination in used)
+            {
+                if (!EdgeAllowed(free, destination))
+                {
+                    continue;
+                }
+
+                for (int r = 0; r < Math.Min(_ratios.Count, 10); r++)
+                {
+                    foreach (double amount in new[] { 0.5, 1.5 })
+                    {
+                        OperatorMatrixPatch variant = patch
+                            .WithOperator(free, NewOperator(_ratios[r], analysis, envelope, random))
+                            .WithOutputLevel(free, 0.0)
+                            .WithEdge(new ModulationEdge(free, destination, true, amount));
+                        candidates.Add(new TopologyMutation(variant, $"add OP{free + 1} at {Text(_ratios[r])} modulating OP{destination + 1}"));
+                    }
+                }
+            }
+        }
+
+        candidates.RemoveAll(c => !PatchCompatibilityValidator.Instance.Validate(c.Patch, _capabilities).IsCompatible);
+        if (candidates.Count > maxScreened)
+        {
+            candidates.RemoveRange(maxScreened, candidates.Count - maxScreened);
+        }
+
+        var result = new List<TopologyMutation>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        if (candidates.Count > 0 && evaluator.Remaining > candidates.Count)
+        {
+            IReadOnlyList<PatchEvaluation> screened = evaluator.Evaluate([.. candidates.Select(static c => c.Patch)], HearSay.Objective.EvaluationLevel.Normal);
+            var ranked = new List<(double Loss, int Index)>();
+            for (int i = 0; i < screened.Count; i++)
+            {
+                ranked.Add((screened[i].Loss, i));
+            }
+
+            ranked.Sort(static (a, b) =>
+            {
+                int order = a.Loss.CompareTo(b.Loss);
+                return order != 0 ? order : a.Index.CompareTo(b.Index);
+            });
+
+            // Half of the list comes from screening; one description is one structure, whatever the amount. Edges and
+            // new operators take turns, best first: there are many more operator variants than edges, and they would
+            // otherwise crowd out the single edge that is missing.
+            var edgesFirst = new List<int>();
+            var operatorsFirst = new List<int>();
+            foreach ((double _, int index) in ranked)
+            {
+                (candidates[index].Description.StartsWith("add edge", StringComparison.Ordinal) ? edgesFirst : operatorsFirst).Add(index);
+            }
+
+            for (int i = 0; i < Math.Max(edgesFirst.Count, operatorsFirst.Count) && result.Count < (count + 1) / 2; i++)
+            {
+                foreach (List<int> list in new[] { edgesFirst, operatorsFirst })
+                {
+                    if (i < list.Count && result.Count < (count + 1) / 2 && seen.Add(candidates[list[i]].Description))
+                    {
+                        result.Add(candidates[list[i]]);
+                    }
+                }
+            }
+        }
+
+        foreach (TopologyMutation mutation in Propose(patch, analysis, random, count * 2))
+        {
+            if (result.Count >= count)
+            {
+                break;
+            }
+
+            if (seen.Add(mutation.Description))
+            {
+                result.Add(mutation);
+            }
+        }
+
+        return result;
+    }
+
     private TopologyMutation? Mutate(OperatorMatrixPatch patch, TargetAnalysis analysis, Random random)
     {
         int n = patch.OperatorCount;
@@ -76,7 +214,7 @@ public sealed class TopologyMutator
             return null;
         }
 
-        int kind = random.Next(9);
+        int kind = random.Next(10);
         switch (kind)
         {
             case 0:
@@ -89,7 +227,9 @@ public sealed class TopologyMutator
                     return null;
                 }
 
-                double amount = source == destination ? 0.6 : 0.8;
+                // New elements start almost silent: the child then sounds like its parent, and optimization can only make
+                // it better. A disruptive start would need most of a short budget just to get back to where it began.
+                double amount = NeutralAmount;
                 return new TopologyMutation(patch.WithEdge(new ModulationEdge(source, destination, true, amount)), $"add edge OP{source + 1} -> OP{destination + 1}");
             }
 
@@ -129,7 +269,7 @@ public sealed class TopologyMutator
                 OperatorMatrixPatch mutated = patch
                     .WithOperator(slot, NewOperator(ratio, analysis, TemporalPriors.BrightnessEnvelope(analysis), random))
                     .WithOutputLevel(slot, 0.0)
-                    .WithEdge(new ModulationEdge(slot, destination, true, 1.0));
+                    .WithEdge(new ModulationEdge(slot, destination, true, NeutralAmount));
                 return new TopologyMutation(mutated, $"add OP{slot + 1} at {Text(ratio)} modulating OP{destination + 1}");
             }
 
@@ -146,7 +286,7 @@ public sealed class TopologyMutator
                 double ratio = Math.Round(strongest[random.Next(strongest.Count)].RelativeFrequency, 2);
                 OperatorMatrixPatch mutated = patch
                     .WithOperator(slot, NewOperator(ratio, analysis, TemporalPriors.OutputEnvelope(analysis), random))
-                    .WithOutputLevel(slot, 0.3);
+                    .WithOutputLevel(slot, NeutralLevel);
                 return new TopologyMutation(mutated, $"add OP{slot + 1} at {Text(ratio)} to the output");
             }
 
@@ -200,7 +340,7 @@ public sealed class TopologyMutator
                 int op = used[random.Next(used.Count)];
                 if (patch.OutputLevels[op] == 0.0)
                 {
-                    return new TopologyMutation(patch.WithOutputLevel(op, 0.3), $"OP{op + 1} to the output");
+                    return new TopologyMutation(patch.WithOutputLevel(op, NeutralLevel), $"OP{op + 1} to the output");
                 }
 
                 OperatorMatrixPatch mutated = patch.WithOutputLevel(op, 0.0);
@@ -226,6 +366,36 @@ public sealed class TopologyMutator
                 }
 
                 return null;
+            }
+
+            case 8:
+            {
+                // An operator that is heard and also modulates cannot give both roles their own shape with one amplitude
+                // envelope; an envelope on the edge lets the modulation amount move on its own.
+                if (!_capabilities.SupportsDynamicModulationMatrix)
+                {
+                    return null;
+                }
+
+                var candidates = new List<ModulationEdge>();
+                foreach (ModulationEdge edge in patch.ModulationMatrix.Edges)
+                {
+                    if (edge.Enabled && edge.AmountEnvelope is null && audible[edge.SourceOperator] && audible[edge.DestinationOperator]
+                        && (edge.IsSelfFeedback || patch.OutputLevels[edge.SourceOperator] != 0.0))
+                    {
+                        candidates.Add(edge);
+                    }
+                }
+
+                if (candidates.Count == 0)
+                {
+                    return null;
+                }
+
+                ModulationEdge chosen = candidates[random.Next(candidates.Count)];
+                return new TopologyMutation(
+                    patch.WithEdge(chosen with { AmountEnvelope = TemporalPriors.BrightnessEnvelope(analysis) }),
+                    $"amount envelope on edge OP{chosen.SourceOperator + 1} -> OP{chosen.DestinationOperator + 1}");
             }
 
             default:

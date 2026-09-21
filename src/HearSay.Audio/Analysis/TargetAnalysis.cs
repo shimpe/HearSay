@@ -111,6 +111,12 @@ public sealed record TargetAnalysis
     /// <summary>Fundamental over time.</summary>
     public required PitchTrajectory Pitch { get; init; }
 
+    /// <summary>
+    /// True when the pitch of the note really moves. The period of an inharmonic note is not a pitch: it wanders as
+    /// the balance of the partials changes, so pitch movement is only believed for notes that are close to harmonic.
+    /// </summary>
+    public bool HasPitchMovement => Pitch.HasMovement && Inharmonicity < 0.15;
+
     /// <summary>Slow amplitude beating in the steady part of the note.</summary>
     public required BeatAnalysis Beating { get; init; }
 

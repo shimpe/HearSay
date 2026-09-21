@@ -254,6 +254,20 @@ public sealed class AnalysisExtensionTests
     }
 
     [Fact]
+    public void PitchMovement_IsNotBelievedForInharmonicNotes()
+    {
+        // Partials that decay at different speeds move the period of an inharmonic note around; that is not a pitch.
+        float[] bell = Partials(2.0, [(330, 1.0, 4), (911, 0.6, 9), (1455, 0.5, 14), (2251, 0.4, 20)]);
+        float[] gliding = Partials(1.0, [(220, 1.0, 0), (440, 0.4, 0)], t => 60.0 * Math.Exp(-t / 0.04));
+
+        TargetAnalysis inharmonic = Analyze(bell, 330.0);
+
+        Assert.True(inharmonic.Inharmonicity > 0.15);
+        Assert.False(inharmonic.HasPitchMovement);
+        Assert.True(Analyze(gliding, 220.0).HasPitchMovement);
+    }
+
+    [Fact]
     public void Beating_OfTwoDetunedPartialsIsDetected()
     {
         TargetAnalysis beating = Analyze(Partials(2.5, [(220, 1.0, 0), (222.5, 0.6, 0)]), 220.0);

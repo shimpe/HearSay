@@ -154,11 +154,14 @@ public sealed class AudioObjective
         ArgumentNullException.ThrowIfNull(target);
         options ??= new ObjectiveOptions();
         TargetAnalysis analysis = _analyzer.Analyze(target, options.Analysis);
-        bool trackPitch = analysis.Pitch.HasMovement;
+        // Pitch is compared when it moves, and at the detailed level whenever the note has a pitch at all. An inharmonic
+        // note has none: its period wanders with the balance of its partials, and comparing that would only add noise.
+        bool pitched = analysis.Inharmonicity < 0.15;
+        bool trackPitch = analysis.HasPitchMovement;
         return new PreparedObjectiveTarget(
             analysis,
             options,
-            level => Extract(analysis.Audio, analysis.FundamentalHz, level, options, trackPitch, magnitudeFloors: null));
+            level => Extract(analysis.Audio, analysis.FundamentalHz, level, options, trackPitch || (pitched && level == EvaluationLevel.Detailed), magnitudeFloors: null));
     }
 
     /// <summary>Evaluates a candidate.</summary>
@@ -278,7 +281,7 @@ public sealed class AudioObjective
             MelBands = bank.BandCount,
             Partials = PartialDetector.Detect(average.Power, average.BinHz, fundamentalHz, options.Analysis.Partials),
             Trajectories = SpectralTrajectoryAnalyzer.Analyze(wide, options.Analysis.Bands),
-            Pitch = level == EvaluationLevel.Detailed || trackPitch ? PitchTracker.Track(samples, sampleRate, fundamentalHz) : null,
+            Pitch = trackPitch ? PitchTracker.Track(samples, sampleRate, fundamentalHz) : null,
         };
     }
 

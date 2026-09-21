@@ -216,7 +216,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                 {
                     basin.Restarts++;
                     int mutationBudget = Math.Max(0, perBasin - cycleBudget) + (improved ? 0 : perBasin / 4);
-                    IReadOnlyList<TopologyMutation> variants = mutator.Propose(basin.Best.Patch, analysis, random, 3);
+                    IReadOnlyList<TopologyMutation> variants = mutator.ProposeScreened(basin.Best.Patch, analysis, evaluator, random, 3, maxScreened: 80);
                     SearchBasin? bestChild = null;
                     foreach (TopologyMutation variant in variants)
                     {
@@ -277,12 +277,47 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         for (int b = 0; b < basins.Count && !cancellationToken.IsCancellationRequested; b++)
         {
             basins[b].Fate = "finalist";
-            RunCycle(optimizer, basins[b], (int)(finalistBudget * (1.0 / (b + 1)) / weightSum), tuningMatters, NextSeed, 0.7, includeDetail: true);
+            int share = (int)(finalistBudget * (1.0 / (b + 1)) / weightSum);
+            RunCycle(optimizer, basins[b], (int)(share * 0.6), tuningMatters, NextSeed, 0.7, includeDetail: true);
+
+            // A structure that has been optimized this far shows clearly what it lacks. Its variants start out sounding
+            // like it, so each of them only has to show that its extra freedom helps.
+            IReadOnlyList<TopologyMutation> variants = mutator.ProposeScreened(basins[b].Best.Patch, analysis, evaluator, random, 4);
+            SearchBasin? bestChild = null;
+            foreach (TopologyMutation variant in variants)
+            {
+                mutations++;
+                PatchEvaluation? first = evaluator.Evaluate(variant.Patch, EvaluationLevel.Normal);
+                if (first is null)
+                {
+                    break;
+                }
+
+                var child = new SearchBasin(nextBasinId++, basins[b].Origin + "; " + variant.Description, first) { Evaluations = 1, Fate = "finalist variant, not adopted" };
+                RunCycle(optimizer, child, Math.Max(0, (int)(share * 0.3 / variants.Count) - 1), tuningMatters, NextSeed, 0.5, includeDetail: true);
+                retired.Add(child);
+                if (bestChild is null || child.Best.Loss < bestChild.Best.Loss)
+                {
+                    bestChild = child;
+                }
+            }
+
+            if (bestChild is not null && bestChild.Best.Loss < basins[b].Best.Loss && !basins.Exists(x => x != basins[b] && x.Regime == bestChild.Regime))
+            {
+                adopted++;
+                retired.Remove(bestChild);
+                basins[b].Fate = "replaced by mutation";
+                retired.Add(basins[b]);
+                bestChild.Fate = "finalist";
+                basins[b] = bestChild;
+            }
+
+            RunCycle(optimizer, basins[b], (int)(share * 0.1), tuningMatters, NextSeed, 0.5, includeDetail: true);
             progress?.Report(new SearchProgress("finalist optimization", evaluator.Used, evaluator.Budget, basins.Min(static x => x.Best.Loss)));
         }
 
         Retire(basins, retired, options.FinalistCount);
-        stages.Add(new SearchStageSummary("finalist optimization", evaluator.Used - usedBefore, basins[0].Best.Loss, EvaluationLevel.Normal, $"{basins.Count} finalists"));
+        stages.Add(new SearchStageSummary("finalist optimization", evaluator.Used - usedBefore, basins[0].Best.Loss, EvaluationLevel.Normal, $"{basins.Count} finalists, each with a round of structural variants"));
         double finalNormalAudioLoss = basins.Min(static b => b.Best.AudioLoss);
 
         // Local refinement of the finalists at the detailed level, with regime-specific models.

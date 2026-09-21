@@ -83,7 +83,7 @@ public static class TemporalPriors
     public static PitchModel Pitch(TargetAnalysis analysis)
     {
         ArgumentNullException.ThrowIfNull(analysis);
-        if (!analysis.Pitch.HasMovement)
+        if (!analysis.HasPitchMovement)
         {
             return PitchModel.None;
         }
