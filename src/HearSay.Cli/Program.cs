@@ -22,6 +22,7 @@ internal static class Cli
           --profile <name>     synthesis profile (default supercollider-fm7)
           --budget <n>         number of candidate renders (default 20000)
           --seed <n>           random seed (default 1234)
+          --seeds <n>          run n consecutive seeds with the full budget each and keep the best (default 1)
           --output <dir>       result folder (default result)
           --note <midi>        MIDI note of the target, when known
           --f0 <hz>            fundamental of the target, when known
@@ -128,7 +129,8 @@ internal static class Cli
             }
         });
 
-        PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(target, matchOptions, progress);
+        int seeds = (int)(Number(options, "seeds") ?? 1);
+        PatchMatchResult result = new OperatorMatrixPatchMatcher().MatchBestOf(target, seeds, matchOptions, progress);
         IReadOnlyList<string> files = PatchMatchResultWriter.Write(result, output);
 
         SearchSummary summary = result.SearchSummary;

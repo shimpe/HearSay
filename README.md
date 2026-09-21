@@ -538,6 +538,10 @@ across cores because the prepared target is shared.
 Practical notes: cost is linear in note length, so render short notes when you can; compare candidates in parallel
 against one `PreparedTarget`; drop an STFT resolution (`StftOptions.FftSizes`) if you need more speed.
 
+Patch matching: a one-second six-operator note renders offline in 1.2 ms, a candidate evaluation (render plus
+comparison) runs at about 900 per second on all cores, and a complete search with 20000 renders takes 25 to 45
+seconds. Details in [docs/patch-matching.md](docs/patch-matching.md#performance).
+
 ## Demos
 
 ```bash
@@ -629,7 +633,18 @@ version.)
 
 ## Tests
 
-`dotnet test` runs 56 tests. They cover the scenarios the library is designed around — identical signals, a
+`dotnet test` runs 143 tests in six projects.
+
+| Project | Tests | What they cover |
+| --- | --- | --- |
+| `HearSay.Audio.Tests` | 55 | the comparison scenarios listed below, the individual analyzers, and the new analyses: inharmonic partials, partial tracks, partial-set distance, spectral and band trajectories, flux, multi-stage decay, pitch offset, vibrato and drift, beating, note-off, long-term spectrum, the composite objective |
+| `HearSay.Modeling.Tests` | 20 | sensitivities from real audio, correlation, confounding, stagnation, oscillation, locality, prediction, guidance, discrete parameters, the experiment advisor, checkpointing, a complete closed loop |
+| `HearSay.Synthesis.Tests` | 25 | patch model, JSON and hashing, profiles and compatibility, the FM7-compatible renderer (previous-sample modulation, fixed versus ratio operators, output mix, envelopes, velocity, key scaling), the extended renderer |
+| `HearSay.OperatorMatrix.Tests` | 26 | parameter hierarchy, structural versus continuous, conditional activity, transforms, ties, active sets, regime keys, canonicalization, complexity, CMA-ES, priors, mutation, screening, evaluator budget and caching, resumable runs |
+| `HearSay.SuperCollider.Tests` | 8 | exporter output; native versus real FM7 for 30 random and 12 reference patches and an instrument check (skipped without SuperCollider) |
+| `HearSay.IntegrationTests` | 9 | round-trip searches, reproducibility, budget, profile safety, the future-waveform proof, the result folder |
+
+The comparison scenarios: identical signals, a
 phase-shifted sine, a +6 dB copy, a stronger second harmonic, a brighter candidate, slower attack, longer release,
 added noise, a small timing offset, a bright attack only, clipping, unusable input, different sample rates, JSON
 round trips, determinism under parallel use — as well as the individual analyzers (FFT, STFT calibration, resampler,

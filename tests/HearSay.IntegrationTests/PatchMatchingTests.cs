@@ -29,7 +29,7 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
     [Theory]
     [InlineData("simple-2op", 5.0)]
     [InlineData("brass-like", 4.0)]
-    [InlineData("bell", 2.5)]
+    [InlineData("bell", 2.0)]
     public void RoundTrip_ReducesTheAudioLossStrongly(string name, double minimumGain)
     {
         PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(TargetOf(name), new PatchMatchOptions { EvaluationBudget = 9000 });

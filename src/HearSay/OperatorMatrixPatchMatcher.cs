@@ -113,6 +113,33 @@ public sealed class OperatorMatrixPatchMatcher
     public Task<PatchMatchResult> MatchAsync(AudioTarget target, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => Match(target, options, progress, cancellationToken), CancellationToken.None);
 
+    /// <summary>
+    /// Runs the search with several consecutive seeds and returns the result with the lowest loss. The landscape of a
+    /// patch search has many optima and a single run can settle in a poor one; independent runs are the simplest
+    /// remedy, and because every run is reproducible, so is the choice between them. Each run gets the full budget.
+    /// </summary>
+    /// <param name="target">Target audio.</param>
+    /// <param name="seedCount">Number of seeds, starting at <see cref="PatchMatchOptions.RandomSeed"/>.</param>
+    /// <param name="options">Search options.</param>
+    /// <param name="progress">Receives progress of all runs.</param>
+    /// <param name="cancellationToken">Stops the current run early and skips the remaining ones.</param>
+    public PatchMatchResult MatchBestOf(AudioTarget target, int seedCount, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(seedCount, 1);
+        options ??= new PatchMatchOptions();
+        PatchMatchResult? best = null;
+        for (int i = 0; i < seedCount && !(cancellationToken.IsCancellationRequested && best is not null); i++)
+        {
+            PatchMatchResult result = Match(target, options with { RandomSeed = options.RandomSeed + i }, progress, cancellationToken);
+            if (best is null || result.AlternativePatches[0].Loss < best.AlternativePatches[0].Loss)
+            {
+                best = result;
+            }
+        }
+
+        return best!;
+    }
+
     /// <summary>Matches a target.</summary>
     /// <param name="target">Target audio.</param>
     /// <param name="options">Search options.</param>
