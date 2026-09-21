@@ -1,4 +1,4 @@
-namespace HearSay.Optimization.History;
+namespace HearSay.Modeling.History;
 
 /// <summary>Thread-safe, append-only record of all observations of one optimization run.</summary>
 public sealed class OptimizationHistory

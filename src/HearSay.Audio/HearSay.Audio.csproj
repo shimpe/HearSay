@@ -3,14 +3,17 @@
   <PropertyGroup>
     <RootNamespace>HearSay</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>0.1.0</Version>
-    <Description>Diagnostic comparison of two audio tones of the same musical note, designed as the measurement and feedback layer of a closed-loop synthesizer parameter optimizer.</Description>
+    <Version>0.2.0</Version>
+    <Description>Diagnostic comparison of two audio tones of the same musical note: how does candidate audio differ from target audio?</Description>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="HearSay.Tests" />
+    <InternalsVisibleTo Include="HearSay.Modeling" />
+    <InternalsVisibleTo Include="HearSay.OperatorMatrix" />
+    <InternalsVisibleTo Include="HearSay.Audio.Tests" />
+    <InternalsVisibleTo Include="HearSay.Modeling.Tests" />
     <InternalsVisibleTo Include="HearSay.Benchmarks" />
   </ItemGroup>
 

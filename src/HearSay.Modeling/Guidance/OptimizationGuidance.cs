@@ -1,10 +1,10 @@
 using HearSay.Comparison;
 using HearSay.Dsp;
 using HearSay.Models;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Sensitivity;
 
-namespace HearSay.Optimization.Guidance;
+namespace HearSay.Modeling.Guidance;
 
 /// <summary>Where the knowledge behind a suggestion comes from.</summary>
 public enum SuggestionSource

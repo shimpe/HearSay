@@ -1,9 +1,9 @@
 using HearSay.Dsp;
 using HearSay.Models;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
 
-namespace HearSay.Optimization.Effects;
+namespace HearSay.Modeling.Effects;
 
 /// <summary>Observed change of one feature.</summary>
 /// <param name="Feature">Feature id.</param>

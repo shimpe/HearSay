@@ -1,10 +1,10 @@
 using System.Text.Json.Serialization;
 using HearSay.Dsp;
 using HearSay.Models;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Prediction;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Prediction;
 
-namespace HearSay.Optimization.Sensitivity;
+namespace HearSay.Modeling.Sensitivity;
 
 /// <summary>
 /// Approximate local Jacobian of the feature deltas with respect to the ordered synth parameters.

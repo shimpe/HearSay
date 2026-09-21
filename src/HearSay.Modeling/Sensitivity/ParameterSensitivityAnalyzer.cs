@@ -1,9 +1,9 @@
 using HearSay.Dsp;
-using HearSay.Optimization.Effects;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling.Effects;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
 
-namespace HearSay.Optimization.Sensitivity;
+namespace HearSay.Modeling.Sensitivity;
 
 /// <summary>
 /// Local sensitivity of a feature to a parameter: an estimate of d(feature) / d(parameter), in raw feature units per

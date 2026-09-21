@@ -2,11 +2,11 @@ using System.Globalization;
 using HearSay;
 using HearSay.Comparison;
 using HearSay.Models;
-using HearSay.Optimization;
-using HearSay.Optimization.Guidance;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling;
+using HearSay.Modeling.Guidance;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Sensitivity;
 using HearSay.OptimizationDemo;
 
 // Closed-loop demo without any external synth: HearSay measures, a deliberately simple optimizer decides.

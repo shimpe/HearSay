@@ -279,8 +279,8 @@ HearSay does not render audio and is not an optimizer. It gives an optimizer eve
 entry point is `ToneOptimizationSession`:
 
 ```csharp
-using HearSay.Optimization;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling;
+using HearSay.Modeling.Parameters;
 
 PreparedTarget target = comparer.PrepareTarget(targetNote);
 var session = new ToneOptimizationSession(target, parameters);   // parameters: IEnumerable<SynthParameter>

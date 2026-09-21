@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\HearSay\HearSay.csproj" />
+    <ProjectReference Include="../../src/HearSay.Audio/HearSay.Audio.csproj" />
   </ItemGroup>
 
 </Project>

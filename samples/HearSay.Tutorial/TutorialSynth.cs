@@ -1,6 +1,6 @@
 using HearSay.Audio;
 using HearSay.Comparison;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling.Parameters;
 
 namespace HearSay.Tutorial;
 

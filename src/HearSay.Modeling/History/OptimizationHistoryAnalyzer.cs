@@ -1,8 +1,8 @@
 using HearSay.Dsp;
 using HearSay.Models;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling.Parameters;
 
-namespace HearSay.Optimization.History;
+namespace HearSay.Modeling.History;
 
 /// <summary>Derives progress, stagnation, oscillation, change and correlation diagnostics from a history.</summary>
 public interface IOptimizationHistoryAnalyzer

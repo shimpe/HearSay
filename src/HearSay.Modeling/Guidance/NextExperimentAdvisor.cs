@@ -1,10 +1,10 @@
 using System.Globalization;
 using HearSay.Models;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Sensitivity;
 
-namespace HearSay.Optimization.Guidance;
+namespace HearSay.Modeling.Guidance;
 
 /// <summary>A proposed next experiment.</summary>
 /// <param name="ParameterId">Parameter to change.</param>

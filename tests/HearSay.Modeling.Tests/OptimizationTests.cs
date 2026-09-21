@@ -1,13 +1,13 @@
 using HearSay.Comparison;
 using HearSay.Features;
 using HearSay.Models;
-using HearSay.Optimization;
-using HearSay.Optimization.Effects;
-using HearSay.Optimization.Guidance;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Prediction;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling;
+using HearSay.Modeling.Effects;
+using HearSay.Modeling.Guidance;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Prediction;
+using HearSay.Modeling.Sensitivity;
 using static HearSay.Tests.OptimizationTestHelpers;
 
 namespace HearSay.Tests;

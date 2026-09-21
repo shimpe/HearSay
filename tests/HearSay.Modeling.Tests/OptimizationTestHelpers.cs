@@ -2,8 +2,8 @@ using HearSay.Audio;
 using HearSay.Comparison;
 using HearSay.Features;
 using HearSay.Models;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
 
 namespace HearSay.Tests;
 

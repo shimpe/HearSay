@@ -3,13 +3,13 @@ using System.Reflection;
 using HearSay.Audio;
 using HearSay.Comparison;
 using HearSay.Models;
-using HearSay.Optimization.Effects;
-using HearSay.Optimization.Guidance;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling.Effects;
+using HearSay.Modeling.Guidance;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Sensitivity;
 
-namespace HearSay.Optimization;
+namespace HearSay.Modeling;
 
 /// <summary>Settings of a <see cref="ToneOptimizationSession"/>.</summary>
 public sealed record ToneOptimizationSessionOptions

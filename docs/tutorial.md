@@ -48,11 +48,11 @@ using HearSay.Audio;                    // AudioNote, WavFile
 using HearSay.Comparison;               // ToneComparer, ToneComparisonOptions, PreparedTarget
 using HearSay.Features;                 // ToneFeatureIds, FeatureSchemaBuilder
 using HearSay.Models;                   // results
-using HearSay.Optimization;             // ToneOptimizationSession
-using HearSay.Optimization.Guidance;    // suggestions, advisor
-using HearSay.Optimization.History;     // observations, progress
-using HearSay.Optimization.Parameters;  // SynthParameter, SynthParameterState
-using HearSay.Optimization.Sensitivity; // probes, Jacobian
+using HearSay.Modeling;             // ToneOptimizationSession
+using HearSay.Modeling.Guidance;    // suggestions, advisor
+using HearSay.Modeling.History;     // observations, progress
+using HearSay.Modeling.Parameters;  // SynthParameter, SynthParameterState
+using HearSay.Modeling.Sensitivity; // probes, Jacobian
 ```
 
 The tutorial needs a synth. `TutorialSynth` is a 70-line stand-in with three parameters in native units — a filter

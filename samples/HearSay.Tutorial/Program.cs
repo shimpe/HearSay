@@ -4,11 +4,11 @@ using HearSay.Audio;
 using HearSay.Comparison;
 using HearSay.Features;
 using HearSay.Models;
-using HearSay.Optimization;
-using HearSay.Optimization.Guidance;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling;
+using HearSay.Modeling.Guidance;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Sensitivity;
 using HearSay.Tutorial;
 
 // Companion program of docs/tutorial.md. Every step of the tutorial is one method below.

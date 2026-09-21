@@ -1,7 +1,7 @@
 using HearSay.Models;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling.Parameters;
 
-namespace HearSay.Optimization.Prediction;
+namespace HearSay.Modeling.Prediction;
 
 /// <summary>Predicted effect of changing a single parameter.</summary>
 /// <param name="ParameterId">Parameter that would change.</param>

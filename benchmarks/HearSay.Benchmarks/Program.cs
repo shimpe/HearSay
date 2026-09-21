@@ -4,11 +4,11 @@ using HearSay.Audio;
 using HearSay.Comparison;
 using HearSay.Features;
 using HearSay.Models;
-using HearSay.Optimization.Effects;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Prediction;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling.Effects;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Prediction;
+using HearSay.Modeling.Sensitivity;
 using HearSay.Preprocessing;
 using HearSay.Spectral;
 

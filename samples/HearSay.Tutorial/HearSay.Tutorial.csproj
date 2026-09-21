@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\HearSay\HearSay.csproj" />
+    <ProjectReference Include="../../src/HearSay.Modeling/HearSay.Modeling.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

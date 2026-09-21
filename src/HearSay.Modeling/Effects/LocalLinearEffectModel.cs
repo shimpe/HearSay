@@ -1,11 +1,11 @@
 using HearSay.Dsp;
 using HearSay.Models;
-using HearSay.Optimization.History;
-using HearSay.Optimization.Parameters;
-using HearSay.Optimization.Prediction;
-using HearSay.Optimization.Sensitivity;
+using HearSay.Modeling.History;
+using HearSay.Modeling.Parameters;
+using HearSay.Modeling.Prediction;
+using HearSay.Modeling.Sensitivity;
 
-namespace HearSay.Optimization.Effects;
+namespace HearSay.Modeling.Effects;
 
 /// <summary>A model that predicts what a parameter change will do to the features, learned from earlier experiments.</summary>
 public interface IParameterEffectModel

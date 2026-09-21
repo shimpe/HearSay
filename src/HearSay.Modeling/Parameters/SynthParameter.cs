@@ -1,4 +1,4 @@
-namespace HearSay.Optimization.Parameters;
+namespace HearSay.Modeling.Parameters;
 
 /// <summary>Mathematical nature of a synth parameter.</summary>
 public enum SynthParameterKind

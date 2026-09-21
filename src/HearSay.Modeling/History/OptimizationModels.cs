@@ -1,7 +1,7 @@
 using HearSay.Models;
-using HearSay.Optimization.Parameters;
+using HearSay.Modeling.Parameters;
 
-namespace HearSay.Optimization.History;
+namespace HearSay.Modeling.History;
 
 /// <summary>Intent of an optimization step.</summary>
 public enum OptimizationStepType
