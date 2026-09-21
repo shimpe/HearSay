@@ -37,7 +37,7 @@ Create a console project and reference the library (it has no dependencies of it
 ```bash
 git clone https://github.com/shimpe/HearSay.git
 dotnet new console -n MyMatcher
-dotnet add MyMatcher reference HearSay/src/HearSay/HearSay.csproj
+dotnet add MyMatcher reference HearSay/src/HearSay.Modeling/HearSay.Modeling.csproj
 ```
 
 The namespaces you will need:

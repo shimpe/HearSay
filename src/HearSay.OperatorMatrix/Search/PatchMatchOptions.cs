@@ -36,7 +36,7 @@ public sealed record PatchMatchOptions
     public int SurvivorCount { get; init; } = 32;
 
     /// <summary>Distinct basins that receive deep optimization.</summary>
-    public int BasinCount { get; init; } = 8;
+    public int BasinCount { get; init; } = 6;
 
     /// <summary>Basins that reach local refinement; also the number of patches reported.</summary>
     public int FinalistCount { get; init; } = 3;
@@ -60,16 +60,16 @@ public sealed record PatchMatchOptions
     public int MaxRestartsPerBasin { get; init; } = 3;
 
     /// <summary>Largest number of smooth parameters optimized together.</summary>
-    public int MaxActiveParameters { get; init; } = 25;
+    public int MaxActiveParameters { get; init; } = 32;
 
     /// <summary>Share of the budget for screening hypotheses.</summary>
     public double ScreeningShare { get; init; } = 0.05;
 
     /// <summary>Share of the budget for the short optimization of the survivors.</summary>
-    public double SurvivorShare { get; init; } = 0.20;
+    public double SurvivorShare { get; init; } = 0.15;
 
     /// <summary>Share of the budget for deep optimization of the basins.</summary>
-    public double DeepShare { get; init; } = 0.40;
+    public double DeepShare { get; init; } = 0.35;
 
     /// <summary>Share of what is left after deep optimization that goes into one long continuous run per finalist. The rest goes to local refinement.</summary>
     public double FinalistShare { get; init; } = 0.75;

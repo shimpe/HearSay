@@ -25,6 +25,12 @@ synth parameters → synth render → candidate audio → HearSay comparison →
 **New here? Start with the [tutorial](docs/tutorial.md)**: eleven hands-on steps from a first comparison to a closed
 loop that finds synth parameters, backed by a runnable sample. This README is the reference.
 
+**HearSay can also close the loop by itself.** Given a monophonic target note it searches a playable six-operator
+phase-modulation patch that approximates it, renders a preview offline and exports a SuperCollider `FM7` SynthDef:
+`target.wav → patch.json + preview.wav + patch.scd`. The architecture is a generic *operator-matrix synth* solver;
+FM7 is its first synthesis profile. See [Patch matching](#patch-matching) and the full
+[patch-matching documentation](docs/patch-matching.md).
+
 ## Contents
 
 - [Installation](#installation)
@@ -34,6 +40,7 @@ loop that finds synth parameters, backed by a runnable sample. This README is th
 - [Actionable differences and hints](#actionable-differences-and-hints)
 - [Feature vectors and normalization](#feature-vectors-and-normalization)
 - [Using HearSay in a synth parameter optimizer](#using-hearsay-in-a-synth-parameter-optimizer)
+- [Patch matching](#patch-matching)
 - [Architecture](#architecture)
 - [Performance](#performance)
 - [Demos](#demos)
@@ -47,6 +54,11 @@ The library is not published to NuGet yet. Reference the project:
 
 ```bash
 git clone https://github.com/shimpe/HearSay.git
+# comparison only
+dotnet add <your project> reference HearSay/src/HearSay.Audio/HearSay.Audio.csproj
+# comparison + closed-loop modelling (history, sensitivities, guidance)
+dotnet add <your project> reference HearSay/src/HearSay.Modeling/HearSay.Modeling.csproj
+# everything, including the patch matcher
 dotnet add <your project> reference HearSay/src/HearSay/HearSay.csproj
 ```
 
@@ -412,38 +424,81 @@ version and a fingerprint of the target audio. The analysed target itself (spect
 serialized: it is large, and re-analysing the target audio with the stored options reproduces it exactly. Importing
 with a different target throws.
 
+## Patch matching
+
+```bash
+dotnet run -c Release --project src/HearSay.Cli -- match target.wav --profile supercollider-fm7 --budget 20000 --output result/
+```
+
+```csharp
+var matcher = new OperatorMatrixPatchMatcher();
+PatchMatchResult result = await matcher.MatchAsync(
+    AudioTarget.FromWaveFile("target.wav"),
+    new PatchMatchOptions { EvaluationBudget = 20000, RandomSeed = 1234, SynthesisProfile = SynthesisProfiles.SuperColliderFm7 });
+PatchMatchResultWriter.Write(result, "result");   // patch.json, preview.wav, patch.scd, analysis.json, …
+```
+
+What is behind it, in one paragraph: a canonical `OperatorMatrixPatch` (six operators, full 6×6 phase-modulation
+matrix with self and circular feedback, independent output gains, ratio or fixed frequencies, breakpoint envelopes,
+pitch model) is the single source of truth for search, rendering, JSON and export. A `SynthesisProfile` says what a
+backend can represent and the search never leaves it. An offline renderer reproduces the SuperCollider `FM7` UGen,
+including its one-sample modulation delay, closely enough to match the real UGen sample by sample. The target is
+analysed without synthesis assumptions (inharmonic partials, partial tracks, spectral and band trajectories, pitch,
+beating, long-term spectrum, multi-stage decay); structural hypotheses come from pluggable prior providers; structure
+(operators, edges, waveforms, modes, coarse ratios) is searched as separate basins with topology mutation, continuous
+parameters with CMA-ES on small active subsets, and the finalists are polished with the regime-specific Jacobians and
+trust-region guidance described above. Everything is budgeted in renders and reproducible from a seed.
+
+Details, results, limitations and how a future custom UGen plugs in: **[docs/patch-matching.md](docs/patch-matching.md)**.
+
 ## Architecture
 
 ```text
 HearSay.sln
-├── src/HearSay
-│   ├── Audio/            AudioNote, WavFile
-│   ├── Dsp/              FftPlan, HannWindow, Resampler, LinearAlgebra, MathUtil
-│   ├── Preprocessing/    IAudioPreprocessor, AudioPreprocessor, PreprocessedAudio
-│   ├── Spectral/         IStftAnalyzer, Spectrogram, AveragePowerSpectrum, MelFilterbank
-│   ├── Harmonics/        IHarmonicAnalyzer, HarmonicProfile, FundamentalEstimator
-│   ├── Envelope/         IEnvelopeAnalyzer, EnvelopeProfile
-│   ├── Features/         ISpectralFeatureAnalyzer, ToneFeatureIds, FeatureSchemaBuilder
-│   ├── Comparison/       IToneComparer, ToneComparer, PreparedTarget, ToneAnalysis,
-│   │                     IToneDifferenceAnalyzer, GenericSynthPriors, options
-│   ├── Models/           result records, feature vectors
-│   ├── Optimization/
-│   │   ├── Parameters/   SynthParameter, SynthParameterState, SynthParameterSpace
-│   │   ├── History/      OptimizationHistory, IOptimizationHistoryAnalyzer (progress, oscillation, correlation)
-│   │   ├── Effects/      ParameterEffectExtractor, IParameterEffectModel, LocalLinearEffectModel
-│   │   ├── Sensitivity/  IParameterSensitivityAnalyzer, ParameterFeatureJacobian, probes
-│   │   ├── Prediction/   prediction records
-│   │   ├── Guidance/     OptimizationGuidance, NextExperimentAdvisor
+├── src
+│   ├── HearSay.Audio                     how does candidate audio differ from target audio?
+│   │   ├── Audio/            AudioNote, WavFile
+│   │   ├── Dsp/              FftPlan, HannWindow, Resampler, LinearAlgebra, MathUtil
+│   │   ├── Preprocessing/    IAudioPreprocessor, AudioPreprocessor, PreprocessedAudio
+│   │   ├── Spectral/         IStftAnalyzer, Spectrogram, MelFilterbank, SpectralTrajectories, LongTermAverageSpectrum
+│   │   ├── Harmonics/        IHarmonicAnalyzer, HarmonicProfile, FundamentalEstimator
+│   │   ├── Partials/         PartialDetector, PartialTracker, PartialSetDistance
+│   │   ├── Pitch/            PitchTracker, PitchTrajectory, BeatDetector
+│   │   ├── Envelope/         IEnvelopeAnalyzer, EnvelopeProfile, MultiStageDecay
+│   │   ├── Features/         ISpectralFeatureAnalyzer, ToneFeatureIds, FeatureSchemaBuilder
+│   │   ├── Comparison/       IToneComparer, ToneComparer, PreparedTarget, ToneAnalysis, GenericSynthPriors, options
+│   │   ├── Analysis/         AudioTarget, TargetAnalysis, TargetAnalyzer
+│   │   ├── Objective/        AudioObjective (composite loss, evaluation levels)
+│   │   ├── Models/           result records, feature vectors
+│   │   └── HearSayJson.cs    System.Text.Json options (camelCase, enums as strings, double[,] as rows)
+│   ├── HearSay.Modeling                  what effects have parameter changes had on audio features?
+│   │   ├── Parameters/       SynthParameter, SynthParameterState, SynthParameterSpace
+│   │   ├── History/          OptimizationHistory, IOptimizationHistoryAnalyzer (progress, oscillation, correlation)
+│   │   ├── Effects/          ParameterEffectExtractor, IParameterEffectModel, LocalLinearEffectModel
+│   │   ├── Sensitivity/      IParameterSensitivityAnalyzer, ParameterFeatureJacobian, probes
+│   │   ├── Prediction/       prediction records
+│   │   ├── Guidance/         OptimizationGuidance, NextExperimentAdvisor
 │   │   └── ToneOptimizationSession
-│   └── HearSayJson.cs    System.Text.Json options (camelCase, enums as strings, double[,] as rows)
-├── tests/HearSay.Tests               xUnit
-├── benchmarks/HearSay.Benchmarks     BenchmarkDotNet
-├── docs/tutorial.md                  step-by-step tutorial
+│   ├── HearSay.Synthesis                 how is a canonical patch rendered?  (patch model, profiles, renderer abstractions)
+│   ├── HearSay.Synthesis.Fm7Compatible   offline reference renderer with FM7 semantics
+│   ├── HearSay.SuperCollider             FM7 exporter, SuperCollider NRT renderer, backend-equivalence validation
+│   ├── HearSay.OperatorMatrix            which synthesis structure and parameters should be explored?
+│   ├── HearSay                           facade: OperatorMatrixPatchMatcher, SynthesisBackends, PatchMatchResultWriter
+│   └── HearSay.Cli                       hearsay match | analyze | profiles
+├── tests                                 xUnit: Audio, Modeling, Synthesis, OperatorMatrix, SuperCollider, IntegrationTests
+├── benchmarks/HearSay.Benchmarks         BenchmarkDotNet
+├── docs
+│   ├── tutorial.md                       step-by-step tutorial for the comparison and closed-loop API
+│   └── patch-matching.md                 the audio-to-patch solver
 └── samples
-    ├── HearSay.Tutorial              companion program of the tutorial, one method per step
-    ├── HearSay.Demo                  compare two WAV files
-    └── HearSay.OptimizationDemo      closed loop with a built-in test synth
+    ├── HearSay.Tutorial                  companion program of the tutorial, one method per step
+    ├── HearSay.Demo                      compare two WAV files
+    ├── HearSay.OptimizationDemo          closed loop with a built-in test synth
+    └── HearSay.MatchDemo                 round trip: reference patches → targets → matcher → results table
 ```
+
+The original single `HearSay` assembly was split: audio-side namespaces are unchanged, `HearSay.Optimization.*`
+became `HearSay.Modeling.*`.
 
 Every analyzer sits behind a small interface and can be used or replaced on its own; `ToneComparer` accepts custom
 implementations through its constructor. There is no DI container requirement.
@@ -497,6 +552,12 @@ dotnet run -c Release --project samples/HearSay.OptimizationDemo [-- --verbose]
 
 # The tutorial's companion program (all steps, or one step by number)
 dotnet run -c Release --project samples/HearSay.Tutorial [-- 9]
+
+# Find a patch for a target note (writes patch.json, preview.wav, patch.scd and diagnostics)
+dotnet run -c Release --project src/HearSay.Cli -- match target.wav --budget 20000 --output result/
+
+# Round trip over the twelve reference patches; --supercollider also compares the result with the real FM7 UGen
+dotnet run -c Release --project samples/HearSay.MatchDemo -- [--budget 20000] [--only bell,bass] [--supercollider]
 ```
 
 `HearSay.Demo` on its generated example pair (the candidate is brighter, has a slower attack, a shorter release and a
@@ -579,6 +640,7 @@ checkpointing, and a complete loop that has to reduce the loss.
 
 ## Limitations
 
+* The limitations of the patch matcher are listed in [docs/patch-matching.md](docs/patch-matching.md#limitations-of-this-version).
 * **Monophonic, single notes with a stable pitch.** Chords, glides, strong vibrato and pitch envelopes are out of
   scope; vibrato and tremolo can prevent a sustain plateau from being found (the stage is then reported as missing,
   not guessed).

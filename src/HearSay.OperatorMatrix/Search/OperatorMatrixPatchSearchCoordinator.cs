@@ -374,13 +374,40 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                 patch => optimizer.SelectSubsets(patch, ContinuousStage.Joint, tuningMatters) is [var set] ? set : null,
                 budget,
                 0.2 * sigmaScale,
-                nextSeed);
+                nextSeed,
+                EvaluationLevel.Normal,
+                includeDetail ? 3 : 1);
         }
 
-        (ContinuousStage Stage, double Share, double Sigma)[] plan = includeDetail
-            ? [(ContinuousStage.Spectral, 0.35, 0.15), (ContinuousStage.TemporalMacros, 0.2, 0.12), (ContinuousStage.TemporalDetail, 0.3, 0.08), (ContinuousStage.Spectral, 0.15, 0.06)]
-            : [(ContinuousStage.Spectral, 0.6, 0.18), (ContinuousStage.TemporalMacros, 0.4, 0.12)];
         bool improved = false;
+        if (includeDetail)
+        {
+            // Larger patches: one connected operator group at a time, everything inside a group together. Two passes,
+            // because groups still meet in the output mix.
+            foreach (double pass in new[] { 0.6, 0.4 })
+            {
+                IReadOnlyList<ActiveParameterSet> groups = optimizer.SelectSubsets(basin.Best.Patch, ContinuousStage.Components, tuningMatters);
+                int total = groups.Sum(static g => g.Count);
+                for (int g = 0; g < groups.Count && total > 0; g++)
+                {
+                    int index = g;
+                    improved |= optimizer.OptimizeWithRestarts(
+                        basin,
+                        patch => optimizer.SelectSubsets(patch, ContinuousStage.Components, tuningMatters) is { } current && index < current.Count ? current[index] : null,
+                        (int)(budget * pass * groups[g].Count / total),
+                        0.2 * sigmaScale,
+                        nextSeed,
+                        EvaluationLevel.Normal,
+                        3);
+                }
+            }
+
+            return improved;
+        }
+
+        // Short runs on many basins: a few low-dimensional stages give the most ranking information per render.
+        (ContinuousStage Stage, double Share, double Sigma)[] plan =
+            [(ContinuousStage.Spectral, 0.6, 0.18), (ContinuousStage.TemporalMacros, 0.4, 0.12)];
         foreach ((ContinuousStage stage, double share, double sigma) in plan)
         {
             // Subsets are chosen from the current best patch: macros are re-centred on it every time.
@@ -436,30 +463,75 @@ public sealed class OperatorMatrixPatchSearchCoordinator
     /// </summary>
     private static List<SearchBasin> Distinct(List<SearchBasin> basins, int count)
     {
+        List<SearchBasin> ordered = [.. basins.OrderBy(static b => b.Best.Loss).ThenBy(static b => b.Id)];
         var result = new List<SearchBasin>();
-        foreach (SearchBasin basin in basins.OrderBy(static b => b.Best.Loss).ThenBy(static b => b.Id))
-        {
-            bool duplicate = false;
-            foreach (SearchBasin kept in result)
-            {
-                if (kept.Regime == basin.Regime || (SameFrequencies(kept.Best.Patch, basin.Best.Patch) && SameSound(kept.Best, basin.Best)))
-                {
-                    duplicate = true;
-                    break;
-                }
-            }
+        var families = new HashSet<string>(StringComparer.Ordinal);
 
-            if (!duplicate)
+        // First the best basin of every structural family, then the best of the rest. Early losses are deceptive: an
+        // additive structure sounds roughly right at once, a deep stack only after its amounts have been found. Keeping
+        // one of each kind protects structures that need more optimization before they show what they can do.
+        foreach (bool familiesOnly in new[] { true, false })
+        {
+            foreach (SearchBasin basin in ordered)
             {
-                result.Add(basin);
                 if (result.Count >= count)
                 {
                     break;
                 }
+
+                if (result.Contains(basin) || (familiesOnly && families.Contains(Family(basin.Best.Patch))))
+                {
+                    continue;
+                }
+
+                bool duplicate = false;
+                foreach (SearchBasin kept in result)
+                {
+                    if (kept.Regime == basin.Regime || (SameFrequencies(kept.Best.Patch, basin.Best.Patch) && SameSound(kept.Best, basin.Best)))
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+
+                if (!duplicate)
+                {
+                    result.Add(basin);
+                    families.Add(Family(basin.Best.Patch));
+                }
             }
         }
 
+        result.Sort(static (a, b) =>
+        {
+            int order = a.Best.Loss.CompareTo(b.Best.Loss);
+            return order != 0 ? order : a.Id.CompareTo(b.Id);
+        });
         return result;
+    }
+
+    /// <summary>Coarse structural family: how many operators are heard directly, how many only shape others, and whether there is feedback.</summary>
+    private static string Family(OperatorMatrixPatch patch)
+    {
+        bool[] audible = patch.FindAudibleOperators();
+        int heard = 0, shaping = 0;
+        for (int i = 0; i < patch.OperatorCount; i++)
+        {
+            if (audible[i])
+            {
+                if (patch.OutputLevels[i] != 0.0)
+                {
+                    heard++;
+                }
+                else
+                {
+                    shaping++;
+                }
+            }
+        }
+
+        bool feedback = patch.ModulationMatrix.Edges.Any(e => e.Enabled && e.Amount != 0.0 && audible[e.SourceOperator] && audible[e.DestinationOperator] && e.SourceOperator <= e.DestinationOperator);
+        return $"{heard}/{shaping}/{(feedback ? "fb" : "ff")}";
     }
 
     private static bool SameFrequencies(OperatorMatrixPatch a, OperatorMatrixPatch b)

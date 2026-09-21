@@ -214,6 +214,57 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void Runs_AreResumedAcrossCallsAndRestartOnlyAfterStagnation()
+    {
+        PatchEvaluator evaluator = Evaluator(4000, parallel: 8);
+        var optimizer = new BasinOptimizer(evaluator, Fm7, new PatchMatchOptions { StagnationGenerations = 6 });
+        var basin = new SearchBasin(1, "test", evaluator.Evaluate(ParameterTests.Stack(0.8), EvaluationLevel.Normal)!);
+        int seed = 0;
+        ActiveParameterSet? Select(OperatorMatrixPatch patch) => optimizer.SelectSubsets(patch, ContinuousStage.Joint, false) is [var set] ? set : null;
+
+        optimizer.OptimizeWithRestarts(basin, Select, 60, 0.2, () => ++seed);
+        ContinuousRun first = Assert.Single(basin.Runs.Values);
+        int generations = first.Cma.Generation;
+        optimizer.OptimizeWithRestarts(basin, Select, 60, 0.2, () => ++seed);
+
+        // Same run, further along: the covariance it has learned is kept.
+        Assert.Same(first, Assert.Single(basin.Runs.Values));
+        Assert.True(first.Cma.Generation > generations);
+        Assert.Equal(1, seed);
+
+        // Enough budget to stagnate: the next run starts with a larger population.
+        optimizer.OptimizeWithRestarts(basin, Select, 3000, 0.2, () => ++seed);
+        ContinuousRun later = Assert.Single(basin.Runs.Values);
+        Assert.True(later.Index >= 1);
+        Assert.True(later.Cma.PopulationSize > first.Cma.PopulationSize);
+        Assert.True(basin.Best.AudioLoss < 0.05, $"loss {basin.Best.AudioLoss}");
+
+        // The joint stage leaves out what cannot matter: the only output level under timbre-normalized comparison,
+        // and the two segment times that the break position stands in for.
+        string[] ids = [.. Select(basin.Best.Patch)!.Parameters.Select(static p => p.Id)];
+        Assert.DoesNotContain("op1.output.level", ids);
+        Assert.DoesNotContain("op1.env.p2.time", ids);
+        Assert.Contains("op1.env.breakPosition", ids);
+        Assert.Contains("edge.2>1.amount", ids);
+    }
+
+    [Fact]
+    public void BreakPosition_KeepsTheEnvelopeExactlyAsLongAsTheHeldNote()
+    {
+        OperatorMatrixPatch patch = ParameterTests.Stack();
+        PatchParameterSchema schema = PatchParameterSchema.Build(patch, Fm7, null, new EnvelopeTimeLimits(0.8, 0.3));
+        PatchParameter position = schema.Find("op1.env.breakPosition")!;
+
+        OperatorMatrixPatch moved = position.Set(patch, 0.25);
+        OperatorEnvelope envelope = moved.Operators[0].AmplitudeEnvelope;
+
+        Assert.Equal(0.8, envelope.Points[1].TimeSeconds + envelope.Points[2].TimeSeconds + envelope.Points[3].TimeSeconds, 9);
+        Assert.Equal(0.25, position.Get(moved), 9);
+        Assert.Equal(patch.Operators[0].AmplitudeEnvelope.Points[4], envelope.Points[4]);
+        Assert.Null(PatchParameterSchema.Build(patch, Fm7).Find("op1.env.breakPosition"));
+    }
+
+    [Fact]
     public void TotalLoss_IsAudioLossPlusALightComplexityTerm()
     {
         PatchEvaluation evaluation = Evaluator(10).Evaluate(ParameterTests.Stack(2.5), EvaluationLevel.Normal)!;
@@ -226,13 +277,13 @@ public sealed class SearchComponentTests
     public void BasinOptimizer_KeepsActiveSubsetsSmallAndImprovesTheBasin()
     {
         PatchEvaluator evaluator = Evaluator(600, parallel: 8);
-        var options = new PatchMatchOptions { MaxActiveParameters = 10 };
+        var options = new PatchMatchOptions { MaxActiveParameters = 6 };
         var optimizer = new BasinOptimizer(evaluator, Fm7, options);
         OperatorMatrixPatch start = ParameterTests.Stack(0.8);
 
         foreach (ContinuousStage stage in Enum.GetValues<ContinuousStage>())
         {
-            Assert.All(optimizer.SelectSubsets(start, stage, tuningMatters: true), s => Assert.InRange(s.Count, 1, 10));
+            Assert.All(optimizer.SelectSubsets(start, stage, tuningMatters: true), s => Assert.InRange(s.Count, 1, 6));
         }
 
         // More smooth parameters than may be active at once: no joint stage, the work is split.
@@ -242,7 +293,8 @@ public sealed class SearchComponentTests
         Assert.All(macros[0].Parameters, static p => Assert.StartsWith("macro.", p.Id));
 
         ActiveParameterSet spectral = optimizer.SelectSubsets(start, ContinuousStage.Spectral, false)[0];
-        Assert.Equal(["op1.output.level", "edge.2>1.amount"], spectral.Parameters.Select(static p => p.Id));
+        // The level of the only output operator is frozen: loudness is normalized away, so it cannot matter.
+        Assert.Equal(["edge.2>1.amount"], spectral.Parameters.Select(static p => p.Id));
         var basin = new SearchBasin(1, "test", evaluator.Evaluate(start, EvaluationLevel.Normal)!);
         double before = basin.Best.Loss;
 

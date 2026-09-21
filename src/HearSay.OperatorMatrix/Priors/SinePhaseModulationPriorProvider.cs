@@ -48,6 +48,26 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
         hypotheses.Add(context.Build("single sine", 0.0, b => b.Carrier(context.StrongestRatio, 0.8)));
 
         List<Pair> pairs = context.RankPairs();
+
+        // A dense harmonic spectrum is covered equally well from a carrier in its middle as from its fundamental, and
+        // sideband counting alone cannot tell them apart. Pairs whose carrier sits on the fundamental or on the
+        // strongest partial are therefore interleaved with the best-scoring ones, so that both kinds reach screening.
+        List<Pair> anchored = [.. pairs.Where(p => p.Carrier == context.StrongestRatio || p.Carrier == context.StrongestHarmonicBase).Take(8)];
+        var interleaved = new List<Pair>(pairs.Count + anchored.Count);
+        for (int i = 0; i < Math.Max(pairs.Count, anchored.Count); i++)
+        {
+            if (i < anchored.Count && !interleaved.Contains(anchored[i]))
+            {
+                interleaved.Add(anchored[i]);
+            }
+
+            if (i < pairs.Count && !interleaved.Contains(pairs[i]))
+            {
+                interleaved.Add(pairs[i]);
+            }
+        }
+
+        pairs = interleaved;
         foreach (Pair pair in pairs.Take(16))
         {
             if (n >= 2)
@@ -86,6 +106,29 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                     int m = b.Modulator(pair.Modulator, c, pair.Index * 0.8);
                     b.Modulator(pair.Carrier, m, 1.0);
                 }));
+            }
+        }
+
+        // Deeper stacks with a second modulator at a small ratio: the modulator itself becomes bright, which fills the
+        // spectrum much more densely than a single sine modulator can.
+        if (n >= 3)
+        {
+            foreach (Pair pair in pairs.Take(6))
+            {
+                foreach (double second in new[] { 1.0, 2.0, 3.0 })
+                {
+                    if (second == pair.Modulator || second == pair.Carrier)
+                    {
+                        continue;
+                    }
+
+                    hypotheses.Add(context.Build($"three-stack {Text(pair.Carrier)}:{Text(pair.Modulator)}:{Text(second)}", pair.Score - 0.06, b =>
+                    {
+                        int c = b.Carrier(pair.Carrier, 0.8);
+                        int m = b.Modulator(pair.Modulator, c, pair.Index * 0.8);
+                        b.Modulator(second, m, 1.0);
+                    }));
+                }
             }
         }
 

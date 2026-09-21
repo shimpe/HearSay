@@ -207,6 +207,42 @@ public sealed class PatchParameterSchema
         Func<OperatorMatrixPatch, bool> isActive,
         bool signedLevels = false)
     {
+        // Sustaining envelopes with two segments between the attack and the sustain point also get a derived axis:
+        // where in the held note the first of the two hands over to the second. Moving it keeps the pair exactly as
+        // long as the held note, so no segment can outgrow the note and silence the points after it.
+        if (!ReferenceEquals(limits, EnvelopeTimeLimits.Unlimited) && shape.SustainPoint == 3 && shape.Points.Count >= 5)
+        {
+            double held = limits.HeldSeconds;
+            list.Add(Smooth(
+                id + ".breakPosition",
+                group,
+                0.02,
+                0.98,
+                ParameterTransforms.Linear,
+                p =>
+                {
+                    if (get(p) is not { } e || e.Points.Count < 4)
+                    {
+                        return 0.5;
+                    }
+
+                    double total = e.Points[2].TimeSeconds + e.Points[3].TimeSeconds;
+                    return total > 0 ? e.Points[2].TimeSeconds / total : 0.5;
+                },
+                (p, v) =>
+                {
+                    if (get(p) is not { } e || e.Points.Count < 4)
+                    {
+                        return p;
+                    }
+
+                    double total = Math.Max(0.01, held - e.Points[1].TimeSeconds);
+                    OperatorEnvelope moved = WithPoint(e, 2, e.Points[2] with { TimeSeconds = v * total });
+                    return set(p, WithPoint(moved, 3, moved.Points[3] with { TimeSeconds = (1.0 - v) * total }));
+                },
+                p => isActive(p) && get(p) is { SustainPoint: 3 }));
+        }
+
         for (int k = 0; k < shape.Points.Count; k++)
         {
             int point = k;
