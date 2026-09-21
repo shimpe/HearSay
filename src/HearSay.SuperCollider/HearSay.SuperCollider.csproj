@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HearSay.SuperCollider</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.2.0</Version>
+    <Description>Exports compatible operator-matrix patches to SuperCollider FM7 SynthDefs and validates the mapping against a real SuperCollider.</Description>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HearSay.Synthesis/HearSay.Synthesis.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HearSay.SuperCollider.Tests" />
+    <InternalsVisibleTo Include="HearSay.IntegrationTests" />
+    <InternalsVisibleTo Include="HearSay.Benchmarks" />
+  </ItemGroup>
+
+</Project>

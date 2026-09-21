@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HearSay.OperatorMatrix</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.2.0</Version>
+    <Description>Structural and continuous search over operator-matrix patches: which synthesis structure and parameters should be explored?</Description>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HearSay.Audio/HearSay.Audio.csproj" />
+    <ProjectReference Include="../HearSay.Modeling/HearSay.Modeling.csproj" />
+    <ProjectReference Include="../HearSay.Synthesis/HearSay.Synthesis.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HearSay.OperatorMatrix.Tests" />
+    <InternalsVisibleTo Include="HearSay.IntegrationTests" />
+    <InternalsVisibleTo Include="HearSay.Benchmarks" />
+  </ItemGroup>
+
+</Project>

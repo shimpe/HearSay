@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HearSay.Synthesis.Fm7Compatible</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.2.0</Version>
+    <Description>Offline reference renderer that reproduces the discrete-time behaviour of the SuperCollider FM7 UGen.</Description>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HearSay.Synthesis/HearSay.Synthesis.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HearSay.Synthesis.Fm7Compatible.Tests" />
+    <InternalsVisibleTo Include="HearSay.IntegrationTests" />
+    <InternalsVisibleTo Include="HearSay.Benchmarks" />
+  </ItemGroup>
+
+</Project>

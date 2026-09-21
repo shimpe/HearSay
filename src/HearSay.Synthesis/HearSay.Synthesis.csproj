@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HearSay.Synthesis</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.2.0</Version>
+    <Description>Canonical operator-matrix patch model, synthesis profiles and renderer abstractions: how is a canonical patch rendered?</Description>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HearSay.Audio/HearSay.Audio.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HearSay.Synthesis.Tests" />
+    <InternalsVisibleTo Include="HearSay.IntegrationTests" />
+    <InternalsVisibleTo Include="HearSay.Benchmarks" />
+  </ItemGroup>
+
+</Project>
