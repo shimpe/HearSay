@@ -133,6 +133,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private PatchMatchResult? _result;
     private readonly AudioPlayer _player = new();
     private string _playingText = string.Empty;
+    private float _resultGain;
 
     public MainViewModel()
     {
@@ -358,8 +359,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         double tail = Math.Clamp(Math.Max(0.3, result.Request.ReleaseDuration.TotalSeconds), 0.3, 2.0);
         var request = new RenderRequest(hz, midiNote, velocity, TimeSpan.FromSeconds(held), TimeSpan.FromSeconds(tail), result.Request.SampleRate);
         RenderedAudio audio = SynthesisBackends.RendererFor(result.Profile).Render(result.BestPatch, request);
-        _player.Play(Level(audio));
-        PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}");
+        // One gain per result, from the reference note at full velocity: the level differences between keys and
+        // velocities survive, unlike with a peak normalization of every note.
+        if (_resultGain <= 0)
+        {
+            RenderedAudio full = SynthesisBackends.RendererFor(result.Profile).Render(result.BestPatch, result.Request with { Velocity = 1.0 });
+            _resultGain = full.Peak > 0 ? 0.5f / full.Peak : 1f;
+        }
+
+        // A patch without velocity sensitivity ignores the key velocity; the keyboard then applies it as volume.
+        bool patchResponds = result.BestPatch.Operators.Any(static o => o.Enabled && o.VelocitySensitivity > 0);
+        float gain = _resultGain * (patchResponds ? 1f : (float)velocity);
+        _player.Play(Scale(audio, Math.Min(gain, 0.98f / Math.Max(1e-6f, audio.Peak))));
+        PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (patchResponds ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
     }
 
     /// <summary>Plays a target file as it is.</summary>
@@ -383,6 +395,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public void StopPlayback() => _player.Stop();
 
     /// <summary>Brings audio to a comfortable, equal level: peaks at -6 dBFS.</summary>
+    private static RenderedAudio Scale(RenderedAudio audio, float gain)
+    {
+        var samples = new float[audio.Samples.Length];
+        for (int i = 0; i < samples.Length; i++)
+        {
+            samples[i] = audio.Samples[i] * gain;
+        }
+
+        return new RenderedAudio(samples, audio.SampleRate);
+    }
+
     private static RenderedAudio Level(RenderedAudio audio)
     {
         float peak = audio.Peak;
@@ -506,6 +529,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }) ?? "This profile has no export backend.";
         }
 
+        _resultGain = 0;
         TargetNotes.Clear();
         if (result is not null)
         {
