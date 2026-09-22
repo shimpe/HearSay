@@ -298,8 +298,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed };
         var progress = new Progress<SearchProgress>(p =>
         {
-            Progress = (double)p.EvaluationsUsed / p.EvaluationBudget;
-            Status = FormattableString.Invariant($"{p.Stage}: {p.EvaluationsUsed} of {p.EvaluationBudget} evaluations, best loss {p.BestLoss:F4}");
+            Progress = p.Fraction;
+            string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run} of {p.RunCount} (seed {Seed + p.Run - 1}) · ") : string.Empty;
+            string previous = double.IsNaN(p.BestLossOfPreviousRuns) ? string.Empty : FormattableString.Invariant($" · best of earlier seeds {p.BestLossOfPreviousRuns:F4}");
+            Status = FormattableString.Invariant($"{run}{p.Stage}: {p.EvaluationsUsed} of {p.EvaluationBudget} evaluations, best loss {p.BestLoss:F4}{previous}");
         });
 
         try

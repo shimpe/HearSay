@@ -175,10 +175,12 @@ internal static class Cli
         string lastStage = string.Empty;
         var progress = new SynchronousProgress(p =>
         {
-            if (!quiet && p.Stage != lastStage)
+            string key = p.Run + ":" + p.Stage;
+            if (!quiet && key != lastStage)
             {
-                lastStage = p.Stage;
-                Console.Error.WriteLine(string.Create(CultureInfo.InvariantCulture, $"[{p.EvaluationsUsed,6}/{p.EvaluationBudget}] {p.Stage,-32} best loss {p.BestLoss:F4}"));
+                lastStage = key;
+                string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run}/{p.RunCount} ") : string.Empty;
+                Console.Error.WriteLine(FormattableString.Invariant($"{run}[{p.EvaluationsUsed,6}/{p.EvaluationBudget}] {p.Stage,-32} best loss {p.BestLoss:F4}"));
             }
         });
 

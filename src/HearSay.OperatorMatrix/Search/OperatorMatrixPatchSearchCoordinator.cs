@@ -16,7 +16,20 @@ namespace HearSay.OperatorMatrix.Search;
 /// <param name="EvaluationsUsed">Renders used so far.</param>
 /// <param name="EvaluationBudget">Render budget.</param>
 /// <param name="BestLoss">Best total loss so far, at the level of the current stage.</param>
-public sealed record SearchProgress(string Stage, int EvaluationsUsed, int EvaluationBudget, double BestLoss);
+public sealed record SearchProgress(string Stage, int EvaluationsUsed, int EvaluationBudget, double BestLoss)
+{
+    /// <summary>One-based index of the run when several seeds are searched in turn; 1 for a single run.</summary>
+    public int Run { get; init; } = 1;
+
+    /// <summary>Number of runs when several seeds are searched in turn; 1 for a single run.</summary>
+    public int RunCount { get; init; } = 1;
+
+    /// <summary>Best total loss of the runs that are already finished; NaN during the first run.</summary>
+    public double BestLossOfPreviousRuns { get; init; } = double.NaN;
+
+    /// <summary>Share of the whole job that is done, all runs counted.</summary>
+    public double Fraction => (Run - 1 + ((double)EvaluationsUsed / Math.Max(1, EvaluationBudget))) / Math.Max(1, RunCount);
+}
 
 /// <summary>Everything a search produced.</summary>
 /// <param name="Candidates">Finalists, best first, evaluated at the detailed level.</param>

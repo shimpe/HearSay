@@ -153,7 +153,12 @@ public sealed class OperatorMatrixPatchMatcher
         PatchMatchResult? best = null;
         for (int i = 0; i < seedCount && !(cancellationToken.IsCancellationRequested && best is not null); i++)
         {
-            PatchMatchResult result = Match(targets, options with { RandomSeed = options.RandomSeed + i }, progress, cancellationToken);
+            int run = i + 1;
+            double previous = best?.AlternativePatches[0].Loss ?? double.NaN;
+            IProgress<SearchProgress>? runProgress = progress is null
+                ? null
+                : new RelayProgress(p => progress.Report(p with { Run = run, RunCount = seedCount, BestLossOfPreviousRuns = previous }));
+            PatchMatchResult result = Match(targets, options with { RandomSeed = options.RandomSeed + i }, runProgress, cancellationToken);
             if (best is null || result.AlternativePatches[0].Loss < best.AlternativePatches[0].Loss)
             {
                 best = result;
@@ -226,3 +231,9 @@ public sealed class OperatorMatrixPatchMatcher
 /// <param name="Preview">Offline render of the best patch at this note.</param>
 /// <param name="Comparison">HearSay diagnosis of the preview against this target note.</param>
 public sealed record NoteMatch(TargetAnalysis Analysis, RenderRequest Request, RenderedAudio Preview, ToneComparisonResult Comparison);
+
+/// <summary>Progress that forwards synchronously to a delegate.</summary>
+internal sealed class RelayProgress(Action<SearchProgress> report) : IProgress<SearchProgress>
+{
+    public void Report(SearchProgress value) => report(value);
+}
