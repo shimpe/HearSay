@@ -26,7 +26,7 @@ internal static class Cli
           --profile <name>     synthesis profile: supercollider-fm7 (default) or supercollider-fmx6
           --budget <n>         number of candidate evaluations; one evaluation renders every target note (default 20000)
           --seed <n>           random seed (default 1234)
-          --seeds <n>          run n consecutive seeds with the full budget each and keep the best (default 1)
+          --seeds <n>          run n consecutive seeds with the full budget each; the best wins, the finalists of all seeds become alternatives (default 1)
           --output <dir>       result folder (default result)
           --note <midi>        MIDI note of targets without a pitch of their own, when known
           --f0 <hz>            fundamental of targets without a pitch of their own, when known

@@ -205,6 +205,31 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void MatchBestOf_KeepsTheWinningSeedAndMergesTheFinalistsOfAllSeeds()
+    {
+        AudioTarget target = TargetOf("simple-2op");
+        var options = new PatchMatchOptions { EvaluationBudget = 600, RandomSeed = 7 };
+
+        PatchMatchResult first = new OperatorMatrixPatchMatcher().Match(target, options);
+        PatchMatchResult second = new OperatorMatrixPatchMatcher().Match(target, options with { RandomSeed = 8 });
+        PatchMatchResult merged = new OperatorMatrixPatchMatcher().MatchBestOf(target, 2, options);
+
+        PatchMatchResult winner = first.AlternativePatches[0].Loss <= second.AlternativePatches[0].Loss ? first : second;
+        Assert.Equal(winner.BestPatch.ToJson(), merged.BestPatch.ToJson());
+        Assert.Equal(winner.BestPatch.ToJson(), merged.AlternativePatches[0].Patch.ToJson());
+        Assert.Equal(winner.SearchSummary.RandomSeed, merged.SearchSummary.RandomSeed);
+
+        // Every structure of either seed is there once, best first, marked with its seed.
+        var expected = first.AlternativePatches.Select(static c => c.Regime.Value).Concat(second.AlternativePatches.Select(static c => c.Regime.Value)).ToHashSet();
+        Assert.Equal(expected, merged.AlternativePatches.Select(static c => c.Regime.Value).ToHashSet());
+        Assert.Equal(expected.Count, merged.AlternativePatches.Count);
+        Assert.Equal(merged.AlternativePatches.Select(static c => c.Loss).OrderBy(static l => l), merged.AlternativePatches.Select(static c => c.Loss));
+        Assert.Contains(merged.AlternativePatches, static c => c.Origin.StartsWith("seed 7: ", StringComparison.Ordinal));
+        Assert.Contains(merged.AlternativePatches, static c => c.Origin.StartsWith("seed 8: ", StringComparison.Ordinal));
+        output.WriteLine(string.Join(Environment.NewLine, merged.AlternativePatches.Select(static c => $"{c.Loss:F4} {c.Origin}")));
+    }
+
+    [Fact]
     public void ResultWriter_ProducesTheDocumentedFolder()
     {
         string directory = Path.Combine(Path.GetTempPath(), "hearsay-test-" + Guid.NewGuid().ToString("N"));

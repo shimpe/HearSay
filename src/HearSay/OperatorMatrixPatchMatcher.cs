@@ -173,21 +173,47 @@ public sealed class OperatorMatrixPatchMatcher
         ArgumentOutOfRangeException.ThrowIfLessThan(seedCount, 1);
         options ??= new PatchMatchOptions();
         PatchMatchResult? best = null;
+        var runs = new List<(int Seed, PatchMatchResult Result)>();
         for (int i = 0; i < seedCount && !(cancellationToken.IsCancellationRequested && best is not null); i++)
         {
             int run = i + 1;
+            int seed = options.RandomSeed + i;
             double previous = best?.AlternativePatches[0].Loss ?? double.NaN;
             IProgress<SearchProgress>? runProgress = progress is null
                 ? null
                 : new RelayProgress(p => progress.Report(p with { Run = run, RunCount = seedCount, BestLossOfPreviousRuns = previous }));
-            PatchMatchResult result = Match(targets, options with { RandomSeed = options.RandomSeed + i }, runProgress, cancellationToken);
+            PatchMatchResult result = Match(targets, options with { RandomSeed = seed }, runProgress, cancellationToken);
+            runs.Add((seed, result));
             if (best is null || result.AlternativePatches[0].Loss < best.AlternativePatches[0].Loss)
             {
                 best = result;
             }
         }
 
-        return best!;
+        if (runs.Count == 1)
+        {
+            return best!;
+        }
+
+        // The result of the winning seed, with the finalists of every seed as alternatives: one entry per structure,
+        // the best of each, best first. The winning patch stays first; ties go to the winning seed.
+        var candidates = new List<(int Seed, PatchCandidateResult Candidate)>();
+        foreach ((int seed, PatchMatchResult result) in runs.OrderBy(r => !ReferenceEquals(r.Result, best)))
+        {
+            candidates.AddRange(result.AlternativePatches.Select(c => (seed, c)));
+        }
+
+        var merged = new List<PatchCandidateResult>();
+        var structures = new HashSet<string>(StringComparer.Ordinal);
+        foreach ((int seed, PatchCandidateResult candidate) in candidates.OrderBy(static c => c.Candidate.Loss))
+        {
+            if (structures.Add(candidate.Regime.Value))
+            {
+                merged.Add(candidate with { Origin = FormattableString.Invariant($"seed {seed}: {candidate.Origin}") });
+            }
+        }
+
+        return best! with { AlternativePatches = merged };
     }
 
     /// <summary>Matches a target.</summary>

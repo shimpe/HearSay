@@ -138,7 +138,7 @@
             <NumericUpDown Width="150" Minimum="0" Maximum="2147483647" Increment="1" FormatString="0" Value="{Binding Seed}" IsEnabled="{Binding !IsRunning}" />
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="10">
-            <TextBlock Classes="label" Text="Seeds" ToolTip.Tip="Run this many seeds and keep the best" />
+            <TextBlock Classes="label" Text="Seeds" ToolTip.Tip="Run this many seeds with the full budget each; the best wins, and the finalists of every seed are saved as alternatives" />
             <NumericUpDown Width="100" Minimum="1" Maximum="16" Increment="1" FormatString="0" Value="{Binding Seeds}" IsEnabled="{Binding !IsRunning}" />
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="10">

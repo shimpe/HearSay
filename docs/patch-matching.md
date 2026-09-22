@@ -53,7 +53,8 @@ dotnet run -c Release --project src/HearSay.Cli -- profiles             # list s
 ```
 
 `--note <midi>` or `--f0 <hz>` supply the pitch when it is known; otherwise it is estimated. `--seeds <n>` runs n seeds
-and keeps the best, which is the simplest remedy against an unlucky run. `--sample-rate` should be
+and keeps the best, which is the simplest remedy against an unlucky run; the finalists of every seed are kept as
+alternatives, one per structure, each marked with its seed. `--sample-rate` should be
 the rate the exported patch will run at, because the aliasing of the backend is part of its sound.
 
 ```text
@@ -616,7 +617,8 @@ How to read this:
 - **Results vary with the seed, and with tiny changes of the input.** The electric-piano target read back from its
   16-bit WAV file instead of from memory gives 0.079 with seed 1234 and 0.021 to 0.045 with seeds 1 to 4; four of
   these five runs find the hidden structure. Every run is reproducible, so running several seeds and keeping the best
-  is cheap to organise: `--seeds 4` on the command line, `MatchBestOf` in the API.
+  is cheap to organise: `--seeds 4` on the command line, `MatchBestOf` in the API. The result is that of the winning
+  seed, and its alternatives are the finalists of all seeds merged, the best patch of every structure, best first.
 - Every one of these patches sounds the same in SuperCollider as in the preview (SC distance).
 
 Example console output (`hearsay match electric-piano/target.wav --f0 262 --seed 2`):
