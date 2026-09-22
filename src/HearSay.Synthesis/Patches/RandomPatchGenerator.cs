@@ -93,6 +93,11 @@ public sealed class RandomPatchGenerator
             {
                 operators[i] = operators[i] with { Shape = Math.Round(0.1 + (random.NextDouble() * 0.8), 2) };
             }
+
+            if (operators[i].Waveform is OperatorWaveform.Triangle or OperatorWaveform.Saw or OperatorWaveform.Square or OperatorWaveform.Pulse)
+            {
+                operators[i] = operators[i] with { HarmonicLimit = 8 << random.Next(5) };
+            }
         }
 
         // The first operator is always heard; others feed the output with decreasing probability.

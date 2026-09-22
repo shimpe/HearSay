@@ -52,7 +52,9 @@ public static class SynthesisBackends
     {
         ArgumentNullException.ThrowIfNull(profile);
         ISynthesisPriorProvider sine = new SinePhaseModulationPriorProvider();
-        return profile.Capabilities.SupportedWaveforms.Count > 1 ? [new WaveformVariantPriorProvider(sine)] : [sine];
+        return profile.Capabilities.SupportedWaveforms.Count > 1
+            ? [new WaveformVariantPriorProvider(sine), new HarmonicWaveformPriorProvider()]
+            : [sine];
     }
 
     /// <summary>

@@ -501,7 +501,7 @@ Patch
 | Stage | What happens | Level | Budget (default 20000) |
 | --- | --- | --- | --- |
 | A. Target analysis | everything in the table above; render request from fundamental, note-off and tail | — | 0 |
-| B. Structural hypotheses | prior providers propose up to 128 structures; each is screened at three modulation scales | Coarse | 5 % |
+| B. Structural hypotheses | prior providers propose structures; the best 128 are kept by taking each provider's best in turn, since prior scores compare only within a provider; each is screened at three modulation scales | Coarse | 5 % |
 | Survivors | the best 32 get a short continuous optimization; duplicates by canonical regime, frequency structure and loss terms are dropped; 6 distinct basins remain, the best of every structural family first, because early losses are deceptive: an additive structure sounds roughly right at once, a deep stack only after its amounts have been found | Normal | 15 % |
 | C–E. Deep optimization | three rounds of successive halving (6 → 4 → 3 basins). Per basin: CMA-ES over everything smooth at once for small patches, otherwise one connected operator group at a time. A basin keeps its run between rounds, so the adapted covariance is never thrown away; only a stagnated run is replaced, by one with twice the population that starts alternately from the best patch and from where the basin began. A basin that stagnates also tries three topology mutations; a better child replaces its parent | Normal | 35 % |
 | Finalists | one long run each, the best finalist getting the longest; then a round of structural variants per finalist: every possible new edge and new modulator is screened at a few amounts (about a hundred renders), the most promising variants are optimized, and a variant that beats its parent takes its place | Normal | 75 % of the rest |
@@ -690,6 +690,23 @@ waveform-variant provider. Sine and triangle structures end up in separate basin
 operator (`op1:PhaseModulation/Triangle/r1/out;…`, audio loss 0.031), and the FM7 validator, renderer and exporter
 all reject that patch. Under the FM7 profile the same target is searched with sine operators only.
 
+### FMX6 versus FM7 on waveform targets
+
+Synthetic targets rendered by the FMX6-compatible renderer at 196 Hz, each searched under both profiles with the
+same budget (4000 evaluations) and seed. Audio loss of the best patch, lower is better:
+
+| Target | FM7 | FMX6 | FMX6 structure found |
+| --- | --- | --- | --- |
+| saw (48 harmonics) | 0.167 | 0.059 | saw carrier, two sine modulators |
+| square | 0.179 | 0.036 | square carrier, two sine modulators at 2 |
+| pulse, duty 0.2 | 0.292 | 0.079 | one pulse operator |
+| saw lightly modulated by a sine at 2 | 0.157 | 0.052 | one saw operator |
+| sine modulated by sample-and-hold noise | 0.059 | 0.032 | sine stack (no noise operator) |
+| sine with a white-noise burst | 0.078 | 0.106 | sine stack (no noise operator) |
+
+Band-limited targets are matched with the right waveform through the harmonic-waveform prior; the noise targets are
+not (see the limitations).
+
 ## Performance
 
 BenchmarkDotNet (`benchmarks/HearSay.Benchmarks`, classes `RenderBenchmarks` and `EvaluationBenchmarks`, short-run
@@ -724,9 +741,9 @@ length of the target (see the table above), which is 430 to 690 evaluations per 
 
 The first version does **not** search:
 
-- more than six operators (the FM7 profile has exactly six);
-- non-sine waveforms in the production profile (triangle only in the experimental profile);
-- wavefolders, ring-modulation operators, filter operators, filter FM, noise operators;
+- more than six operators (both SuperCollider profiles have exactly six);
+- non-sine waveforms under the FM7 profile (the FMX6 profile has band-limited triangle, saw, square, pulse and noise);
+- wavefolders, ring-modulation operators, filter operators, filter FM;
 - audio-rate changes of the routing, or processing between modulation edges;
 - backend-specific effects such as chorus, reverb or filters after the mix.
 
@@ -743,6 +760,9 @@ These are constraints of the synthesis profile, not of the architecture. Further
   sample by sample. The equivalence tests therefore judge such patches by distance, not by sample difference.
 - Matching is an approximation. Expect a good structural and temporal likeness rather than a clone, especially for
   targets that were not made by phase modulation.
+- Noise operators of the FMX6 profile are proposed (a noise modulator and a parallel noise burst) and win the coarse
+  screening of a noisy target, but the short survivor optimization that follows tends to drop their basins in favour
+  of sine structures whose loss falls faster. A noisy target is therefore usually matched without a noise operator.
 
 ## How a custom UGen plugs in: FMX6
 
@@ -752,8 +772,12 @@ frequency (including the phase modulation) so that nothing lands above 45 % of t
 sample-and-hold noise from a deterministic xorshift generator seeded by operator slot. It plugged in as described
 below: a profile (`supercollider-fmx6`), the `Fmx6CompatibleOperatorMatrixRenderer` (a port of the UGen's inner loop,
 without FM7's warm-up sample), the `SuperColliderFmx6Exporter`, and a `.shape` parameter in the schema that is active
-for pulse operators. The waveform-variant prior provider seeds every waveform for the output operators; the topology
-mutator swaps waveforms during the search. The random-patch equivalence test runs against the real UGen: patches
+for pulse operators. Two prior providers seed the waveforms: the waveform-variant provider re-colours the output
+operators of the sine hypotheses, and `HarmonicWaveformPriorProvider` reads the partial cloud (all harmonics falling
+as 1/n: saw; odd ones only: square or triangle; the notches of a duty cycle: pulse) and proposes the matching
+waveform alone at the fundamental with several harmonic limits, then with a light sine modulator, plus two fixed noise
+hypotheses. The topology mutator swaps waveforms and halves or doubles the harmonic limit of a band-limited operator
+during the search. The random-patch equivalence test runs against the real UGen: patches
 without feedback loops are sample-exact; looped ones part ways a little sooner than with sine operators, because a
 one-ulp difference in a control signal can change the harmonic count of a sample, but stay the same sound. Search it
 from the CLI with `--profile supercollider-fmx6` or pick **FMX6** as the target in HearSay Studio.

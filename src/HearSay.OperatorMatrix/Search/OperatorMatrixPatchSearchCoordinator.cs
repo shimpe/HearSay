@@ -189,18 +189,39 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         stages.Add(new SearchStageSummary("target analysis", 0, double.NaN, EvaluationLevel.Detailed, FormattableString.Invariant($"{targets.Count} note(s) at {noteList}; reference f0 {analysis.FundamentalHz:F2} Hz, {analysis.Partials.Count} partials, inharmonicity {analysis.Inharmonicity:F2}, note-off {analysis.NoteOffSeconds:F2} s{fixedList}")));
 
         // Stage B: structural hypotheses, screened at the coarse level.
-        var hypotheses = new List<PatchHypothesis>();
+        // One group per provider: prior scores are comparable within a provider, not across providers.
+        var groups = new List<List<PatchHypothesis>>();
         foreach (ISynthesisPriorProvider provider in _providers)
         {
-            hypotheses.AddRange(provider.Generate(analysis, capabilities));
+            groups.Add([.. provider.Generate(analysis, capabilities).Where(h => PatchCompatibilityValidator.Instance.Validate(h.Patch, capabilities).IsCompatible)]);
         }
 
-// Non-transposing partials of a target set: the best hypotheses get a variant with a fixed operator for each.        if (fixedPartials.Count > 0 && capabilities.SupportsFixedFrequency)        {            OperatorEnvelope fixedEnvelope = TemporalPriors.OutputEnvelope(analysis);            foreach (PatchHypothesis hypothesis in hypotheses.OrderByDescending(static h => h.PriorScore).Take(32).ToList())            {                int slot = Array.IndexOf(hypothesis.Patch.FindAudibleOperators(), false);                foreach (double hz in fixedPartials.Take(2))                {                    if (slot >= 0)                    {                        OperatorMatrixPatch variant = hypothesis.Patch.WithOperator(slot, OperatorPatch.Sine(OperatorFrequency.AtFixed(hz), fixedEnvelope)).WithOutputLevel(slot, 0.2);                        hypotheses.Add(new PatchHypothesis(variant, hypothesis.PriorScore + 0.02, FormattableString.Invariant($"{hypothesis.Origin} + fixed {hz:0.#} Hz")));                    }                }            }        }
-        hypotheses.RemoveAll(h => !PatchCompatibilityValidator.Instance.Validate(h.Patch, capabilities).IsCompatible);
-        if (hypotheses.Count > options.HypothesisCount)
+        // Non-transposing partials of a target set: the best hypotheses get a variant with a fixed operator for each.
+        if (fixedPartials.Count > 0 && capabilities.SupportsFixedFrequency)
         {
-            hypotheses = [.. hypotheses.OrderByDescending(static h => h.PriorScore).Take(options.HypothesisCount)];
+            OperatorEnvelope fixedEnvelope = TemporalPriors.OutputEnvelope(analysis);
+            var fixedVariants = new List<PatchHypothesis>();
+            foreach (PatchHypothesis hypothesis in Interleave(groups, 32))
+            {
+                int slot = Array.IndexOf(hypothesis.Patch.FindAudibleOperators(), false);
+                foreach (double hz in fixedPartials.Take(2))
+                {
+                    if (slot >= 0)
+                    {
+                        OperatorMatrixPatch variant = hypothesis.Patch.WithOperator(slot, OperatorPatch.Sine(OperatorFrequency.AtFixed(hz), fixedEnvelope)).WithOutputLevel(slot, 0.2);
+                        if (PatchCompatibilityValidator.Instance.Validate(variant, capabilities).IsCompatible)
+                        {
+                            fixedVariants.Add(new PatchHypothesis(variant, hypothesis.PriorScore + 0.02, FormattableString.Invariant($"{hypothesis.Origin} + fixed {hz:0.#} Hz")));
+                        }
+                    }
+                }
+            }
+
+            groups.Add(fixedVariants);
         }
+
+        // The cut takes the best of every provider in turn, so that a provider with modest scores still reaches screening.
+        List<PatchHypothesis> hypotheses = Interleave(groups, options.HypothesisCount);
 
         if (hypotheses.Count == 0)
         {
@@ -556,6 +577,35 @@ public sealed class OperatorMatrixPatchSearchCoordinator
     }
 
     /// <summary>Multiplies all modulation amounts, within the limits of the profile.</summary>
+    /// <summary>
+    /// Takes hypotheses from several groups in turn, each group best first, until the count is reached: the first
+    /// of every group, then the second of every group, and so on. The order within a group is its prior score.
+    /// </summary>
+    internal static List<PatchHypothesis> Interleave(List<List<PatchHypothesis>> groups, int count)
+    {
+        List<List<PatchHypothesis>> sorted = [.. groups.Select(static g => g.OrderByDescending(static h => h.PriorScore).ToList())];
+        var result = new List<PatchHypothesis>(Math.Min(count, sorted.Sum(static g => g.Count)));
+        for (int rank = 0; result.Count < count; rank++)
+        {
+            bool any = false;
+            foreach (List<PatchHypothesis> group in sorted)
+            {
+                if (rank < group.Count && result.Count < count)
+                {
+                    result.Add(group[rank]);
+                    any = true;
+                }
+            }
+
+            if (!any)
+            {
+                break;
+            }
+        }
+
+        return result;
+    }
+
     private static OperatorMatrixPatch ScaleAmounts(OperatorMatrixPatch patch, double scale, SynthesisCapabilities capabilities)
     {
         if (scale == 1.0)

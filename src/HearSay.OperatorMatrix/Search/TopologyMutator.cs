@@ -163,7 +163,21 @@ public sealed class TopologyMutator
                 }
             }
         }
-// Ratio operators pinned to their current frequency: on a target set with several pitches this tells a        // fixed-frequency operator from a transposing one.        if (FixedFrequencyIdentifiable && _capabilities.SupportsFixedFrequency)        {            foreach (int op in used)            {                OperatorPatch current = patch.Operators[op];                if (current.Frequency.Mode == OperatorFrequencyMode.Ratio)                {                    double hz = Math.Round(current.FrequencyHz(analysis.FundamentalHz), 1);                    candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { Frequency = OperatorFrequency.AtFixed(hz), FineTuneCents = 0 }), FormattableString.Invariant($"OP{op + 1} fixed at {hz:0.#} Hz")));                }            }        }
+        // Ratio operators pinned to their current frequency: on a target set with several pitches this tells a
+        // fixed-frequency operator from a transposing one.
+        if (FixedFrequencyIdentifiable && _capabilities.SupportsFixedFrequency)
+        {
+            foreach (int op in used)
+            {
+                OperatorPatch current = patch.Operators[op];
+                if (current.Frequency.Mode == OperatorFrequencyMode.Ratio)
+                {
+                    double hz = Math.Round(current.FrequencyHz(analysis.FundamentalHz), 1);
+                    candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { Frequency = OperatorFrequency.AtFixed(hz), FineTuneCents = 0 }), FormattableString.Invariant($"OP{op + 1} fixed at {hz:0.#} Hz")));
+                }
+            }
+        }
+
         candidates.RemoveAll(c => !PatchCompatibilityValidator.Instance.Validate(c.Patch, _capabilities).IsCompatible);
         if (candidates.Count > maxScreened)
         {
@@ -187,7 +201,16 @@ public sealed class TopologyMutator
                 return order != 0 ? order : a.Index.CompareTo(b.Index);
             });
 
-// A non-transposing partial is rare and decisive: its best variant always gets a slot.            foreach ((double _, int index) in ranked)            {                if (candidates[index].Description.Contains(" fixed at ", StringComparison.Ordinal) && seen.Add(candidates[index].Description))                {                    result.Add(candidates[index]);                    break;                }            }
+            // A non-transposing partial is rare and decisive: its best variant always gets a slot.
+            foreach ((double _, int index) in ranked)
+            {
+                if (candidates[index].Description.Contains(" fixed at ", StringComparison.Ordinal) && seen.Add(candidates[index].Description))
+                {
+                    result.Add(candidates[index]);
+                    break;
+                }
+            }
+
             // Half of the list comes from screening; one description is one structure, whatever the amount. Edges and
             // new operators take turns, best first: there are many more operator variants than edges, and they would
             // otherwise crowd out the single edge that is missing.
@@ -435,6 +458,18 @@ public sealed class TopologyMutator
             {
                 // Waveform and mode are structural; they only vary when the profile offers a choice.
                 int op = used[random.Next(used.Count)];
+                OperatorWaveform present = patch.Operators[op].Waveform;
+                if (present is OperatorWaveform.Triangle or OperatorWaveform.Saw or OperatorWaveform.Square or OperatorWaveform.Pulse && random.Next(2) == 0)
+                {
+                    // The harmonic limit of a band-limited operator is its brightness: halve or double it.
+                    int limit = patch.Operators[op].HarmonicLimit;
+                    int changed = Math.Clamp(random.Next(2) == 0 ? limit / 2 : limit * 2, 4, 128);
+                    if (changed != limit)
+                    {
+                        return new TopologyMutation(patch.WithOperator(op, patch.Operators[op] with { HarmonicLimit = changed }), $"OP{op + 1} harmonics {limit} -> {changed}");
+                    }
+                }
+
                 if (_capabilities.SupportedWaveforms.Count > 1)
                 {
                     OperatorWaveform[] others = [.. _capabilities.SupportedWaveforms.Where(w => w != patch.Operators[op].Waveform).Order()];
