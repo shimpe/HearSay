@@ -534,7 +534,9 @@ PatchMatchResult result = matcher.Match(
 foreach (NoteMatch note in result.Notes) { /* per-note preview and diagnosis */ }
 ```
 
-`file.wav@60` gives the MIDI note, `@261.6` a frequency (any value above 127 is hertz), `:v0.4` the velocity. In
+`file.wav@60` gives the MIDI note, `@261.6` a frequency (any value above 127 is hertz), `:v0.4` the velocity. A
+ready-made three-octave set is in `samples/targets/electric-piano-keyed`, and `hearsay reference <patch> --notes 48,60,72`
+renders any reference patch at any notes. In
 the desktop app, add several files and type pitch and velocity per row.
 
 What changes inside the search:

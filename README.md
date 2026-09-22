@@ -567,7 +567,10 @@ dotnet run -c Release --project src/HearSay.Cli -- match target.wav --budget 200
 # Desktop app: load a WAV, run the search, read or copy the SuperCollider patch, save the result folder
 dotnet run -c Release --project src/HearSay.Studio [-- target.wav]
 
-# Round trip over the twelve reference patches; --supercollider also compares the result with the real FM7 UGen
+# Render a reference patch to WAV targets (samples/targets has a ready-made three-octave set)
+dotnet run -c Release --project src/HearSay.Cli -- reference electric-piano-keyed --notes 48,60,72 --output targets/
+
+# Round trip over the reference patches; --supercollider also compares the result with the real FM7 UGen
 dotnet run -c Release --project samples/HearSay.MatchDemo -- [--budget 20000] [--only bell,bass] [--supercollider]
 ```
 

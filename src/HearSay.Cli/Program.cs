@@ -18,6 +18,9 @@ internal static class Cli
                                                    of the same sound: file.wav@60 (MIDI note), file.wav@261.6 (Hz), file.wav@60:v0.5 (velocity)
           hearsay analyze <target.wav> [options]   print the target analysis as JSON
           hearsay profiles                         list synthesis profiles
+          hearsay reference [name] [options]       render a built-in reference patch to WAV files, as test targets
+                                                   (no name: list the patches). --notes 48,60,72 --velocities 1,0.5
+                                                   --seconds 1.0 --release 0.3 --output dir
 
         Options for match:
           --profile <name>     synthesis profile (default supercollider-fm7)
@@ -48,6 +51,7 @@ internal static class Cli
                 "match" => Match(args),
                 "analyze" => Analyze(args),
                 "profiles" => Profiles(),
+                "reference" => Reference(args),
                 _ => Fail($"Unknown command '{args[0]}'."),
             };
         }
@@ -73,6 +77,54 @@ internal static class Cli
             }
 
             Console.WriteLine($"{profile.Name,-28} {status,-32} {profile.Description}");
+        }
+
+        return 0;
+    }
+
+    private static int Reference(string[] args)
+    {
+        (IReadOnlyList<string> names, Dictionary<string, string> options) = ParseAll(args);
+        if (names.Count == 0)
+        {
+            foreach (ReferencePatch p in ReferencePatches.All)
+            {
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{p.Name,-22} {p.FrequencyHz,7:F1} Hz  {p.NoteSeconds:F1} s + {p.ReleaseSeconds:F1} s"));
+            }
+
+            return 0;
+        }
+
+        ReferencePatch? reference = ReferencePatches.Find(names[0]);
+        if (reference is null)
+        {
+            return Fail($"Unknown reference patch '{names[0]}'. Run 'hearsay reference' for the list.");
+        }
+
+        int[] notes = options.TryGetValue("notes", out string? noteList)
+            ? [.. noteList.Split(',').Select(static n => int.Parse(n, CultureInfo.InvariantCulture))]
+            : [(int)Math.Round(69 + (12 * Math.Log2(reference.FrequencyHz / 440.0)))];
+        double[] velocities = options.TryGetValue("velocities", out string? velocityList)
+            ? [.. velocityList.Split(',').Select(static v => double.Parse(v, CultureInfo.InvariantCulture))]
+            : [1.0];
+        double seconds = Number(options, "seconds") ?? reference.NoteSeconds;
+        double release = Number(options, "release") ?? reference.ReleaseSeconds;
+        string output = options.GetValueOrDefault("output", reference.Name);
+        Directory.CreateDirectory(output);
+        var renderer = new HearSay.Synthesis.Fm7Compatible.Rendering.Fm7CompatibleOperatorMatrixRenderer();
+        File.WriteAllText(Path.Combine(output, "hidden-patch.json"), reference.Patch.ToJson());
+        foreach (int midi in notes)
+        {
+            foreach (double velocity in velocities)
+            {
+                double hz = 440.0 * Math.Pow(2.0, (midi - 69) / 12.0);
+                var request = new HearSay.Synthesis.Rendering.RenderRequest(hz, midi, velocity, TimeSpan.FromSeconds(seconds), TimeSpan.FromSeconds(release), 48000);
+                string suffix = velocities.Length > 1 ? string.Create(CultureInfo.InvariantCulture, $"-v{velocity:0.00}") : string.Empty;
+                string path = Path.Combine(output, string.Create(CultureInfo.InvariantCulture, $"{reference.Name}-{midi}{suffix}.wav"));
+                renderer.Render(reference.Patch, request).WriteWav(path, normalizePeakTo: 0.7f);
+                string hint = velocities.Length > 1 ? FormattableString.Invariant($":v{velocity:0.##}") : string.Empty;
+                Console.WriteLine(FormattableString.Invariant($"{path}  ({hz:F1} Hz, velocity {velocity:F2}) -> match with {Path.GetFileName(path)}@{midi}{hint}"));
+            }
         }
 
         return 0;

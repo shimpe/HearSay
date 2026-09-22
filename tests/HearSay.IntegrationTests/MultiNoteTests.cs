@@ -14,15 +14,7 @@ public sealed class MultiNoteTests(ITestOutputHelper output)
 {
     private static readonly Fm7CompatibleOperatorMatrixRenderer Renderer = new();
 
-    /// <summary>The electric-piano reference patch with a fixed-frequency operator and key scaling: the tine gets softer and faster up the keyboard, and a fixed 60 Hz thump does not transpose.</summary>
-    private static OperatorMatrixPatch Hidden()
-    {
-        OperatorMatrixPatch piano = ReferencePatches.Find("electric-piano")!.Patch;
-        return piano
-            .WithOperator(2, piano.Operators[2] with { KeyScaling = new KeyScaling(LevelDbPerOctave: -6.0, RatePerOctave: 0.5, ReferenceMidiNote: 60) })
-            .WithOperator(4, OperatorPatch.Sine(OperatorFrequency.AtFixed(60), OperatorEnvelope.TwoStageDecay(0.002, 0.08, 0.2, 0.3, 0.01, 0.1)))
-            .WithOutputLevel(4, 0.3);
-    }
+    private static OperatorMatrixPatch Hidden() => ReferencePatches.Find("electric-piano-keyed")!.Patch;
 
     private static AudioTarget TargetAt(OperatorMatrixPatch patch, int midi)
     {

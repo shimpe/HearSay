@@ -1,0 +1,343 @@
+{
+  "operators": [
+    {
+      "enabled": true,
+      "mode": "PhaseModulation",
+      "waveform": "Sine",
+      "frequency": {
+        "mode": "Ratio",
+        "ratio": 1,
+        "fixedFrequencyHz": 440
+      },
+      "fineTuneCents": 0,
+      "detuneHz": 0,
+      "initialPhase": 0,
+      "amplitudeEnvelope": {
+        "points": [
+          {
+            "timeSeconds": 0,
+            "level": 0,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.002,
+            "level": 1,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.25,
+            "level": 0.5,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 2,
+            "level": 0.1,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.25,
+            "level": 0,
+            "curve": "Exponential"
+          }
+        ],
+        "sustainPoint": 3,
+        "releasePoint": 4,
+        "hasExponentialSegments": true,
+        "releaseSeconds": 0.25
+      },
+      "velocitySensitivity": 0,
+      "keyScaling": {
+        "levelDbPerOctave": 0,
+        "ratePerOctave": 0,
+        "referenceMidiNote": 60,
+        "isNeutral": true
+      }
+    },
+    {
+      "enabled": true,
+      "mode": "PhaseModulation",
+      "waveform": "Sine",
+      "frequency": {
+        "mode": "Ratio",
+        "ratio": 1,
+        "fixedFrequencyHz": 440
+      },
+      "fineTuneCents": 0,
+      "detuneHz": 0,
+      "initialPhase": 0,
+      "amplitudeEnvelope": {
+        "points": [
+          {
+            "timeSeconds": 0,
+            "level": 0,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.001,
+            "level": 1,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.4,
+            "level": 0.35,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 1.5,
+            "level": 0.08,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.2,
+            "level": 0,
+            "curve": "Exponential"
+          }
+        ],
+        "sustainPoint": 3,
+        "releasePoint": 4,
+        "hasExponentialSegments": true,
+        "releaseSeconds": 0.2
+      },
+      "velocitySensitivity": 0,
+      "keyScaling": {
+        "levelDbPerOctave": 0,
+        "ratePerOctave": 0,
+        "referenceMidiNote": 60,
+        "isNeutral": true
+      }
+    },
+    {
+      "enabled": true,
+      "mode": "PhaseModulation",
+      "waveform": "Sine",
+      "frequency": {
+        "mode": "Ratio",
+        "ratio": 1,
+        "fixedFrequencyHz": 440
+      },
+      "fineTuneCents": 0,
+      "detuneHz": 0,
+      "initialPhase": 0,
+      "amplitudeEnvelope": {
+        "points": [
+          {
+            "timeSeconds": 0,
+            "level": 0,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.001,
+            "level": 1,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.12,
+            "level": 0.15,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.8,
+            "level": 0.01,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.2,
+            "level": 0,
+            "curve": "Exponential"
+          }
+        ],
+        "sustainPoint": 3,
+        "releasePoint": 4,
+        "hasExponentialSegments": true,
+        "releaseSeconds": 0.2
+      },
+      "velocitySensitivity": 0,
+      "keyScaling": {
+        "levelDbPerOctave": -6,
+        "ratePerOctave": 0.5,
+        "referenceMidiNote": 60,
+        "isNeutral": false
+      }
+    },
+    {
+      "enabled": true,
+      "mode": "PhaseModulation",
+      "waveform": "Sine",
+      "frequency": {
+        "mode": "Ratio",
+        "ratio": 14,
+        "fixedFrequencyHz": 440
+      },
+      "fineTuneCents": 0,
+      "detuneHz": 0,
+      "initialPhase": 0,
+      "amplitudeEnvelope": {
+        "points": [
+          {
+            "timeSeconds": 0,
+            "level": 0,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.001,
+            "level": 1,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.06,
+            "level": 0.1,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.3,
+            "level": 0.005,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.1,
+            "level": 0,
+            "curve": "Exponential"
+          }
+        ],
+        "sustainPoint": 3,
+        "releasePoint": 4,
+        "hasExponentialSegments": true,
+        "releaseSeconds": 0.1
+      },
+      "velocitySensitivity": 0,
+      "keyScaling": {
+        "levelDbPerOctave": 0,
+        "ratePerOctave": 0,
+        "referenceMidiNote": 60,
+        "isNeutral": true
+      }
+    },
+    {
+      "enabled": true,
+      "mode": "PhaseModulation",
+      "waveform": "Sine",
+      "frequency": {
+        "mode": "Fixed",
+        "ratio": 1,
+        "fixedFrequencyHz": 60
+      },
+      "fineTuneCents": 0,
+      "detuneHz": 0,
+      "initialPhase": 0,
+      "amplitudeEnvelope": {
+        "points": [
+          {
+            "timeSeconds": 0,
+            "level": 0,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.002,
+            "level": 1,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.08,
+            "level": 0.2,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.3,
+            "level": 0.01,
+            "curve": "Exponential"
+          },
+          {
+            "timeSeconds": 0.1,
+            "level": 0,
+            "curve": "Exponential"
+          }
+        ],
+        "sustainPoint": 3,
+        "releasePoint": 4,
+        "hasExponentialSegments": true,
+        "releaseSeconds": 0.1
+      },
+      "velocitySensitivity": 0,
+      "keyScaling": {
+        "levelDbPerOctave": 0,
+        "ratePerOctave": 0,
+        "referenceMidiNote": 60,
+        "isNeutral": true
+      }
+    },
+    {
+      "enabled": false,
+      "mode": "PhaseModulation",
+      "waveform": "Sine",
+      "frequency": {
+        "mode": "Ratio",
+        "ratio": 1,
+        "fixedFrequencyHz": 440
+      },
+      "fineTuneCents": 0,
+      "detuneHz": 0,
+      "initialPhase": 0,
+      "amplitudeEnvelope": {
+        "points": [
+          {
+            "timeSeconds": 0,
+            "level": 0,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.005,
+            "level": 1,
+            "curve": "Linear"
+          },
+          {
+            "timeSeconds": 0.005,
+            "level": 0,
+            "curve": "Linear"
+          }
+        ],
+        "sustainPoint": 1,
+        "releasePoint": 2,
+        "hasExponentialSegments": false,
+        "releaseSeconds": 0.005
+      },
+      "velocitySensitivity": 0,
+      "keyScaling": {
+        "levelDbPerOctave": 0,
+        "ratePerOctave": 0,
+        "referenceMidiNote": 60,
+        "isNeutral": true
+      }
+    }
+  ],
+  "modulationMatrix": {
+    "operatorCount": 6,
+    "edges": [
+      {
+        "sourceOperator": 1,
+        "destinationOperator": 0,
+        "enabled": true,
+        "amount": 1.6,
+        "amountEnvelope": null
+      },
+      {
+        "sourceOperator": 3,
+        "destinationOperator": 2,
+        "enabled": true,
+        "amount": 1.2,
+        "amountEnvelope": null
+      }
+    ]
+  },
+  "outputLevels": [
+    0.8,
+    0,
+    0.35,
+    0,
+    0.3,
+    0
+  ],
+  "pitch": {
+    "pitchEnvelope": null,
+    "vibrato": null
+  }
+}

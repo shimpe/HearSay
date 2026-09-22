@@ -51,6 +51,16 @@ public static class ReferencePatches
             int tine = b.Carrier(1, 0.35, OperatorEnvelope.TwoStageDecay(0.001, 0.12, 0.15, 0.8, 0.01, 0.2));
             b.Modulator(14, tine, 1.2, OperatorEnvelope.TwoStageDecay(0.001, 0.06, 0.1, 0.3, 0.005, 0.1));
         }), 262, 1.6, 0.5),
+        new("electric-piano-keyed", Build(b =>
+        {
+            // The electric piano across the keyboard: the tine gets 6 dB softer and its envelope twice as fast per
+            // octave, and a fixed 60 Hz thump does not transpose. Only a target set of several notes can tell.
+            int body = b.Carrier(1, 0.8, OperatorEnvelope.TwoStageDecay(0.002, 0.25, 0.5, 2.0, 0.1, 0.25));
+            b.Modulator(1, body, 1.6, OperatorEnvelope.TwoStageDecay(0.001, 0.4, 0.35, 1.5, 0.08, 0.2));
+            int tine = b.Carrier(1, 0.35, OperatorEnvelope.TwoStageDecay(0.001, 0.12, 0.15, 0.8, 0.01, 0.2), keyScaling: new KeyScaling(-6.0, 0.5, 60));
+            b.Modulator(14, tine, 1.2, OperatorEnvelope.TwoStageDecay(0.001, 0.06, 0.1, 0.3, 0.005, 0.1));
+            b.Fixed(60, 0.3, OperatorEnvelope.TwoStageDecay(0.002, 0.08, 0.2, 0.3, 0.01, 0.1));
+        }), 262, 1.0, 0.3),
         new("bass", Build(b =>
         {
             int c = b.Carrier(1, 0.9, OperatorEnvelope.TwoStageDecay(0.002, 0.15, 0.6, 0.8, 0.3, 0.12));
@@ -111,9 +121,9 @@ public static class ReferencePatches
         private readonly List<double> _levels = [];
         private readonly List<ModulationEdge> _edges = [];
 
-        public int Carrier(double ratio, double level, OperatorEnvelope envelope, double detuneHz = 0)
+        public int Carrier(double ratio, double level, OperatorEnvelope envelope, double detuneHz = 0, KeyScaling? keyScaling = null)
         {
-            _operators.Add(OperatorPatch.Sine(OperatorFrequency.AtRatio(ratio), envelope) with { DetuneHz = detuneHz });
+            _operators.Add(OperatorPatch.Sine(OperatorFrequency.AtRatio(ratio), envelope) with { DetuneHz = detuneHz, KeyScaling = keyScaling ?? KeyScaling.None });
             _levels.Add(level);
             return _operators.Count - 1;
         }
@@ -126,6 +136,13 @@ public static class ReferencePatches
         }
 
         public void Edge(int source, int destination, double amount) => _edges.Add(new ModulationEdge(source, destination, true, amount));
+
+        public int Fixed(double hz, double level, OperatorEnvelope envelope)
+        {
+            _operators.Add(OperatorPatch.Sine(OperatorFrequency.AtFixed(hz), envelope));
+            _levels.Add(level);
+            return _operators.Count - 1;
+        }
 
         public void Output(int op, double level) => _levels[op] = level;
 
