@@ -52,6 +52,16 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OnNotePressed(object? sender, KeyPress e) => ViewModel.PlayNote(e.MidiNote, e.Velocity);
+
+    private void OnPlayTarget(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: TargetItem item })
+        {
+            ViewModel.PlayTarget(item);
+        }
+    }
+
     private async void OnCopy(object? sender, RoutedEventArgs e)
     {
         if (Clipboard is not null && ViewModel.Scd.Length > 0)

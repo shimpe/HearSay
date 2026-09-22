@@ -40,8 +40,9 @@ sine phase-modulation prior provider knows about sine waves or about FM7.
 
 ## Quick start
 
-Desktop app (Avalonia, Windows/macOS/Linux): `dotnet run -c Release --project src/HearSay.Studio`. Load a WAV, set budget
-and seeds, run, then copy the SuperCollider patch or save the result folder. Command line:
+Desktop app (Avalonia, Windows/macOS/Linux): `dotnet run -c Release --project src/HearSay.Studio`. Load WAV files, set budget
+and seeds, run, play the result on a piano keyboard at any pitch (OpenAL Soft, one voice, velocity from where the key is
+hit), then copy the SuperCollider patch or save the result folder. Command line:
 
 ```bash
 dotnet run -c Release --project src/HearSay.Cli -- match target.wav \

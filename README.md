@@ -488,7 +488,7 @@ HearSay.sln
 │   ├── HearSay.OperatorMatrix            which synthesis structure and parameters should be explored?
 │   ├── HearSay                           facade: OperatorMatrixPatchMatcher, SynthesisBackends, PatchMatchResultWriter
 │   ├── HearSay.Cli                       hearsay match | analyze | profiles
-│   └── HearSay.Studio                    Avalonia desktop app: load a WAV, run the search, show patch.scd
+│   └── HearSay.Studio                    Avalonia desktop app: load WAVs, run the search, play the result on a keyboard, show patch.scd
 ├── tests                                 xUnit: Audio, Modeling, Synthesis, OperatorMatrix, SuperCollider, IntegrationTests
 ├── benchmarks/HearSay.Benchmarks         BenchmarkDotNet
 ├── docs

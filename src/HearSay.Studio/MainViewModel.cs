@@ -7,6 +7,7 @@ using HearSay.Analysis;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
+using HearSay.Synthesis.Rendering;
 
 namespace HearSay.Studio;
 
@@ -130,6 +131,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _resultSummary = string.Empty;
     private string _scd = string.Empty;
     private PatchMatchResult? _result;
+    private readonly AudioPlayer _player = new();
+    private string _playingText = string.Empty;
 
     public MainViewModel()
     {
@@ -326,6 +329,78 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>MIDI notes of the target notes, marked on the keyboard.</summary>
+    public ObservableCollection<int> TargetNotes { get; } = [];
+
+    /// <summary>What the keyboard last played.</summary>
+    public string PlayingText
+    {
+        get => _playingText;
+        private set => Set(ref _playingText, value);
+    }
+
+    /// <summary>True when an audio device could be opened.</summary>
+    public bool CanPlay => _player.IsAvailable;
+
+    /// <summary>Renders the best patch at a note and plays it. Nothing happens without a result.</summary>
+    /// <param name="midiNote">MIDI note.</param>
+    /// <param name="velocity">Key velocity 0..1.</param>
+    public void PlayNote(int midiNote, double velocity)
+    {
+        if (_result is null)
+        {
+            return;
+        }
+
+        PatchMatchResult result = _result;
+        double hz = 440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0);
+        double held = Math.Clamp(result.Request.NoteDuration.TotalSeconds, 0.3, 2.0);
+        double tail = Math.Clamp(Math.Max(0.3, result.Request.ReleaseDuration.TotalSeconds), 0.3, 2.0);
+        var request = new RenderRequest(hz, midiNote, velocity, TimeSpan.FromSeconds(held), TimeSpan.FromSeconds(tail), result.Request.SampleRate);
+        RenderedAudio audio = SynthesisBackends.RendererFor(result.Profile).Render(result.BestPatch, request);
+        _player.Play(Level(audio));
+        PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}");
+    }
+
+    /// <summary>Plays a target file as it is.</summary>
+    /// <param name="item">Target to play.</param>
+    public void PlayTarget(TargetItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        try
+        {
+            HearSay.Audio.AudioNote note = HearSay.Audio.WavFile.Read(item.Path);
+            _player.Play(Level(new RenderedAudio(note.Samples.ToArray(), note.SampleRate)));
+            PlayingText = "target " + item.Name;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException)
+        {
+            Status = "Could not play the file: " + e.Message;
+        }
+    }
+
+    /// <summary>Stops playback.</summary>
+    public void StopPlayback() => _player.Stop();
+
+    /// <summary>Brings audio to a comfortable, equal level: peaks at -6 dBFS.</summary>
+    private static RenderedAudio Level(RenderedAudio audio)
+    {
+        float peak = audio.Peak;
+        if (peak <= 0)
+        {
+            return audio;
+        }
+
+        float gain = 0.5f / peak;
+        var samples = new float[audio.Samples.Length];
+        for (int i = 0; i < samples.Length; i++)
+        {
+            samples[i] = audio.Samples[i] * gain;
+        }
+
+        return new RenderedAudio(samples, audio.SampleRate);
+    }
+
     /// <summary>Stops the running search.</summary>
     public void Cancel()
     {
@@ -431,6 +506,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }) ?? "This profile has no export backend.";
         }
 
+        TargetNotes.Clear();
+        if (result is not null)
+        {
+            foreach (NoteMatch n in result.Notes)
+            {
+                TargetNotes.Add(n.Request.MidiNote ?? (int)Math.Round(69 + (12 * Math.Log2(n.Analysis.FundamentalHz / 440.0))));
+            }
+        }
+
+        PlayingText = string.Empty;
         OnPropertyChanged(nameof(HasResult));
     }
 

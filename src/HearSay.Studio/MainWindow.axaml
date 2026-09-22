@@ -137,15 +137,16 @@
             <ListBox Grid.Row="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" Height="168" Background="Transparent" IsEnabled="{Binding !IsRunning}">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="local:TargetItem">
-                  <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
-                    <StackPanel Grid.Column="0">
+                  <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                    <Button Grid.Column="0" Content="▶" Width="30" Height="30" Padding="0" VerticalAlignment="Center" Click="OnPlayTarget" ToolTip.Tip="Play this target" />
+                    <StackPanel Grid.Column="1">
                       <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                       <TextBlock Text="{Binding Summary}" FontSize="11" Classes="muted" TextWrapping="Wrap" />
                     </StackPanel>
-                    <TextBlock Grid.Column="1" Classes="label" Text="pitch" FontSize="11" />
-                    <TextBox Grid.Column="2" Width="70" VerticalAlignment="Center" Text="{Binding Pitch}" Watermark="auto" ToolTip.Tip="MIDI note (0-127) or frequency in Hz; empty = estimate" LostFocus="OnPitchChanged" />
-                    <TextBlock Grid.Column="3" Classes="label" Text="vel" FontSize="11" />
-                    <TextBox Grid.Column="4" Width="56" VerticalAlignment="Center" Text="{Binding Velocity}" Watermark="1.0" ToolTip.Tip="0..1" />
+                    <TextBlock Grid.Column="2" Classes="label" Text="pitch" FontSize="11" />
+                    <TextBox Grid.Column="3" Width="70" VerticalAlignment="Center" Text="{Binding Pitch}" Watermark="auto" ToolTip.Tip="MIDI note (0-127) or frequency in Hz; empty = estimate" LostFocus="OnPitchChanged" />
+                    <TextBlock Grid.Column="4" Classes="label" Text="vel" FontSize="11" />
+                    <TextBox Grid.Column="5" Width="56" VerticalAlignment="Center" Text="{Binding Velocity}" Watermark="1.0" ToolTip.Tip="0..1" />
                   </Grid>
                 </DataTemplate>
               </ListBox.ItemTemplate>
@@ -158,7 +159,7 @@
           <Grid RowDefinitions="Auto,*" RowSpacing="10">
             <TextBlock Grid.Row="0" Classes="title" Text="RESULT" />
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
 
             <!-- Stat tiles -->
             <ItemsControl Grid.Row="0" ItemsSource="{Binding Stats}">
@@ -194,7 +195,18 @@
             </ItemsControl>
 
             <!-- Modulation matrix -->
-            <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
+
+            <!-- Keyboard: plays the best patch at any pitch; the target notes are marked -->
+            <StackPanel Grid.Row="2" Spacing="4" IsVisible="{Binding HasResult}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <TextBlock Grid.Column="0" Text="play the result" Classes="muted" FontSize="10" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="lower on a key = louder · amber dots = target notes" Classes="muted" FontSize="9" VerticalAlignment="Center" />
+              </Grid>
+              <local:PianoKeyboard x:Name="Keyboard" Height="92" LowestNote="36" Octaves="4" MarkedNotes="{Binding TargetNotes}" NotePressed="OnNotePressed" />
+              <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
+            </StackPanel>
+            <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
               <StackPanel Grid.Column="0">
                 <TextBlock Text="modulation matrix" Classes="muted" FontSize="10" Margin="0,0,0,4" />
                 <Grid ColumnDefinitions="30,Auto" RowDefinitions="Auto,Auto">
@@ -232,7 +244,7 @@
               </StackPanel>
               <TextBox Grid.Column="1" Classes="mono" Text="{Binding ResultSummary}" FontSize="11" MinHeight="260" />
             </Grid>
-            <TextBlock Grid.Row="3" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
+            <TextBlock Grid.Row="4" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
             </Grid>
             </ScrollViewer>
           </Grid>
