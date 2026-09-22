@@ -2,7 +2,9 @@ using HearSay.Analysis;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.SuperCollider.FM7;
+using HearSay.SuperCollider.FMX6;
 using HearSay.Synthesis.Fm7Compatible.Rendering;
+using HearSay.Synthesis.Fmx6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -143,6 +145,39 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
         PatchMatchResult fm7 = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { EvaluationBudget = 1500 });
         Assert.All(fm7.AlternativePatches, static c => Assert.All(c.Patch.Operators, static o => Assert.Equal(OperatorWaveform.Sine, o.Waveform)));
         Assert.NotNull(new SuperColliderFm7Exporter().Export(fm7.BestPatch));
+    }
+
+    [Fact]
+    public void Fmx6Profile_FindsBandLimitedOperatorsThatFm7CannotPlay()
+    {
+        // Target made with a saw operator under a little modulation, rendered by the FMX6-compatible renderer.
+        SynthesisProfile profile = SynthesisProfiles.SuperColliderFmx6;
+        var fmx6 = new Fmx6CompatibleOperatorMatrixRenderer();
+        OperatorMatrixPatch hidden = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.005, 0.3, 0.7, 0.2)) with { Waveform = OperatorWaveform.Saw, HarmonicLimit = 48 })
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2), OperatorEnvelope.Adsr(0.005, 0.4, 0.5, 0.2)))
+            .WithOutputLevel(0, 0.8)
+            .WithEdge(new ModulationEdge(1, 0, true, 0.3));
+        RenderedAudio audio = fmx6.Render(hidden, RenderRequest.Create(196, 0.7, 0.25));
+        var target = new AudioTarget(audio.Samples, audio.SampleRate, 196.0);
+
+        PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { SynthesisProfile = profile, EvaluationBudget = 3000 });
+
+        output.WriteLine($"best: {result.AlternativePatches[0].Regime} ({result.AlternativePatches[0].AudioLoss:F4})");
+        Assert.Same(profile, result.Profile);
+        Assert.Contains(result.BestPatch.Operators, static o => o.Enabled && o.Waveform != OperatorWaveform.Sine);
+        Assert.All(result.AlternativePatches, static c => Assert.All(c.Patch.Operators, static o => Assert.Contains(o.Waveform, SynthesisProfiles.SuperColliderFmx6.Capabilities.SupportedWaveforms)));
+
+        // FMX6 exports it, FM7 refuses it; the FMX6 exporter is what the facade hands out for this profile.
+        Assert.IsType<SuperColliderFmx6Exporter>(SynthesisBackends.ExporterFor(profile));
+        string scd = SynthesisBackends.ExporterFor(profile)!.Export(result.BestPatch);
+        Assert.Contains("FMX6.ar(ctlMatrix, modMatrix,", scd);
+        Assert.Throws<PatchNotSupportedException>(() => new SuperColliderFm7Exporter().Export(result.BestPatch));
+        Assert.Throws<PatchNotSupportedException>(() => Renderer.Render(result.BestPatch, RenderRequest.Create(196, 0.2, 0.1)));
+
+        // Every FM7 patch is an FMX6 patch: the sine-only search of the same target exports to both.
+        PatchMatchResult fm7 = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { EvaluationBudget = 1500 });
+        Assert.Contains("waves: [0, 0, 0, 0, 0, 0]", new SuperColliderFmx6Exporter().Export(fm7.BestPatch));
     }
 
     [Fact]

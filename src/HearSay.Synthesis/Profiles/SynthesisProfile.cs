@@ -101,6 +101,30 @@ public static class SynthesisProfiles
         "Six sine phase-modulation operators, full 6x6 matrix, SuperCollider FM7 UGen.");
 
     /// <summary>
+    /// Six phase-modulation operators with selectable waveforms, as played by the <c>FMX6</c> UGen
+    /// (https://github.com/shimpe/fmx6): sine, band-limited triangle, saw, square and pulse, white and
+    /// sample-and-hold noise, over the same full matrix as FM7.
+    /// </summary>
+    public static SynthesisProfile SuperColliderFmx6 { get; } = new(
+        "supercollider-fmx6",
+        SuperColliderFm7.Capabilities with
+        {
+            SupportedWaveforms = new HashSet<OperatorWaveform>
+            {
+                OperatorWaveform.Sine,
+                OperatorWaveform.Triangle,
+                OperatorWaveform.Saw,
+                OperatorWaveform.Square,
+                OperatorWaveform.Pulse,
+                OperatorWaveform.Noise,
+                OperatorWaveform.SampleHoldNoise,
+            },
+        },
+        RenderProfile.BackendExact,
+        ControlBlockSize: 64,
+        "Six operators with sine, triangle, saw, square, pulse and noise waveforms, full 6x6 matrix, SuperCollider FMX6 UGen.");
+
+    /// <summary>
     /// Experimental profile that adds triangle operators. It exists to prove that waveform is a structural search
     /// dimension and that backends reject what they cannot play; it has no export backend yet.
     /// </summary>
@@ -129,7 +153,7 @@ public static class SynthesisProfiles
         "Reserved: six operators with arbitrary waveforms for a future custom UGen.");
 
     /// <summary>All built-in profiles.</summary>
-    public static IReadOnlyList<SynthesisProfile> All { get; } = [SuperColliderFm7, ExperimentalSineTriangle, HearSayExtended];
+    public static IReadOnlyList<SynthesisProfile> All { get; } = [SuperColliderFm7, SuperColliderFmx6, ExperimentalSineTriangle, HearSayExtended];
 
     /// <summary>Finds a built-in profile by name, ignoring case; null when unknown.</summary>
     /// <param name="name">Profile name.</param>

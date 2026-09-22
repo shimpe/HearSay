@@ -33,8 +33,11 @@ public enum OperatorWaveform
     /// <summary>Pulse wave with variable width.</summary>
     Pulse,
 
-    /// <summary>Noise source.</summary>
+    /// <summary>White noise; phase modulation has no effect on it, but it can modulate other operators.</summary>
     Noise,
+
+    /// <summary>Sample-and-hold noise: a random value held for every cycle of the operator frequency.</summary>
+    SampleHoldNoise,
 
     /// <summary>Sum of harmonics with individual levels.</summary>
     Additive,
@@ -119,6 +122,7 @@ public sealed record KeyScaling(double LevelDbPerOctave = 0.0, double RatePerOct
 /// 0..1. The operator amplitude is multiplied by <c>1 - sensitivity + sensitivity * velocity</c>.
 /// </param>
 /// <param name="KeyScaling">Level and rate scaling along the keyboard.</param>
+/// <remarks>Waveform, <see cref="Shape"/> and <see cref="HarmonicLimit"/> only matter to backends that implement more than sine operators.</remarks>
 public sealed record OperatorPatch(
     bool Enabled,
     OperatorMode Mode,
@@ -131,6 +135,12 @@ public sealed record OperatorPatch(
     double VelocitySensitivity,
     KeyScaling KeyScaling)
 {
+    /// <summary>Waveform shape parameter, 0.01..0.99. For <see cref="OperatorWaveform.Pulse"/> it is the duty cycle; other waveforms ignore it.</summary>
+    public double Shape { get; init; } = 0.5;
+
+    /// <summary>Largest number of harmonics a band-limited non-sine waveform is built from, 1..128; sine and noise ignore it.</summary>
+    public int HarmonicLimit { get; init; } = 32;
+
     /// <summary>A disabled sine phase-modulation operator at ratio 1.</summary>
     public static OperatorPatch Disabled { get; } = new(
         Enabled: false,

@@ -28,7 +28,9 @@ loop that finds synth parameters, backed by a runnable sample. This README is th
 **HearSay can also close the loop by itself.** Given a monophonic target note it searches a playable six-operator
 phase-modulation patch that approximates it, renders a preview offline and exports a SuperCollider `FM7` SynthDef:
 `target.wav → patch.json + preview.wav + patch.scd`. The architecture is a generic *operator-matrix synth* solver;
-FM7 is its first synthesis profile. See [Patch matching](#patch-matching) and the full
+FM7 is its first synthesis profile, and the [FMX6 UGen](https://github.com/shimpe/fmx6) with band-limited
+triangle, saw, square, pulse and noise operators is the second (`--profile supercollider-fmx6`, or the target
+selector in HearSay Studio). See [Patch matching](#patch-matching) and the full
 [patch-matching documentation](docs/patch-matching.md).
 
 ## Contents

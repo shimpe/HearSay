@@ -190,6 +190,16 @@ public sealed record OperatorMatrixPatch(
                 problems.Add($"OP{i + 1} needs a fixed frequency of zero or more.");
             }
 
+            if (op.Shape is < 0.01 or > 0.99 || !double.IsFinite(op.Shape))
+            {
+                problems.Add($"OP{i + 1} shape must be between 0.01 and 0.99.");
+            }
+
+            if (op.HarmonicLimit is < 1 or > 128)
+            {
+                problems.Add($"OP{i + 1} harmonic limit must be between 1 and 128.");
+            }
+
             if (op.VelocitySensitivity is < 0 or > 1 || !double.IsFinite(op.VelocitySensitivity))
             {
                 problems.Add($"OP{i + 1} velocity sensitivity must be between 0 and 1.");

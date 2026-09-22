@@ -112,7 +112,8 @@ src/
       Rendering/                 IOperatorMatrixRenderer, RenderRequest, ExtendedOperatorMatrixRenderer
       Compilation/ Envelopes/ Oscillators/ Export/
   HearSay.Synthesis.Fm7Compatible/   reference renderer with FM7 semantics
-  HearSay.SuperCollider/         FM7 exporter, SuperCollider NRT renderer, backend-equivalence validation
+  HearSay.Synthesis.Fmx6Compatible/  reference renderer with FMX6 semantics (band-limited waveforms, noise)
+  HearSay.SuperCollider/         FM7 and FMX6 exporters, SuperCollider NRT renderer, backend-equivalence validation
   HearSay.OperatorMatrix/        which synthesis structure and parameters should be explored?
       Parameters/                schema, hierarchy, conditional activity, transforms, ties, active sets
       Canonicalization/          regime keys, canonical operator order, complexity
@@ -206,7 +207,8 @@ public sealed record SynthesisCapabilities(
 | Profile | Operators | Modes | Waveforms | Status |
 | --- | --- | --- | --- | --- |
 | `SynthesisProfiles.SuperColliderFm7` (`supercollider-fm7`) | exactly 6 | PhaseModulation | Sine | searchable, exportable; full matrix, self and circular feedback, ratio and fixed, independent outputs, dynamic matrix, backend-exact rendering |
-| `SynthesisProfiles.ExperimentalSineTriangle` | 6 | PhaseModulation | Sine, Triangle | searchable with the extended renderer, no export backend; exists to prove the architecture |
+| `SynthesisProfiles.SuperColliderFmx6` (`supercollider-fmx6`) | exactly 6 | PhaseModulation | Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise | searchable, exportable; everything FM7 has, plus band-limited waveforms with a harmonic limit, a pulse duty cycle (`Shape`) and two noise sources; needs the [FMX6 plugin](https://github.com/shimpe/fmx6) |
+| `SynthesisProfiles.ExperimentalSineTriangle` | 6 | PhaseModulation | Sine, Triangle | searchable with the extended renderer; no export backend, because that renderer is not backend-exact (FMX6 could play its patches, but not with the same anti-aliasing); exists to prove the architecture |
 | `SynthesisProfiles.HearSayExtended` | 6 | PhaseModulation | all | reserved for a future engine; no renderer yet, so the matcher refuses it |
 
 Three mechanisms keep a search inside its profile:
@@ -256,7 +258,14 @@ allocations, LINQ, dictionaries and virtual calls.
 
 ## SuperCollider export
 
-`SuperColliderFm7Exporter` (an `IPatchExporter`) writes a self-contained SynthDef. It uses the full matrix interface
+Two exporters share one base, `SuperColliderOperatorMatrixExporter`: `SuperColliderFm7Exporter` for the `FM7` UGen of
+the sc3-plugins and `SuperColliderFmx6Exporter` for the [FMX6 UGen](https://github.com/shimpe/fmx6). Both are
+`IPatchExporter`s and `ISynthDefExporter`s; the profile of a search decides which one `SynthesisBackends.ExporterFor`
+hands out. The SynthDefs differ in one statement only: FMX6 takes three extra arrays, `waves:` (0 sine, 1 triangle,
+2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise), `shapes:` (pulse duty cycle) and
+`harmonicLimits:`, one entry per operator. FMX6 plays every FM7 patch; FM7 refuses a patch with any other waveform.
+
+`SuperColliderFm7Exporter` writes a self-contained SynthDef. It uses the full matrix interface
 `FM7.ar(ctlMatrix, modMatrix)`, never `FM7.arAlgo`. What was verified on the installed UGen before writing it:
 
 | Question | Answer |
@@ -735,10 +744,21 @@ These are constraints of the synthesis profile, not of the architecture. Further
 - Matching is an approximation. Expect a good structural and temporal likeness rather than a clone, especially for
   targets that were not made by phase modulation.
 
-## How a future custom UGen plugs in
+## How a custom UGen plugs in: FMX6
 
-A backend such as `HearSayOperatorMatrix.ar(...)` with arbitrary waveforms, its own anti-aliasing and new operator
-modes needs:
+The [FMX6 UGen](https://github.com/shimpe/fmx6) is FM7 with a waveform, a shape and a harmonic limit per operator:
+band-limited triangle, saw, square and pulse as additive Fourier series whose harmonic count follows the instantaneous
+frequency (including the phase modulation) so that nothing lands above 45 % of the sample rate, plus white noise and
+sample-and-hold noise from a deterministic xorshift generator seeded by operator slot. It plugged in as described
+below: a profile (`supercollider-fmx6`), the `Fmx6CompatibleOperatorMatrixRenderer` (a port of the UGen's inner loop,
+without FM7's warm-up sample), the `SuperColliderFmx6Exporter`, and a `.shape` parameter in the schema that is active
+for pulse operators. The waveform-variant prior provider seeds every waveform for the output operators; the topology
+mutator swaps waveforms during the search. The random-patch equivalence test runs against the real UGen: patches
+without feedback loops are sample-exact; looped ones part ways a little sooner than with sine operators, because a
+one-ulp difference in a control signal can change the harmonic count of a sample, but stay the same sound. Search it
+from the CLI with `--profile supercollider-fmx6` or pick **FMX6** as the target in HearSay Studio.
+
+A backend with other waveforms, its own anti-aliasing or new operator modes needs:
 
 1. **A profile**: a `SynthesisProfile` whose capabilities list its waveforms and modes.
 2. **A renderer** implementing `IOperatorMatrixRenderer` for those capabilities. The generic equation

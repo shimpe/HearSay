@@ -5,8 +5,10 @@ using HearSay.Models;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.SuperCollider.FM7;
+using HearSay.SuperCollider.FMX6;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Fm7Compatible.Rendering;
+using HearSay.Synthesis.Fmx6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -30,6 +32,11 @@ public static class SynthesisBackends
             return new Fm7CompatibleOperatorMatrixRenderer(profile);
         }
 
+        if (profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderFmx6.Capabilities))
+        {
+            return new Fmx6CompatibleOperatorMatrixRenderer(profile);
+        }
+
         if (profile.RenderProfile == RenderProfile.ExperimentalHighQuality
             && profile.Capabilities.IsSubsetOf(SynthesisProfiles.ExperimentalSineTriangle.Capabilities))
         {
@@ -48,12 +55,25 @@ public static class SynthesisBackends
         return profile.Capabilities.SupportedWaveforms.Count > 1 ? [new WaveformVariantPriorProvider(sine)] : [sine];
     }
 
-    /// <summary>Exporter of a profile; null when the profile has no export backend.</summary>
+    /// <summary>
+    /// Exporter of a profile; null when the profile has no export backend. Only a profile that is rendered
+    /// backend-exact gets one: what was heard during the search is then what the export plays.
+    /// </summary>
     /// <param name="profile">Synthesis profile.</param>
     public static IPatchExporter? ExporterFor(SynthesisProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        return profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderFm7.Capabilities) ? new SuperColliderFm7Exporter() : null;
+        if (profile.RenderProfile != RenderProfile.BackendExact)
+        {
+            return null;
+        }
+
+        if (profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderFm7.Capabilities))
+        {
+            return new SuperColliderFm7Exporter();
+        }
+
+        return profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderFmx6.Capabilities) ? new SuperColliderFmx6Exporter() : null;
     }
 }
 

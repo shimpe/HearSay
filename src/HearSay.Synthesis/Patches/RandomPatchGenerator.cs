@@ -89,6 +89,10 @@ public sealed class RandomPatchGenerator
                 RandomEnvelope(random),
                 VelocitySensitivity: Math.Round(random.NextDouble() * 0.8, 2),
                 KeyScaling.None);
+            if (operators[i].Waveform == OperatorWaveform.Pulse)
+            {
+                operators[i] = operators[i] with { Shape = Math.Round(0.1 + (random.NextDouble() * 0.8), 2) };
+            }
         }
 
         // The first operator is always heard; others feed the output with decreasing probability.

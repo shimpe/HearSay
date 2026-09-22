@@ -37,3 +37,18 @@ public sealed class IntensityToForegroundConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
 }
+
+/// <summary>Short label of a synthesis profile for the target selector: <c>supercollider-fmx6</c> becomes <c>FMX6</c>.</summary>
+public sealed class ProfileNameConverter : IValueConverter
+{
+    public static ProfileNameConverter Instance { get; } = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        string name = value as string ?? string.Empty;
+        int dash = name.LastIndexOf('-');
+        return (dash >= 0 ? name[(dash + 1)..] : name).ToUpperInvariant();
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}

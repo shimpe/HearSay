@@ -79,6 +79,11 @@ public sealed class PatchParameterSchema
             list.Add(Structural(id + ".enabled", group, [0, 1], p => p.Operators[op].Enabled ? 1 : 0, (p, v) => p.WithOperator(op, p.Operators[op] with { Enabled = v >= 0.5 }), static _ => true));
             list.Add(Structural(id + ".mode", group, modes, p => (int)p.Operators[op].Mode, (p, v) => p.WithOperator(op, p.Operators[op] with { Mode = (OperatorMode)(int)v }), Enabled));
             list.Add(Structural(id + ".waveform", group, waveforms, p => (int)p.Operators[op].Waveform, (p, v) => p.WithOperator(op, p.Operators[op] with { Waveform = (OperatorWaveform)(int)v }), Enabled));
+            if (capabilities.SupportedWaveforms.Contains(OperatorWaveform.Pulse))
+            {
+                // The duty cycle only shapes a pulse; the other waveforms ignore it.
+                list.Add(Smooth(id + ".shape", group, 0.01, 0.99, ParameterTransforms.Linear, p => p.Operators[op].Shape, (p, v) => p.WithOperator(op, p.Operators[op] with { Shape = v }), p => Audible(p) && p.Operators[op].Waveform == OperatorWaveform.Pulse));
+            }
 
             string frequency = group + "/Frequency";
             list.Add(Structural(id + ".frequency.mode", frequency, [.. frequencyModes], p => (int)p.Operators[op].Frequency.Mode, (p, v) => p.WithOperator(op, p.Operators[op] with { Frequency = p.Operators[op].Frequency with { Mode = (OperatorFrequencyMode)(int)v } }), Enabled));

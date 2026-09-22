@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../HearSay.Synthesis/HearSay.Synthesis.csproj" />
+    <ProjectReference Include="../HearSay.Synthesis.Fmx6Compatible/HearSay.Synthesis.Fmx6Compatible.csproj" />
   </ItemGroup>
 
   <ItemGroup>

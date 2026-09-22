@@ -7,6 +7,7 @@ using HearSay.Analysis;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
+using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
 
 namespace HearSay.Studio;
@@ -125,6 +126,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _budget = 20000;
     private int _seed = 1234;
     private int _seeds = 1;
+    private SynthesisProfile _selectedProfile = SynthesisProfiles.SuperColliderFm7;
     private bool _isRunning;
     private double _progress;
     private string _status = "Add one or more WAV files with a single dry note each. Several notes of the same sound at different pitches make key scaling and fixed-frequency operators searchable.";
@@ -193,6 +195,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _seeds;
         set => Set(ref _seeds, Math.Clamp(value, 1, 16));
+    }
+
+    /// <summary>Synthesis targets that can be searched and exported: the SuperCollider FM7 and FMX6 UGens.</summary>
+    public IReadOnlyList<SynthesisProfile> Profiles { get; } = [SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderFmx6];
+
+    /// <summary>Profile of the next search; FM7 has sine operators only, FMX6 adds band-limited waveforms and noise.</summary>
+    public SynthesisProfile SelectedProfile
+    {
+        get => _selectedProfile;
+        set => Set(ref _selectedProfile, value ?? SynthesisProfiles.SuperColliderFm7);
     }
 
     /// <summary>True while a search runs.</summary>
@@ -299,7 +311,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Progress = 0;
         SetResult(null);
         _cancellation = new CancellationTokenSource();
-        var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed };
+        var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = SelectedProfile };
         var progress = new Progress<SearchProgress>(p =>
         {
             Progress = p.Fraction;

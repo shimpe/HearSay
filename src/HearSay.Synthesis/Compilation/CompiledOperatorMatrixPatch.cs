@@ -22,6 +22,8 @@ public sealed class CompiledOperatorMatrixPatch
         float[][] frequencies,
         float[][] amplitudes,
         float[] phases,
+        float[] shapes,
+        int[] harmonicLimits,
         float[] outputGains,
         int[] edgeSources,
         int[] edgeDestinations,
@@ -36,6 +38,8 @@ public sealed class CompiledOperatorMatrixPatch
         Frequencies = frequencies;
         Amplitudes = amplitudes;
         Phases = phases;
+        Shapes = shapes;
+        HarmonicLimits = harmonicLimits;
         OutputGains = outputGains;
         EdgeSources = edgeSources;
         EdgeDestinations = edgeDestinations;
@@ -74,6 +78,12 @@ public sealed class CompiledOperatorMatrixPatch
 
     /// <summary>Phase offset in radians per audible operator.</summary>
     public float[] Phases { get; }
+
+    /// <summary>Waveform shape per audible operator (pulse duty cycle).</summary>
+    public float[] Shapes { get; }
+
+    /// <summary>Harmonic limit per audible operator.</summary>
+    public int[] HarmonicLimits { get; }
 
     /// <summary>Linear output gain per audible operator.</summary>
     public float[] OutputGains { get; }
@@ -137,12 +147,16 @@ public static class PatchCompiler
         var frequencies = new float[n][];
         var amplitudes = new float[n][];
         var phases = new float[n];
+        var shapes = new float[n];
+        var harmonicLimits = new int[n];
         var gains = new float[n];
         for (int k = 0; k < n; k++)
         {
             OperatorPatch op = patch.Operators[indices[k]];
             waveforms[k] = op.Waveform;
             phases[k] = (float)op.InitialPhase;
+            shapes[k] = (float)op.Shape;
+            harmonicLimits[k] = op.HarmonicLimit;
             gains[k] = (float)patch.OutputLevels[indices[k]];
 
             if (op.Frequency.Mode == OperatorFrequencyMode.Fixed || pitchRatio is null)
@@ -196,6 +210,8 @@ public static class PatchCompiler
             frequencies,
             amplitudes,
             phases,
+            shapes,
+            harmonicLimits,
             gains,
             [.. sources],
             [.. destinations],

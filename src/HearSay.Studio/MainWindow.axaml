@@ -97,27 +97,55 @@
           <GradientStop Offset="1" Color="#0F172A" />
         </LinearGradientBrush>
       </Border.Background>
-      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
           <Border Width="36" Height="36" CornerRadius="18" Background="{StaticResource AccentBrush}">
             <TextBlock Text="♪" FontSize="20" Foreground="#0F172A" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
           <StackPanel>
             <TextBlock Text="HearSay Studio" FontSize="20" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" />
-            <TextBlock Text="audio → six-operator patch → SuperCollider FM7" Classes="muted" FontSize="12" />
+            <TextBlock Text="audio → six-operator patch → SuperCollider FM7 or FMX6" Classes="muted" FontSize="12" />
           </StackPanel>
         </StackPanel>
         <!-- Options and run -->
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-          <TextBlock Classes="label" Text="Budget" ToolTip.Tip="Candidate evaluations; one evaluation renders every target note" />
-          <NumericUpDown Width="150" Minimum="200" Maximum="1000000" Increment="1000" FormatString="0" Value="{Binding Budget}" IsEnabled="{Binding !IsRunning}" />
-          <TextBlock Classes="label" Text="Seed" />
-          <NumericUpDown Width="150" Minimum="0" Maximum="2147483647" Increment="1" FormatString="0" Value="{Binding Seed}" IsEnabled="{Binding !IsRunning}" />
-          <TextBlock Classes="label" Text="Seeds" ToolTip.Tip="Run this many seeds and keep the best" />
-          <NumericUpDown Width="100" Minimum="1" Maximum="16" Increment="1" FormatString="0" Value="{Binding Seeds}" IsEnabled="{Binding !IsRunning}" />
-          <Button Content="▶  Run search" Classes="primary" Command="{Binding RunCommand}" />
-          <Button Content="Stop" Command="{Binding CancelCommand}" />
-        </StackPanel>
+        <WrapPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+          <WrapPanel.Styles>
+            <Style Selector="WrapPanel > StackPanel">
+              <Setter Property="Margin" Value="0,3,10,3" />
+              <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+            <Style Selector="WrapPanel > StackPanel > :is(Control)">
+              <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+          </WrapPanel.Styles>
+          <!-- Each label stays with its control when the row wraps. -->
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Classes="label" Text="Target" ToolTip.Tip="SuperCollider UGen the patch is searched for and exported to. FM7 (sc3-plugins): sine operators. FMX6 (github.com/shimpe/fmx6): sine, triangle, saw, square, pulse and noise operators." />
+            <ComboBox Width="90" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" IsEnabled="{Binding !IsRunning}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Name, Converter={x:Static local:ProfileNameConverter.Instance}}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Classes="label" Text="Budget" ToolTip.Tip="Candidate evaluations; one evaluation renders every target note" />
+            <NumericUpDown Width="150" Minimum="200" Maximum="1000000" Increment="1000" FormatString="0" Value="{Binding Budget}" IsEnabled="{Binding !IsRunning}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Classes="label" Text="Seed" />
+            <NumericUpDown Width="150" Minimum="0" Maximum="2147483647" Increment="1" FormatString="0" Value="{Binding Seed}" IsEnabled="{Binding !IsRunning}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Classes="label" Text="Seeds" ToolTip.Tip="Run this many seeds and keep the best" />
+            <NumericUpDown Width="100" Minimum="1" Maximum="16" Increment="1" FormatString="0" Value="{Binding Seeds}" IsEnabled="{Binding !IsRunning}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Content="▶  Run search" Classes="primary" Command="{Binding RunCommand}" />
+            <Button Content="Stop" Command="{Binding CancelCommand}" />
+          </StackPanel>
+        </WrapPanel>
       </Grid>
     </Border>
 

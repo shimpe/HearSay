@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HearSay.Synthesis.Fmx6Compatible</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.2.0</Version>
+    <Description>Offline reference renderer that reproduces the discrete-time behaviour of the SuperCollider FMX6 UGen: six operators with selectable waveforms.</Description>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HearSay.Synthesis/HearSay.Synthesis.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HearSay.Synthesis.Fmx6Compatible.Tests" />
+    <InternalsVisibleTo Include="HearSay.IntegrationTests" />
+    <InternalsVisibleTo Include="HearSay.Benchmarks" />
+  </ItemGroup>
+
+</Project>

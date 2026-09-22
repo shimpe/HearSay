@@ -12,26 +12,40 @@ namespace HearSay.SuperCollider.Validation;
 /// <summary>
 /// Renders patches with a real SuperCollider: the exported SynthDef is played by scsynth in non-realtime mode and the
 /// resulting file is read back. Slow (a second or two per batch) and meant for validating the export mapping, not for
-/// searching. Needs SuperCollider with sc3-plugins.
+/// searching. Needs SuperCollider with the plugin of the exporter: sc3-plugins for FM7, the FMX6 plugin for FMX6.
 /// </summary>
 public sealed class SuperColliderFm7Renderer : IOperatorMatrixRenderer
 {
     private readonly SuperColliderInstallation _installation;
-    private readonly SuperColliderFm7Exporter _exporter = new();
+    private readonly ISynthDefExporter _exporter;
+    private readonly SynthesisCapabilities _capabilities;
 
-    /// <summary>Creates a renderer that uses the given installation.</summary>
+    /// <summary>Creates a renderer for the FM7 UGen that uses the given installation.</summary>
     /// <param name="installation">SuperCollider installation.</param>
     public SuperColliderFm7Renderer(SuperColliderInstallation installation)
+        : this(installation, new SuperColliderFm7Exporter(), SynthesisProfiles.SuperColliderFm7.Capabilities)
+    {
+    }
+
+    /// <summary>Creates a renderer that plays the SynthDefs of any exporter, for example the FMX6 one.</summary>
+    /// <param name="installation">SuperCollider installation.</param>
+    /// <param name="exporter">Exporter that writes the SynthDef; its block size is used for the render.</param>
+    /// <param name="capabilities">What the UGen of the exporter can play.</param>
+    public SuperColliderFm7Renderer(SuperColliderInstallation installation, ISynthDefExporter exporter, SynthesisCapabilities capabilities)
     {
         ArgumentNullException.ThrowIfNull(installation);
         _installation = installation;
+        ArgumentNullException.ThrowIfNull(exporter);
+        ArgumentNullException.ThrowIfNull(capabilities);
+        _exporter = exporter;
+        _capabilities = capabilities;
     }
 
     /// <summary>Longest time one sclang run may take.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(5);
 
     /// <inheritdoc />
-    public SynthesisCapabilities Capabilities => SynthesisProfiles.SuperColliderFm7.Capabilities;
+    public SynthesisCapabilities Capabilities => _capabilities;
 
     /// <inheritdoc />
     public RenderProfile RenderProfile => RenderProfile.BackendExact;
@@ -84,7 +98,7 @@ public sealed class SuperColliderFm7Renderer : IOperatorMatrixRenderer
             script.Append("\t\t]);\n");
             script.Append("\t\tscore.recordNRT(job[1], job[2], sampleRate: job[7], headerFormat: \"WAV\", sampleFormat: \"float\",\n");
             script.Append("\t\t\toptions: ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0).blockSize_(");
-            script.Append(SynthesisProfiles.SuperColliderFm7.ControlBlockSize.ToString(CultureInfo.InvariantCulture));
+            script.Append(_exporter.ControlBlockSize.ToString(CultureInfo.InvariantCulture));
             script.Append("),\n\t\t\taction: { run.(i + 1) });\n");
             script.Append("\t}\n};\nrun.(0);\n)\n");
 
@@ -98,7 +112,7 @@ public sealed class SuperColliderFm7Renderer : IOperatorMatrixRenderer
                 string wav = Path.Combine(directory, $"job{i}.wav");
                 if (!File.Exists(wav))
                 {
-                    throw new InvalidOperationException($"SuperCollider did not render job {i}. Is sc3-plugins (FM7) installed? Output:{Environment.NewLine}{log}");
+                    throw new InvalidOperationException($"SuperCollider did not render job {i}. Is the plugin of the UGen installed? Output:{Environment.NewLine}{log}");
                 }
 
                 AudioNote note = WavFile.Read(wav, WavChannelMode.SingleChannel, channelIndex: 0);
