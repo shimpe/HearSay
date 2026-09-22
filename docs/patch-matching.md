@@ -697,15 +697,19 @@ same budget (4000 evaluations) and seed. Audio loss of the best patch, lower is 
 
 | Target | FM7 | FMX6 | FMX6 structure found |
 | --- | --- | --- | --- |
-| saw (48 harmonics) | 0.167 | 0.059 | saw carrier, two sine modulators |
+| saw (48 harmonics) | 0.167 | 0.054 | saw carrier, two sine modulators |
 | square | 0.179 | 0.036 | square carrier, two sine modulators at 2 |
 | pulse, duty 0.2 | 0.292 | 0.079 | one pulse operator |
 | saw lightly modulated by a sine at 2 | 0.157 | 0.052 | one saw operator |
-| sine modulated by sample-and-hold noise | 0.059 | 0.032 | sine stack (no noise operator) |
-| sine with a white-noise burst | 0.078 | 0.106 | sine stack (no noise operator) |
+| sine modulated by sample-and-hold noise | 0.059 | 0.025 | sine with a sample-and-hold noise modulator |
+| sine with a white-noise burst | 0.078 | 0.057 | sine with a parallel white-noise burst, one sine modulator |
 
-Band-limited targets are matched with the right waveform through the harmonic-waveform prior; the noise targets are
-not (see the limitations).
+Every target is matched with the waveform that made it. The band-limited ones come from the harmonic-waveform
+prior; the noise ones from its noise hypotheses (a noise modulator and a parallel burst at several burst lengths and
+levels) together with the basin selection after the survivor round, which keeps the best basin of every structural
+family, and a family includes the waveforms in use. Noise never matches sample by sample: the search never sees the
+noise sequence of the target, so the correct structure with another sequence scores about 0.08 on the white-noise
+burst, and the objective judges it by spectrum and envelope.
 
 ## Performance
 
@@ -760,9 +764,9 @@ These are constraints of the synthesis profile, not of the architecture. Further
   sample by sample. The equivalence tests therefore judge such patches by distance, not by sample difference.
 - Matching is an approximation. Expect a good structural and temporal likeness rather than a clone, especially for
   targets that were not made by phase modulation.
-- Noise operators of the FMX6 profile are proposed (a noise modulator and a parallel noise burst) and win the coarse
-  screening of a noisy target, but the short survivor optimization that follows tends to drop their basins in favour
-  of sine structures whose loss falls faster. A noisy target is therefore usually matched without a noise operator.
+- Noise is matched by spectrum and envelope, never by waveform: the objective is sensitive to the noise sequence, so
+  even the correct noise structure keeps a loss floor (about 0.08 on a white-noise burst). Within that floor the
+  search does find the noise operator (see the FMX6 results above).
 
 ## How a custom UGen plugs in: FMX6
 
@@ -775,9 +779,9 @@ without FM7's warm-up sample), the `SuperColliderFmx6Exporter`, and a `.shape` p
 for pulse operators. Two prior providers seed the waveforms: the waveform-variant provider re-colours the output
 operators of the sine hypotheses, and `HarmonicWaveformPriorProvider` reads the partial cloud (all harmonics falling
 as 1/n: saw; odd ones only: square or triangle; the notches of a duty cycle: pulse) and proposes the matching
-waveform alone at the fundamental with several harmonic limits, then with a light sine modulator, plus two fixed noise
-hypotheses. The topology mutator swaps waveforms and halves or doubles the harmonic limit of a band-limited operator
-during the search. The random-patch equivalence test runs against the real UGen: patches
+waveform alone at the fundamental with several harmonic limits, then with a light sine modulator, plus noise
+hypotheses (a noise modulator and a parallel noise burst, at several burst lengths and levels). The topology mutator
+swaps waveforms and halves or doubles the harmonic limit of a band-limited operator during the search. The random-patch equivalence test runs against the real UGen: patches
 without feedback loops are sample-exact; looped ones part ways a little sooner than with sine operators, because a
 one-ulp difference in a control signal can change the harmonic count of a sample, but stay the same sound. Search it
 from the CLI with `--profile supercollider-fmx6` or pick **FMX6** as the target in HearSay Studio.

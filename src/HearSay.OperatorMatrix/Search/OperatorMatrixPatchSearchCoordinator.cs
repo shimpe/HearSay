@@ -708,7 +708,11 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         }
 
         bool feedback = patch.ModulationMatrix.Edges.Any(e => e.Enabled && e.Amount != 0.0 && audible[e.SourceOperator] && audible[e.DestinationOperator] && e.SourceOperator <= e.DestinationOperator);
-        return $"{heard}/{shaping}/{(feedback ? "fb" : "ff")}";
+
+        // The waveforms in use are part of the family: a structure with a noise or saw operator starts from a
+        // different place than the same routing with sines, and needs its own chance.
+        string waveforms = string.Join(",", patch.Operators.Where((o, i) => audible[i]).Select(static o => o.Waveform).Distinct().Order());
+        return $"{heard}/{shaping}/{(feedback ? "fb" : "ff")}/{waveforms}";
     }
 
     private static bool SameFrequencies(OperatorMatrixPatch a, OperatorMatrixPatch b)

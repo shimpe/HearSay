@@ -181,6 +181,30 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Fmx6Profile_MatchesANoiseBurstWithANoiseOperator()
+    {
+        // A sine with a short white-noise burst at the attack, rendered by the FMX6-compatible renderer. The search
+        // never sees the same noise sequence: the operator that made the target sits in another slot than the one a
+        // canonical patch will use, so this is a test of structure, not of a lucky realization.
+        SynthesisProfile profile = SynthesisProfiles.SuperColliderFmx6;
+        var fmx6 = new Fmx6CompatibleOperatorMatrixRenderer();
+        OperatorMatrixPatch hidden = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.005, 0.5, 0.0, 0.2)))
+            .WithOperator(4, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.001, 0.08, 0.0, 0.05)) with { Waveform = OperatorWaveform.Noise })
+            .WithOutputLevel(0, 0.7)
+            .WithOutputLevel(4, 0.4);
+        RenderedAudio audio = fmx6.Render(hidden, RenderRequest.Create(196, 0.7, 0.25));
+        var target = new AudioTarget(audio.Samples, audio.SampleRate, 196.0);
+
+        PatchMatchResult fmx6Result = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { SynthesisProfile = profile, EvaluationBudget = 3000 });
+        PatchMatchResult fm7Result = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { EvaluationBudget = 3000 });
+
+        output.WriteLine($"FMX6 best: {fmx6Result.AlternativePatches[0].Regime} ({fmx6Result.AlternativePatches[0].AudioLoss:F4}); FM7 best: {fm7Result.AlternativePatches[0].Regime} ({fm7Result.AlternativePatches[0].AudioLoss:F4})");
+        Assert.Contains(fmx6Result.BestPatch.Operators, static o => o.Enabled && o.Waveform is OperatorWaveform.Noise or OperatorWaveform.SampleHoldNoise);
+        Assert.True(fmx6Result.AlternativePatches[0].AudioLoss < fm7Result.AlternativePatches[0].AudioLoss, "a noise operator should beat the sine-only match of a noise burst");
+    }
+
+    [Fact]
     public void ResultWriter_ProducesTheDocumentedFolder()
     {
         string directory = Path.Combine(Path.GetTempPath(), "hearsay-test-" + Guid.NewGuid().ToString("N"));

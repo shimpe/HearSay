@@ -113,21 +113,38 @@ public sealed class HarmonicWaveformPriorProvider : ISynthesisPriorProvider
                 }
 
                 string name = noise == OperatorWaveform.Noise ? "white noise" : "sample-and-hold noise";
-                OperatorPatch noiseOp = OperatorPatch.Sine(OperatorFrequency.AtRatio(noise == OperatorWaveform.Noise ? 1.0 : 7.0), brightness) with { Waveform = noise };
-                OperatorMatrixPatch modulator = OperatorMatrixPatch.Silent(capabilities.OperatorCount)
-                    .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), output))
-                    .WithOperator(1, noiseOp)
-                    .WithOutputLevel(0, 0.8)
-                    .WithEdge(new ModulationEdge(1, 0, true, 1.0));
-                hypotheses.Add(new PatchHypothesis(modulator, 0.5, $"sine with {name} modulator"));
-                if (capabilities.SupportsIndependentOperatorOutputs)
+                double rate = noise == OperatorWaveform.Noise ? 1.0 : 7.0;
+                OperatorPatch sine = OperatorPatch.Sine(OperatorFrequency.AtRatio(1), output);
+
+                // The partial cloud says nothing about how long the noise lasts, so a few burst lengths are proposed
+                // next to the brightness envelope; screening decides.
+                var envelopes = new List<(string Name, OperatorEnvelope Envelope)> { ("brightness", brightness) };
+                foreach (double decay in new[] { 0.03, 0.1, 0.3 })
                 {
-                    OperatorMatrixPatch burst = OperatorMatrixPatch.Silent(capabilities.OperatorCount)
-                        .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), output))
+                    envelopes.Add((FormattableString.Invariant($"{decay:0.##} s burst"), OperatorEnvelope.Adsr(0.002, decay, 0.0, Math.Min(0.1, decay))));
+                }
+
+                foreach ((string envelopeName, OperatorEnvelope envelope) in envelopes)
+                {
+                    OperatorPatch noiseOp = OperatorPatch.Sine(OperatorFrequency.AtRatio(rate), envelope) with { Waveform = noise };
+                    OperatorMatrixPatch modulator = OperatorMatrixPatch.Silent(capabilities.OperatorCount)
+                        .WithOperator(0, sine)
                         .WithOperator(1, noiseOp)
                         .WithOutputLevel(0, 0.8)
-                        .WithOutputLevel(1, 0.3);
-                    hypotheses.Add(new PatchHypothesis(burst, 0.5, $"sine with parallel {name}"));
+                        .WithEdge(new ModulationEdge(1, 0, true, 1.0));
+                    hypotheses.Add(new PatchHypothesis(modulator, 0.5, $"sine with {name} modulator ({envelopeName})"));
+                    if (capabilities.SupportsIndependentOperatorOutputs)
+                    {
+                        foreach (double level in new[] { 0.15, 0.4 })
+                        {
+                            OperatorMatrixPatch burst = OperatorMatrixPatch.Silent(capabilities.OperatorCount)
+                                .WithOperator(0, sine)
+                                .WithOperator(1, noiseOp)
+                                .WithOutputLevel(0, 0.8)
+                                .WithOutputLevel(1, level);
+                            hypotheses.Add(new PatchHypothesis(burst, 0.5, FormattableString.Invariant($"sine with parallel {name} ({envelopeName}, level {level:0.##})")));
+                        }
+                    }
                 }
             }
         }
