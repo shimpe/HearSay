@@ -11,29 +11,32 @@ namespace HearSay.Studio;
 public sealed record KeyPress(int MidiNote, double Velocity);
 
 /// <summary>
-/// A piano keyboard drawn from <see cref="LowestNote"/> over <see cref="Octaves"/> octaves. Pressing a key raises
+/// A piano keyboard drawn from <see cref="LowestNote"/> to <see cref="HighestNote"/>. Pressing a key raises
 /// <see cref="NotePressed"/>; the pressed key is highlighted until the pointer is released.
 /// </summary>
 public sealed class PianoKeyboard : Control
 {
-    /// <summary>Lowest note of the keyboard, a C.</summary>
+    /// <summary>Lowest note of the keyboard, inclusive.</summary>
     public static readonly StyledProperty<int> LowestNoteProperty = AvaloniaProperty.Register<PianoKeyboard, int>(nameof(LowestNote), 48);
 
-    /// <summary>Number of octaves.</summary>
-    public static readonly StyledProperty<int> OctavesProperty = AvaloniaProperty.Register<PianoKeyboard, int>(nameof(Octaves), 3);
+    /// <summary>Highest note of the keyboard, inclusive.</summary>
+    public static readonly StyledProperty<int> HighestNoteProperty = AvaloniaProperty.Register<PianoKeyboard, int>(nameof(HighestNote), 84);
+
+    /// <summary>Width of a white key in pixels; the control asks for that width times the number of white keys.</summary>
+    public static readonly StyledProperty<double> WhiteKeyWidthProperty = AvaloniaProperty.Register<PianoKeyboard, double>(nameof(WhiteKeyWidth), 24.0);
 
     /// <summary>Notes to mark, for example the pitches of the target notes.</summary>
     public static readonly StyledProperty<IReadOnlyList<int>?> MarkedNotesProperty = AvaloniaProperty.Register<PianoKeyboard, IReadOnlyList<int>?>(nameof(MarkedNotes));
 
     private static readonly int[] WhiteOffsets = [0, 2, 4, 5, 7, 9, 11];
-    private static readonly int[] BlackOffsets = [1, 3, 6, 8, 10];
     private static readonly string[] Names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
     private int _pressed = -1;
 
     static PianoKeyboard()
     {
-        AffectsRender<PianoKeyboard>(LowestNoteProperty, OctavesProperty, MarkedNotesProperty);
+        AffectsRender<PianoKeyboard>(LowestNoteProperty, HighestNoteProperty, MarkedNotesProperty, WhiteKeyWidthProperty);
+        AffectsMeasure<PianoKeyboard>(LowestNoteProperty, HighestNoteProperty, WhiteKeyWidthProperty);
     }
 
     /// <summary>Raised when a key is pressed.</summary>
@@ -49,11 +52,11 @@ public sealed class PianoKeyboard : Control
         set => SetValue(LowestNoteProperty, value);
     }
 
-    /// <inheritdoc cref="OctavesProperty"/>
-    public int Octaves
+    /// <inheritdoc cref="HighestNoteProperty"/>
+    public int HighestNote
     {
-        get => GetValue(OctavesProperty);
-        set => SetValue(OctavesProperty, value);
+        get => GetValue(HighestNoteProperty);
+        set => SetValue(HighestNoteProperty, value);
     }
 
     /// <inheritdoc cref="MarkedNotesProperty"/>
@@ -67,9 +70,60 @@ public sealed class PianoKeyboard : Control
     /// <param name="midi">MIDI note number.</param>
     public static string NoteName(int midi) => Names[((midi % 12) + 12) % 12] + ((midi / 12) - 1);
 
-    private int WhiteKeyCount => (Octaves * 7) + 1;
+    /// <inheritdoc cref="WhiteKeyWidthProperty"/>
+    public double WhiteKeyWidth
+    {
+        get => GetValue(WhiteKeyWidthProperty);
+        set => SetValue(WhiteKeyWidthProperty, value);
+    }
 
-    private double WhiteWidth => Bounds.Width / WhiteKeyCount;
+    /// <summary>Horizontal centre of a note in pixels from the left edge, for scrolling to it.</summary>
+    /// <param name="midi">MIDI note number.</param>
+    public double CentreOf(int midi)
+    {
+        midi = Math.Clamp(midi, LowestNote, HighestNote);
+        int white = WhiteIndex(midi);
+        return IsWhite(midi) ? (white + 0.5) * WhiteKeyWidth : (white + 1.0) * WhiteKeyWidth;
+    }
+
+    private static bool IsWhite(int midi) => Array.IndexOf(WhiteOffsets, ((midi % 12) + 12) % 12) >= 0;
+
+    /// <summary>Index of the white key of a note, or of the white key to its left for a black note.</summary>
+    private int WhiteIndex(int midi)
+    {
+        int count = 0;
+        for (int m = LowestNote; m < midi; m++)
+        {
+            if (IsWhite(m))
+            {
+                count++;
+            }
+        }
+
+        return IsWhite(midi) ? count : count - 1;
+    }
+
+    private int WhiteKeyCount
+    {
+        get
+        {
+            int count = 0;
+            for (int m = LowestNote; m <= HighestNote; m++)
+            {
+                if (IsWhite(m))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    private double WhiteWidth => WhiteKeyWidth;
+
+    protected override Size MeasureOverride(Size availableSize) =>
+        new(WhiteKeyCount * WhiteKeyWidth, double.IsInfinity(availableSize.Height) ? 92 : availableSize.Height);
 
     public override void Render(DrawingContext context)
     {
@@ -107,8 +161,7 @@ public sealed class PianoKeyboard : Control
         for (int i = 0; i < WhiteKeyCount - 1; i++)
         {
             int midi = WhiteMidi(i);
-            int offset = (midi - LowestNote) % 12;
-            if (Array.IndexOf(BlackOffsets, offset + 1) < 0)
+            if (IsWhite(midi + 1) || midi + 1 > HighestNote)
             {
                 continue;
             }
@@ -154,7 +207,18 @@ public sealed class PianoKeyboard : Control
         e.Pointer.Capture(null);
     }
 
-    private int WhiteMidi(int index) => LowestNote + (12 * (index / 7)) + WhiteOffsets[index % 7];
+    private int WhiteMidi(int index)
+    {
+        for (int m = LowestNote; m <= HighestNote; m++)
+        {
+            if (IsWhite(m) && index-- == 0)
+            {
+                return m;
+            }
+        }
+
+        return HighestNote;
+    }
 
     private int HitTest(Point p)
     {
@@ -171,7 +235,7 @@ public sealed class PianoKeyboard : Control
             for (int i = 0; i < WhiteKeyCount - 1; i++)
             {
                 int midi = WhiteMidi(i);
-                if (Array.IndexOf(BlackOffsets, ((midi - LowestNote) % 12) + 1) < 0)
+                if (IsWhite(midi + 1) || midi + 1 > HighestNote)
                 {
                     continue;
                 }

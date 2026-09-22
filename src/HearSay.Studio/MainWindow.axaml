@@ -203,7 +203,9 @@
                 <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="2" Text="lower on a key = louder · amber dots = target notes" Classes="muted" FontSize="9" VerticalAlignment="Center" />
               </Grid>
-              <local:PianoKeyboard x:Name="Keyboard" Height="92" LowestNote="36" Octaves="4" MarkedNotes="{Binding TargetNotes}" NotePressed="OnNotePressed" />
+              <ScrollViewer x:Name="KeyboardScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled" LayoutUpdated="OnKeyboardLayoutUpdated">
+                <local:PianoKeyboard x:Name="Keyboard" Height="92" LowestNote="0" HighestNote="127" WhiteKeyWidth="26" MarkedNotes="{Binding TargetNotes}" NotePressed="OnNotePressed" />
+              </ScrollViewer>
               <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
             </StackPanel>
             <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">

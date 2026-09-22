@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -13,6 +14,46 @@ public sealed partial class MainWindow : Window
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext!;
+
+    private bool _keyboardCentred;
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (DataContext is MainViewModel viewModel)
+        {
+            // A new result puts the keyboard back on middle C.
+            viewModel.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(MainViewModel.HasResult))
+                {
+                    _keyboardCentred = false;
+                    Avalonia.Threading.Dispatcher.UIThread.Post(CentreKeyboard, Avalonia.Threading.DispatcherPriority.Loaded);
+                }
+            };
+        }
+    }
+
+    private void OnKeyboardLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (!_keyboardCentred)
+        {
+            CentreKeyboard();
+        }
+    }
+
+    /// <summary>Scrolls the keyboard so that C4 sits in the middle of the view.</summary>
+    private void CentreKeyboard()
+    {
+        double viewport = KeyboardScroll.Viewport.Width;
+        if (viewport <= 0 || KeyboardScroll.Extent.Width <= viewport)
+        {
+            return;
+        }
+
+        KeyboardScroll.Offset = new Vector(Math.Max(0, Keyboard.CentreOf(60) - (viewport / 2)), 0);
+        _keyboardCentred = true;
+    }
 
     private async void OnAdd(object? sender, RoutedEventArgs e)
     {
