@@ -143,9 +143,9 @@
                       <TextBlock Text="{Binding Summary}" FontSize="11" Classes="muted" TextWrapping="Wrap" />
                     </StackPanel>
                     <TextBlock Grid.Column="1" Classes="label" Text="pitch" FontSize="11" />
-                    <TextBox Grid.Column="2" Width="70" Text="{Binding Pitch}" Watermark="auto" ToolTip.Tip="MIDI note (0-127) or frequency in Hz; empty = estimate" LostFocus="OnPitchChanged" />
+                    <TextBox Grid.Column="2" Width="70" VerticalAlignment="Center" Text="{Binding Pitch}" Watermark="auto" ToolTip.Tip="MIDI note (0-127) or frequency in Hz; empty = estimate" LostFocus="OnPitchChanged" />
                     <TextBlock Grid.Column="3" Classes="label" Text="vel" FontSize="11" />
-                    <TextBox Grid.Column="4" Width="56" Text="{Binding Velocity}" Watermark="1.0" ToolTip.Tip="0..1" />
+                    <TextBox Grid.Column="4" Width="56" VerticalAlignment="Center" Text="{Binding Velocity}" Watermark="1.0" ToolTip.Tip="0..1" />
                   </Grid>
                 </DataTemplate>
               </ListBox.ItemTemplate>
@@ -154,12 +154,14 @@
           </Grid>
         </Border>
 
-        <Border Grid.Row="1" Classes="card">
-          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,*" RowSpacing="10">
             <TextBlock Grid.Row="0" Classes="title" Text="RESULT" />
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
 
             <!-- Stat tiles -->
-            <ItemsControl Grid.Row="1" ItemsSource="{Binding Stats}">
+            <ItemsControl Grid.Row="0" ItemsSource="{Binding Stats}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                   <UniformGrid Columns="4" />
@@ -179,7 +181,7 @@
             </ItemsControl>
 
             <!-- Per-note similarity -->
-            <ItemsControl Grid.Row="2" ItemsSource="{Binding NoteRows}">
+            <ItemsControl Grid.Row="1" ItemsSource="{Binding NoteRows}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="local:NoteRow">
                   <Grid ColumnDefinitions="120,*,40" ColumnSpacing="8" Margin="0,2">
@@ -192,7 +194,7 @@
             </ItemsControl>
 
             <!-- Modulation matrix -->
-            <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
+            <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
               <StackPanel Grid.Column="0">
                 <TextBlock Text="modulation matrix" Classes="muted" FontSize="10" Margin="0,0,0,4" />
                 <Grid ColumnDefinitions="30,Auto" RowDefinitions="Auto,Auto">
@@ -228,9 +230,11 @@
                 </Grid>
                 <TextBlock Text="rows: destination · columns: source · radians" Classes="muted" FontSize="9" Margin="0,4,0,0" />
               </StackPanel>
-              <TextBox Grid.Column="1" Classes="mono" Text="{Binding ResultSummary}" FontSize="11" />
+              <TextBox Grid.Column="1" Classes="mono" Text="{Binding ResultSummary}" FontSize="11" MinHeight="260" />
             </Grid>
-            <TextBlock Grid.Row="4" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
+            <TextBlock Grid.Row="3" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
+            </Grid>
+            </ScrollViewer>
           </Grid>
         </Border>
       </Grid>
