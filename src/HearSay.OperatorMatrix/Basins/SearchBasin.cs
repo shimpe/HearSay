@@ -39,7 +39,7 @@ public sealed class SearchBasin
     public OperatorMatrixRegimeKey Regime { get; }
 
     /// <summary>Patch the basin started from; restarts return here to escape a local optimum of the continuous search.</summary>
-    public OperatorMatrixPatch Start { get; }
+    public OperatorMatrixPatch Start { get; private set; }
 
     /// <summary>Optimizer runs of this basin by active subset, kept so that they can be resumed.</summary>
     internal Dictionary<string, ContinuousRun> Runs { get; } = new(StringComparer.Ordinal);
@@ -75,7 +75,12 @@ public sealed class SearchBasin
 
     /// <summary>Replaces the best evaluation after a change of evaluation level, where losses are not comparable.</summary>
     /// <param name="evaluation">Evaluation of the best patch at the new level.</param>
-    internal void Rebase(PatchEvaluation evaluation) => Best = evaluation;
+    internal void Rebase(PatchEvaluation evaluation)
+    {
+        Best = evaluation;
+        Start = evaluation.Patch;
+        Runs.Clear();
+    }
 }
 
 /// <summary>Which group of smooth parameters a continuous optimization works on.</summary>
@@ -115,6 +120,12 @@ public sealed class BasinOptimizer
     private readonly PatchEvaluator _evaluator;
     private readonly SynthesisCapabilities _capabilities;
     private readonly PatchMatchOptions _options;
+
+    /// <summary>Optimize key scaling (level and rate per octave); only sensible with targets at several pitches.</summary>
+    public bool IncludeKeyScaling { get; init; }
+
+    /// <summary>Optimize velocity sensitivity; only sensible with targets at several velocities.</summary>
+    public bool IncludeVelocity { get; init; }
 
     /// <summary>Creates an optimizer.</summary>
     /// <param name="evaluator">Evaluator of the search.</param>
@@ -472,11 +483,17 @@ public sealed class BasinOptimizer
         return subsets;
     }
 
-    private static bool IsSpectral(string id, bool tuningMatters) =>
+    /// <summary>
+    /// Parameters that shape the spectrum. Key scaling and velocity sensitivity are only included when the target set
+    /// has several pitches or velocities: on a single note they cannot be told apart from level and envelope.
+    /// </summary>
+    private bool IsSpectral(string id, bool tuningMatters) =>
         id.EndsWith(".amount", StringComparison.Ordinal)
         || id.EndsWith(".output.level", StringComparison.Ordinal)
         || id.EndsWith(".frequency.fixedHz", StringComparison.Ordinal)
-        || (tuningMatters && (id.EndsWith(".fineTune", StringComparison.Ordinal) || id.EndsWith(".detune", StringComparison.Ordinal)));
+        || (tuningMatters && (id.EndsWith(".fineTune", StringComparison.Ordinal) || id.EndsWith(".detune", StringComparison.Ordinal)))
+        || (IncludeKeyScaling && id.Contains(".keyScaling.", StringComparison.Ordinal))
+        || (IncludeVelocity && id.EndsWith(".velocity", StringComparison.Ordinal));
 
     private static bool IsEnvelopeShape(string id)
     {

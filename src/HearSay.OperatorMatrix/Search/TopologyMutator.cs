@@ -3,6 +3,7 @@ using HearSay.Analysis;
 using HearSay.OperatorMatrix.Parameters;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.Synthesis.Patches;
+using HearSay.Partials;
 using HearSay.Synthesis.Profiles;
 
 namespace HearSay.OperatorMatrix.Search;
@@ -24,6 +25,15 @@ public sealed class TopologyMutator
 
     private readonly SynthesisCapabilities _capabilities;
     private readonly IReadOnlyList<double> _ratios;
+
+    /// <summary>
+    /// Allow any operator to switch between ratio and fixed frequency. On a single note the two cannot be told apart, so
+    /// by default only very low operators are tried as fixed; a target set with several pitches makes the choice audible.
+    /// </summary>
+    public bool FixedFrequencyIdentifiable { get; init; }
+
+    /// <summary>Frequencies in hertz at which the target set shows a partial that does not transpose; each becomes a candidate fixed-frequency operator.</summary>
+    public IReadOnlyList<double> FixedFrequencyCandidatesHz { get; init; } = [];
 
     /// <summary>Creates a mutator.</summary>
     /// <param name="capabilities">Limits of the synthesis profile.</param>
@@ -137,6 +147,23 @@ public sealed class TopologyMutator
             }
         }
 
+
+        // Partials that do not transpose: a fixed-frequency operator straight into the mix, screened at two levels.
+        if (free >= 0 && _capabilities.SupportsFixedFrequency)
+        {
+            OperatorEnvelope envelope = TemporalPriors.OutputEnvelope(analysis);
+            foreach (double hz in FixedFrequencyCandidatesHz.Take(4))
+            {
+                foreach (double level in new[] { 0.1, 0.3 })
+                {
+                    OperatorMatrixPatch variant = patch
+                        .WithOperator(free, OperatorPatch.Sine(OperatorFrequency.AtFixed(hz), envelope))
+                        .WithOutputLevel(free, level);
+                    candidates.Add(new TopologyMutation(variant, FormattableString.Invariant($"add OP{free + 1} fixed at {hz:0.#} Hz to the output")));
+                }
+            }
+        }
+// Ratio operators pinned to their current frequency: on a target set with several pitches this tells a        // fixed-frequency operator from a transposing one.        if (FixedFrequencyIdentifiable && _capabilities.SupportsFixedFrequency)        {            foreach (int op in used)            {                OperatorPatch current = patch.Operators[op];                if (current.Frequency.Mode == OperatorFrequencyMode.Ratio)                {                    double hz = Math.Round(current.FrequencyHz(analysis.FundamentalHz), 1);                    candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { Frequency = OperatorFrequency.AtFixed(hz), FineTuneCents = 0 }), FormattableString.Invariant($"OP{op + 1} fixed at {hz:0.#} Hz")));                }            }        }
         candidates.RemoveAll(c => !PatchCompatibilityValidator.Instance.Validate(c.Patch, _capabilities).IsCompatible);
         if (candidates.Count > maxScreened)
         {
@@ -160,6 +187,7 @@ public sealed class TopologyMutator
                 return order != 0 ? order : a.Index.CompareTo(b.Index);
             });
 
+// A non-transposing partial is rare and decisive: its best variant always gets a slot.            foreach ((double _, int index) in ranked)            {                if (candidates[index].Description.Contains(" fixed at ", StringComparison.Ordinal) && seen.Add(candidates[index].Description))                {                    result.Add(candidates[index]);                    break;                }            }
             // Half of the list comes from screening; one description is one structure, whatever the amount. Edges and
             // new operators take turns, best first: there are many more operator variants than edges, and they would
             // otherwise crowd out the single edge that is missing.
@@ -167,7 +195,7 @@ public sealed class TopologyMutator
             var operatorsFirst = new List<int>();
             foreach ((double _, int index) in ranked)
             {
-                (candidates[index].Description.StartsWith("add edge", StringComparison.Ordinal) ? edgesFirst : operatorsFirst).Add(index);
+                (candidates[index].Description.StartsWith("add edge", StringComparison.Ordinal) || candidates[index].Description.Contains(" fixed at ", StringComparison.Ordinal) ? edgesFirst : operatorsFirst).Add(index);
             }
 
             for (int i = 0; i < Math.Max(edgesFirst.Count, operatorsFirst.Count) && result.Count < (count + 1) / 2; i++)
@@ -196,6 +224,62 @@ public sealed class TopologyMutator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Partials that stay at the same frequency in hertz across notes of different pitch: the signature of a
+    /// fixed-frequency operator. Only a target set can reveal them; on a single note every partial transposes.
+    /// </summary>
+    /// <param name="analyses">Analyses of notes at several pitches.</param>
+    /// <param name="toleranceCents">Largest frequency difference of a partial between notes.</param>
+    /// <returns>Frequencies in hertz, strongest first; empty when the notes share a pitch.</returns>
+    public static IReadOnlyList<double> FindFixedPartials(IReadOnlyList<TargetAnalysis> analyses, double toleranceCents = 30.0)
+    {
+        ArgumentNullException.ThrowIfNull(analyses);
+        if (analyses.Count < 2 || analyses.Select(static a => Math.Round(a.FundamentalHz)).Distinct().Count() < 2)
+        {
+            return [];
+        }
+
+        var result = new List<(double Hz, double LevelDb)>();
+        foreach (SpectralPartial candidate in analyses[0].Partials)
+        {
+            // A partial at n × f0 of the reference note is not fixed just because another note happens to have a
+            // partial there too; it has to be absent from the harmonic grid of at least one other note.
+            bool everywhere = true;
+            bool offGrid = false;
+            double level = candidate.LevelDb;
+            for (int i = 1; i < analyses.Count && everywhere; i++)
+            {
+                TargetAnalysis other = analyses[i];
+                SpectralPartial? match = null;
+                foreach (SpectralPartial p in other.Partials)
+                {
+                    if (Math.Abs(1200.0 * Math.Log2(p.FrequencyHz / candidate.FrequencyHz)) <= toleranceCents)
+                    {
+                        match = p;
+                        break;
+                    }
+                }
+
+                if (match is null)
+                {
+                    everywhere = false;
+                    break;
+                }
+
+                level = Math.Min(level, match.LevelDb);
+                double relative = match.FrequencyHz / other.FundamentalHz;
+                offGrid |= Math.Abs(1200.0 * Math.Log2(relative / Math.Max(1.0, Math.Round(relative)))) > toleranceCents;
+            }
+
+            if (everywhere && offGrid)
+            {
+                result.Add((candidate.FrequencyHz, level));
+            }
+        }
+
+        return [.. result.OrderByDescending(static r => r.LevelDb).Select(static r => Math.Round(r.Hz, 1))];
     }
 
     private TopologyMutation? Mutate(OperatorMatrixPatch patch, TargetAnalysis analysis, Random random)
@@ -403,7 +487,7 @@ public sealed class TopologyMutator
                 // Ratio to fixed frequency at the same pitch, and back. Indistinguishable on one note, different on a keyboard.
                 int op = used[random.Next(used.Count)];
                 OperatorFrequency frequency = patch.Operators[op].Frequency;
-                if (frequency.Mode == OperatorFrequencyMode.Ratio && _capabilities.SupportsFixedFrequency && frequency.Ratio * analysis.FundamentalHz < 30.0)
+                if (frequency.Mode == OperatorFrequencyMode.Ratio && _capabilities.SupportsFixedFrequency && (FixedFrequencyIdentifiable || frequency.Ratio * analysis.FundamentalHz < 30.0))
                 {
                     // Only very low operators are plausible fixed-frequency candidates without a second note to tell.
                     OperatorPatch changed = patch.Operators[op] with { Frequency = OperatorFrequency.AtFixed(Math.Round(frequency.Ratio * analysis.FundamentalHz, 2)) };

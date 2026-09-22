@@ -15,13 +15,22 @@ public sealed class App : Application
         {
             var viewModel = new MainViewModel();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
-            if (desktop.Args is [string path, ..] && File.Exists(path))
+            // WAV files on the command line are loaded at start-up, one after the other so that the order is kept.
+            string[] files = [.. (desktop.Args ?? []).Where(File.Exists)];
+            if (files.Length > 0)
             {
-                // A WAV file on the command line is loaded at start-up.
-                _ = viewModel.LoadAsync(path);
+                _ = LoadAllAsync(viewModel, files);
             }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static async Task LoadAllAsync(MainViewModel viewModel, string[] files)
+    {
+        foreach (string path in files)
+        {
+            await viewModel.AddAsync(path);
+        }
     }
 }

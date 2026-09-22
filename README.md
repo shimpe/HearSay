@@ -449,6 +449,9 @@ beating, long-term spectrum, multi-stage decay); structural hypotheses come from
 parameters with CMA-ES on small active subsets, and the finalists are polished with the regime-specific Jacobians and
 trust-region guidance described above. Everything is budgeted in renders and reproducible from a seed.
 
+Several notes of the same sound (`file.wav@48 file.wav@60 file.wav@72`) are matched by one patch, which makes key
+scaling, velocity sensitivity and fixed-frequency operators searchable.
+
 Details, results, limitations and how a future custom UGen plugs in: **[docs/patch-matching.md](docs/patch-matching.md)**.
 
 ## Architecture
@@ -637,7 +640,7 @@ version.)
 
 ## Tests
 
-`dotnet test` runs 143 tests in six projects.
+`dotnet test` runs 145 tests in six projects.
 
 | Project | Tests | What they cover |
 | --- | --- | --- |
@@ -646,7 +649,7 @@ version.)
 | `HearSay.Synthesis.Tests` | 25 | patch model, JSON and hashing, profiles and compatibility, the FM7-compatible renderer (previous-sample modulation, fixed versus ratio operators, output mix, envelopes, velocity, key scaling), the extended renderer |
 | `HearSay.OperatorMatrix.Tests` | 26 | parameter hierarchy, structural versus continuous, conditional activity, transforms, ties, active sets, regime keys, canonicalization, complexity, CMA-ES, priors, mutation, screening, evaluator budget and caching, resumable runs |
 | `HearSay.SuperCollider.Tests` | 8 | exporter output; native versus real FM7 for 30 random and 12 reference patches and an instrument check (skipped without SuperCollider) |
-| `HearSay.IntegrationTests` | 9 | round-trip searches, reproducibility, budget, profile safety, the future-waveform proof, the result folder |
+| `HearSay.IntegrationTests` | 11 | round-trip searches, target sets of several notes, reproducibility, budget, profile safety, the future-waveform proof, the result folder |
 
 The comparison scenarios: identical signals, a
 phase-shifted sine, a +6 dB copy, a stronger second harmonic, a brighter candidate, slower attack, longer release,
@@ -659,7 +662,7 @@ checkpointing, and a complete loop that has to reduce the loss.
 
 ## Limitations
 
-* The limitations of the patch matcher are listed in [docs/patch-matching.md](docs/patch-matching.md#limitations-of-this-version).
+* The patch matcher can match one note or a set of notes of the same sound (several octaves, several velocities) with one patch; its limitations are listed in [docs/patch-matching.md](docs/patch-matching.md#limitations-of-this-version).
 * **Monophonic, single notes with a stable pitch.** Chords, glides, strong vibrato and pitch envelopes are out of
   scope; vibrato and tremolo can prevent a sustain plateau from being found (the stage is then reported as missing,
   not guessed).

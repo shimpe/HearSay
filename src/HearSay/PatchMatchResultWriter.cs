@@ -164,7 +164,8 @@ public static class PatchMatchResultWriter
 {
     /// <summary>
     /// Writes <c>patch.json</c>, <c>preview.wav</c>, the backend export (for example <c>patch.scd</c>),
-    /// <c>analysis.json</c>, <c>comparison.json</c>, <c>search-summary.json</c> and the alternatives.
+    /// <c>analysis.json</c>, <c>comparison.json</c>, <c>search-summary.json</c> and the alternatives. A target set also
+    /// gets a preview, analysis and comparison per note.
     /// </summary>
     /// <param name="result">Match result.</param>
     /// <param name="directory">Output folder; created when missing.</param>
@@ -202,6 +203,21 @@ public static class PatchMatchResultWriter
 
         WriteText(Path.Combine(directory, "analysis.json"), HearSayJson.Serialize(TargetAnalysisReport.From(result.Analysis)));
         WriteText(Path.Combine(directory, "comparison.json"), HearSayJson.Serialize(result.Comparison));
+
+        // Target sets: one preview, analysis and comparison per note besides the reference files above.
+        if (result.Notes.Count > 1)
+        {
+            for (int i = 0; i < result.Notes.Count; i++)
+            {
+                NoteMatch note = result.Notes[i];
+                string suffix = FormattableString.Invariant($"-note{i + 1}-{note.Request.FrequencyHz:0}Hz");
+                string wav = Path.Combine(directory, "preview" + suffix + ".wav");
+                note.Preview.WriteWav(wav, normalizePeakTo: 0.7f);
+                written.Add(wav);
+                WriteText(Path.Combine(directory, "analysis" + suffix + ".json"), HearSayJson.Serialize(TargetAnalysisReport.From(note.Analysis)));
+                WriteText(Path.Combine(directory, "comparison" + suffix + ".json"), HearSayJson.Serialize(note.Comparison));
+            }
+        }
         WriteText(Path.Combine(directory, "search-summary.json"), HearSayJson.Serialize(new { result.SearchSummary, Candidates = result.AlternativePatches.Select(static c => new { c.Loss, c.AudioLoss, c.Complexity, c.Terms, Regime = c.Regime.Value, c.Origin }) }));
 
         if (result.AlternativePatches.Count > 1)

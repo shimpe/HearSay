@@ -32,6 +32,7 @@ sine phase-modulation prior provider knows about sine waves or about FM7.
 - [Objective versus diagnosis](#objective-versus-diagnosis)
 - [Parameters: structural and continuous](#parameters-structural-and-continuous)
 - [The search](#the-search)
+- [Target sets: several notes, one patch](#target-sets-several-notes-one-patch)
 - [Results](#results)
 - [Performance](#performance)
 - [Limitations of this version](#limitations-of-this-version)
@@ -517,6 +518,48 @@ Patch
 - **Identifiability**: many patches sound alike. The search optimizes audio similarity plus a small simplicity bias,
   never parameter equality, and canonicalization keeps relabelled twins from taking two basin slots.
 
+## Target sets: several notes, one patch
+
+One note cannot tell a fixed-frequency operator from a ratio operator, nor reveal key scaling or velocity
+sensitivity, and a structure that happens to fit one octave may be wrong everywhere else. A target set fixes that:
+
+```bash
+hearsay match piano-48.wav@48 piano-60.wav@60 piano-72.wav@72 piano-60-soft.wav@60:v0.4 --output result/
+```
+
+```csharp
+PatchMatchResult result = matcher.Match(
+    [AudioTarget.FromWaveFile("piano-48.wav", midiNote: 48), AudioTarget.FromWaveFile("piano-60.wav", midiNote: 60), AudioTarget.FromWaveFile("piano-72.wav", midiNote: 72)],
+    new PatchMatchOptions { EvaluationBudget = 20000 });
+foreach (NoteMatch note in result.Notes) { /* per-note preview and diagnosis */ }
+```
+
+`file.wav@60` gives the MIDI note, `@261.6` a frequency (any value above 127 is hertz), `:v0.4` the velocity. In
+the desktop app, add several files and type pitch and velocity per row.
+
+What changes inside the search:
+
+- Every candidate is rendered at every note and the losses are averaged (`TargetNote.Weight` sets the shares).
+  The budget counts candidate evaluations; `RendersUsed` in the summary tells how many renders that took.
+- Structural stages (hypothesis screening, survivor optimization) judge on the *reference note* alone, the one in
+  the middle of the pitch range: which structures deserve optimization is decided as well by one note as by all,
+  at a third of the renders. From deep optimization on, everything is judged on the whole set; the basins are
+  re-evaluated at the hand-over and their optimizer runs start afresh.
+- Partials that stay at the same frequency in hertz across notes of different pitch (`TopologyMutator.FindFixedPartials`)
+  become candidate fixed-frequency operators: the best hypotheses get a variant with one, and every structural
+  screening round tries them, as well as pinning each ratio operator to its current frequency.
+- Key scaling (level and rate per octave) joins the continuous search when the set has several pitches, velocity
+  sensitivity when it has several velocities. On a single note they are left neutral, because nothing could tell them apart.
+- The result carries a preview and a full diagnosis per note (`PatchMatchResult.Notes`; `preview-note2-440Hz.wav`,
+  `comparison-note2-440Hz.json`, … in the result folder), and the SynthDef is one instrument for all of them.
+
+Measured (`tests/HearSay.IntegrationTests/MultiNoteTests.cs`): the electric-piano reference patch with a fixed 60 Hz
+operator and key scaling on the tine (-6 dB and half the envelope time per octave), rendered at MIDI 48, 60 and 72.
+Matching the set with 20000 evaluations brings the set loss from 0.231 to 0.072, similarity 0.82 to 0.88 on all three
+notes, and the patch judged on an unseen note (MIDI 55) scores 0.078 against 0.092 for the patch matched to the
+middle note alone with the same budget. The hidden patch itself scores 0.0007 on the set: three notes are still far
+from fully exploited, and the same variance across seeds applies as for single notes.
+
 ## Results
 
 ### Round trips
@@ -677,9 +720,9 @@ The first version does **not** search:
 
 These are constraints of the synthesis profile, not of the architecture. Further limits worth knowing:
 
-- One note is matched. Velocity sensitivity, key scaling and the choice between a ratio and a fixed operator cannot be
-  told apart on a single note; they are part of the model, the renderer and the export, and the search leaves them
-  neutral. Matching several notes at once is the natural next step.
+- With a single note, velocity sensitivity, key scaling and the choice between a ratio and a fixed operator cannot be
+  told apart; the search leaves them neutral. A target set of several pitches or velocities makes them searchable, at
+  the price of one render per note per candidate.
 - The target should be dry and monophonic. Reverb tails and chorus are not part of the model and will be approximated
   by envelopes and detuning as far as that goes.
 - Search envelopes have an attack, two segments up to the sustain point and a release. The model and the export take

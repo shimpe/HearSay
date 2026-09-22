@@ -59,8 +59,8 @@ public static class SynthesisBackends
 
 /// <summary>Result of matching a target.</summary>
 /// <param name="BestPatch">Best patch found, in canonical form.</param>
-/// <param name="Comparison">Full HearSay diagnosis of the preview against the target.</param>
-/// <param name="PreviewAudio">Offline render of the best patch with the note of the target.</param>
+/// <param name="Comparison">Full HearSay diagnosis of the preview against the reference target note.</param>
+/// <param name="PreviewAudio">Offline render of the best patch with the reference note.</param>
 /// <param name="SearchSummary">Course of the search and reproducibility data.</param>
 /// <param name="AlternativePatches">All finalists, best first; the first entry is <paramref name="BestPatch"/>.</param>
 public sealed record PatchMatchResult(
@@ -70,14 +70,17 @@ public sealed record PatchMatchResult(
     SearchSummary SearchSummary,
     IReadOnlyList<PatchCandidateResult> AlternativePatches)
 {
-    /// <summary>Analysis of the target.</summary>
+    /// <summary>Analysis of the reference note.</summary>
     public required TargetAnalysis Analysis { get; init; }
 
-    /// <summary>Note the preview was rendered with.</summary>
+    /// <summary>Reference note the preview was rendered with.</summary>
     public required RenderRequest Request { get; init; }
 
     /// <summary>Synthesis profile of the search.</summary>
     public required SynthesisProfile Profile { get; init; }
+
+    /// <summary>All target notes with their previews and diagnoses, in the order the targets were given. One entry for a single-note match.</summary>
+    public IReadOnlyList<NoteMatch> Notes { get; init; } = [];
 }
 
 /// <summary>
@@ -105,6 +108,14 @@ public sealed class OperatorMatrixPatchMatcher
         _providers = providers;
     }
 
+    /// <summary>Matches a set of target notes on a background thread.</summary>
+    /// <param name="targets">Target notes.</param>
+    /// <param name="options">Search options.</param>
+    /// <param name="progress">Receives progress.</param>
+    /// <param name="cancellationToken">Stops the search early and returns the best patch so far.</param>
+    public Task<PatchMatchResult> MatchAsync(IReadOnlyList<AudioTarget> targets, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Match(targets, options, progress, cancellationToken), CancellationToken.None);
+
     /// <summary>Matches a target on a background thread.</summary>
     /// <param name="target">Target audio.</param>
     /// <param name="options">Search options.</param>
@@ -125,12 +136,24 @@ public sealed class OperatorMatrixPatchMatcher
     /// <param name="cancellationToken">Stops the current run early and skips the remaining ones.</param>
     public PatchMatchResult MatchBestOf(AudioTarget target, int seedCount, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(target);
+        return MatchBestOf([target], seedCount, options, progress, cancellationToken);
+    }
+
+    /// <summary>Runs the search of a target set with several consecutive seeds and keeps the best result.</summary>
+    /// <param name="targets">Target notes.</param>
+    /// <param name="seedCount">Number of seeds, starting at <see cref="PatchMatchOptions.RandomSeed"/>.</param>
+    /// <param name="options">Search options.</param>
+    /// <param name="progress">Receives progress of all runs.</param>
+    /// <param name="cancellationToken">Stops the current run early and skips the remaining ones.</param>
+    public PatchMatchResult MatchBestOf(IReadOnlyList<AudioTarget> targets, int seedCount, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
         ArgumentOutOfRangeException.ThrowIfLessThan(seedCount, 1);
         options ??= new PatchMatchOptions();
         PatchMatchResult? best = null;
         for (int i = 0; i < seedCount && !(cancellationToken.IsCancellationRequested && best is not null); i++)
         {
-            PatchMatchResult result = Match(target, options with { RandomSeed = options.RandomSeed + i }, progress, cancellationToken);
+            PatchMatchResult result = Match(targets, options with { RandomSeed = options.RandomSeed + i }, progress, cancellationToken);
             if (best is null || result.AlternativePatches[0].Loss < best.AlternativePatches[0].Loss)
             {
                 best = result;
@@ -148,26 +171,58 @@ public sealed class OperatorMatrixPatchMatcher
     public PatchMatchResult Match(AudioTarget target, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(target);
+        return Match([target], options, progress, cancellationToken);
+    }
+
+    /// <summary>
+    /// Matches a set of target notes, for example the same sound at several octaves and velocities, with one patch.
+    /// Every candidate is judged on all notes, so the structure has to fit the whole set; key scaling, velocity
+    /// sensitivity and fixed-frequency operators are searched as soon as the set makes them audible.
+    /// </summary>
+    /// <param name="targets">Target notes, each with its own pitch and velocity when known.</param>
+    /// <param name="options">Search options. The budget counts candidate evaluations; one evaluation renders all notes.</param>
+    /// <param name="progress">Receives progress.</param>
+    /// <param name="cancellationToken">Stops the search early and returns the best patch so far.</param>
+    public PatchMatchResult Match(IReadOnlyList<AudioTarget> targets, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
         options ??= new PatchMatchOptions();
         IOperatorMatrixRenderer renderer = _renderer ?? SynthesisBackends.RendererFor(options.SynthesisProfile);
         IReadOnlyList<ISynthesisPriorProvider> providers = _providers ?? SynthesisBackends.PriorProvidersFor(options.SynthesisProfile);
         var coordinator = new OperatorMatrixPatchSearchCoordinator(renderer, providers);
-        SearchOutcome outcome = coordinator.Search(target, options, progress, cancellationToken);
+        SearchOutcome outcome = coordinator.Search(targets, options, progress, cancellationToken);
 
         OperatorMatrixPatch best = outcome.Candidates[0].Patch;
-        RenderedAudio preview = renderer.Render(best, outcome.Request);
         var comparer = new ToneComparer();
-        var targetNote = new AudioNote(outcome.Analysis.Audio.Samples, outcome.Analysis.Audio.SampleRate, outcome.Analysis.FundamentalHz);
-        ToneComparisonResult comparison = comparer.Compare(
-            targetNote,
-            preview.ToAudioNote(outcome.Analysis.FundamentalHz),
-            new ToneComparisonOptions { LoudnessMode = LoudnessMode.SeparateLoudness, ExpectedFundamentalHz = outcome.Analysis.FundamentalHz });
-
-        return new PatchMatchResult(best, comparison, preview, outcome.Summary, outcome.Candidates)
+        var notes = new List<NoteMatch>(outcome.Analyses.Count);
+        for (int i = 0; i < outcome.Analyses.Count; i++)
         {
-            Analysis = outcome.Analysis,
-            Request = outcome.Request,
+            TargetAnalysis analysis = outcome.Analyses[i];
+            RenderRequest request = outcome.Requests[i];
+            RenderedAudio preview = renderer.Render(best, request);
+            var targetNote = new AudioNote(analysis.Audio.Samples, analysis.Audio.SampleRate, analysis.FundamentalHz);
+            ToneComparisonResult comparison = comparer.Compare(
+                targetNote,
+                preview.ToAudioNote(analysis.FundamentalHz),
+                new ToneComparisonOptions { LoudnessMode = LoudnessMode.SeparateLoudness, ExpectedFundamentalHz = analysis.FundamentalHz });
+            notes.Add(new NoteMatch(analysis, request, preview, comparison));
+        }
+
+        int reference = outcome.Requests.ToList().IndexOf(outcome.Request);
+        NoteMatch main = notes[Math.Max(0, reference)];
+        return new PatchMatchResult(best, main.Comparison, main.Preview, outcome.Summary, outcome.Candidates)
+        {
+            Analysis = main.Analysis,
+            Request = main.Request,
             Profile = options.SynthesisProfile,
+            Notes = notes,
         };
     }
 }
+
+/// <summary>One target note of a match: its analysis, the note it was rendered with, the preview and the diagnosis.</summary>
+/// <param name="Analysis">Analysis of the target note.</param>
+/// <param name="Request">Note the preview was rendered with.</param>
+/// <param name="Preview">Offline render of the best patch at this note.</param>
+/// <param name="Comparison">HearSay diagnosis of the preview against this target note.</param>
+public sealed record NoteMatch(TargetAnalysis Analysis, RenderRequest Request, RenderedAudio Preview, ToneComparisonResult Comparison);

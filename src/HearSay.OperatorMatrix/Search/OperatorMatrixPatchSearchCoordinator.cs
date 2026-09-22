@@ -20,8 +20,8 @@ public sealed record SearchProgress(string Stage, int EvaluationsUsed, int Evalu
 
 /// <summary>Everything a search produced.</summary>
 /// <param name="Candidates">Finalists, best first, evaluated at the detailed level.</param>
-/// <param name="Analysis">Analysis of the target.</param>
-/// <param name="Request">Note every candidate was rendered with.</param>
+/// <param name="Analysis">Analysis of the reference note.</param>
+/// <param name="Request">Reference note the previews are rendered with.</param>
 /// <param name="Summary">Course of the search.</param>
 /// <param name="Models">Regime-specific local models learned during refinement.</param>
 public sealed record SearchOutcome(
@@ -29,7 +29,14 @@ public sealed record SearchOutcome(
     TargetAnalysis Analysis,
     RenderRequest Request,
     SearchSummary Summary,
-    RegimeModelStore Models);
+    RegimeModelStore Models)
+{
+    /// <summary>Analyses of all target notes, in the order they were given.</summary>
+    public IReadOnlyList<TargetAnalysis> Analyses { get; init; } = [];
+
+    /// <summary>Render request per target note, in the order they were given.</summary>
+    public IReadOnlyList<RenderRequest> Requests { get; init; } = [];
+}
 
 /// <summary>
 /// Runs a complete patch search: target analysis, structural hypotheses, screening, multi-basin continuous
@@ -58,7 +65,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         _providers = providers;
     }
 
-    /// <summary>Searches a patch for a target.</summary>
+    /// <summary>Searches a patch for a single target note.</summary>
     /// <param name="target">Target audio.</param>
     /// <param name="options">Search options.</param>
     /// <param name="progress">Receives progress after every step of the search.</param>
@@ -67,6 +74,28 @@ public sealed class OperatorMatrixPatchSearchCoordinator
     public SearchOutcome Search(AudioTarget target, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(target);
+        return Search([target], options, progress, cancellationToken);
+    }
+
+    /// <summary>
+    /// Searches one patch for a set of target notes, for example the same sound at several octaves and velocities.
+    /// Every candidate is rendered at every note and judged on all of them, so the structure has to explain the whole
+    /// set; key scaling, velocity sensitivity and fixed-frequency operators become searchable, because only several
+    /// notes can tell them apart.
+    /// </summary>
+    /// <param name="targets">Target notes; each carries its own pitch and velocity when known.</param>
+    /// <param name="options">Search options. The budget counts candidate evaluations; one evaluation renders all notes.</param>
+    /// <param name="progress">Receives progress after every step of the search.</param>
+    /// <param name="cancellationToken">Stops the search early; the best patches found so far are returned.</param>
+    /// <exception cref="ArgumentException">The renderer cannot play everything the profile allows, or a target is unusable.</exception>
+    public SearchOutcome Search(IReadOnlyList<AudioTarget> targets, PatchMatchOptions? options = null, IProgress<SearchProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        if (targets.Count == 0)
+        {
+            throw new ArgumentException("At least one target is needed.", nameof(targets));
+        }
+
         options ??= new PatchMatchOptions();
         SynthesisProfile profile = options.SynthesisProfile;
         SynthesisCapabilities capabilities = profile.Capabilities;
@@ -86,33 +115,65 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         int NextSeed() => unchecked((options.RandomSeed * 7919) + (++seedCounter * 104729));
         var random = new Random(options.RandomSeed);
 
-        // Stage A: target analysis.
-        int maxSamples = (int)(options.MaxSeconds * target.SampleRate);
-        if (target.Samples.Length > maxSamples)
-        {
-            target = target with { Samples = target.Samples[..maxSamples] };
-        }
-
+        // Stage A: target analysis of every note. The reference note, which supplies hypotheses, envelopes and the
+        // diagnostics, is the one in the middle of the pitch range.
         ObjectiveOptions objectiveOptions = options.Objective with { Analysis = options.Objective.Analysis with { SampleRate = options.SampleRate } };
-        PreparedObjectiveTarget prepared = _objective.Prepare(target, objectiveOptions);
-        TargetAnalysis analysis = prepared.Analysis;
-        if (!analysis.IsUsable)
+        var prepared = new List<PreparedObjectiveTarget>(targets.Count);
+        var requests = new List<RenderRequest>(targets.Count);
+        for (int t = 0; t < targets.Count; t++)
         {
-            throw new ArgumentException("The target cannot be analysed: " + string.Join(", ", analysis.Issues), nameof(target));
+            AudioTarget target = targets[t];
+            int maxSamples = (int)(options.MaxSeconds * target.SampleRate);
+            if (target.Samples.Length > maxSamples)
+            {
+                target = target with { Samples = target.Samples[..maxSamples] };
+            }
+
+            PreparedObjectiveTarget p = _objective.Prepare(target, objectiveOptions);
+            if (!p.Analysis.IsUsable)
+            {
+                throw new ArgumentException($"Target {t + 1} cannot be analysed: " + string.Join(", ", p.Analysis.Issues), nameof(targets));
+            }
+
+            prepared.Add(p);
+            requests.Add(new RenderRequest(
+                p.Analysis.FundamentalHz,
+                target.MidiNote,
+                target.Velocity ?? options.Velocity,
+                TimeSpan.FromSeconds(Math.Max(0.02, p.Analysis.NoteOffSeconds)),
+                TimeSpan.FromSeconds(Math.Max(0.0, p.Analysis.DurationSeconds - p.Analysis.NoteOffSeconds)),
+                options.SampleRate));
         }
 
-        var request = new RenderRequest(
-            analysis.FundamentalHz,
-            target.MidiNote,
-            options.Velocity,
-            TimeSpan.FromSeconds(Math.Max(0.02, analysis.NoteOffSeconds)),
-            TimeSpan.FromSeconds(Math.Max(0.0, analysis.DurationSeconds - analysis.NoteOffSeconds)),
-            options.SampleRate);
-        var evaluator = new PatchEvaluator(_renderer, _objective, prepared, request, options.EvaluationBudget, options.ComplexityWeight, options.Complexity, options.MaxParallelEvaluations);
-        var optimizer = new BasinOptimizer(evaluator, capabilities, options);
-        var mutator = new TopologyMutator(capabilities);
+        int[] byPitch = [.. Enumerable.Range(0, targets.Count).OrderBy(i => prepared[i].Analysis.FundamentalHz)];
+        int referenceIndex = byPitch[byPitch.Length / 2];
+        var notes = new List<TargetNote> { new(prepared[referenceIndex], requests[referenceIndex]) };
+        for (int t = 0; t < targets.Count; t++)
+        {
+            if (t != referenceIndex)
+            {
+                notes.Add(new TargetNote(prepared[t], requests[t]));
+            }
+        }
+
+        PreparedObjectiveTarget reference = prepared[referenceIndex];
+        TargetAnalysis analysis = reference.Analysis;
+        RenderRequest request = requests[referenceIndex];
+        bool severalPitches = prepared.Select(static p => Math.Round(p.Analysis.FundamentalHz)).Distinct().Count() > 1;
+        bool severalVelocities = requests.Select(static r => r.Velocity).Distinct().Count() > 1;
+        var evaluator = new PatchEvaluator(_renderer, _objective, notes, options.EvaluationBudget, options.ComplexityWeight, options.Complexity, options.MaxParallelEvaluations);
+        var optimizer = new BasinOptimizer(evaluator, capabilities, options) { IncludeKeyScaling = severalPitches, IncludeVelocity = severalVelocities };
+
+        // Structural stages judge on the reference note alone: which structures deserve optimization is decided as well
+        // by one note as by all, and the other notes would triple the cost of finding out.
+        PatchEvaluator screening = evaluator.ForReferenceNote();
+        var screeningOptimizer = ReferenceEquals(screening, evaluator) ? optimizer : new BasinOptimizer(screening, capabilities, options);
+        IReadOnlyList<double> fixedPartials = TopologyMutator.FindFixedPartials(prepared.Select(static p => p.Analysis).ToList());
+        var mutator = new TopologyMutator(capabilities) { FixedFrequencyIdentifiable = severalPitches, FixedFrequencyCandidatesHz = fixedPartials };
         bool tuningMatters = analysis.Inharmonicity > 0.08 || analysis.Beating.IsPresent;
-        stages.Add(new SearchStageSummary("target analysis", 0, double.NaN, EvaluationLevel.Detailed, FormattableString.Invariant($"f0 {analysis.FundamentalHz:F2} Hz, {analysis.Partials.Count} partials, inharmonicity {analysis.Inharmonicity:F2}, note-off {analysis.NoteOffSeconds:F2} s")));
+        string noteList = string.Join(", ", byPitch.Select(i => FormattableString.Invariant($"{prepared[i].Analysis.FundamentalHz:F1} Hz")));
+        string fixedList = fixedPartials.Count > 0 ? "; non-transposing partials at " + string.Join(", ", fixedPartials.Select(static f => f.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))) + " Hz" : string.Empty;
+        stages.Add(new SearchStageSummary("target analysis", 0, double.NaN, EvaluationLevel.Detailed, FormattableString.Invariant($"{targets.Count} note(s) at {noteList}; reference f0 {analysis.FundamentalHz:F2} Hz, {analysis.Partials.Count} partials, inharmonicity {analysis.Inharmonicity:F2}, note-off {analysis.NoteOffSeconds:F2} s{fixedList}")));
 
         // Stage B: structural hypotheses, screened at the coarse level.
         var hypotheses = new List<PatchHypothesis>();
@@ -121,6 +182,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             hypotheses.AddRange(provider.Generate(analysis, capabilities));
         }
 
+// Non-transposing partials of a target set: the best hypotheses get a variant with a fixed operator for each.        if (fixedPartials.Count > 0 && capabilities.SupportsFixedFrequency)        {            OperatorEnvelope fixedEnvelope = TemporalPriors.OutputEnvelope(analysis);            foreach (PatchHypothesis hypothesis in hypotheses.OrderByDescending(static h => h.PriorScore).Take(32).ToList())            {                int slot = Array.IndexOf(hypothesis.Patch.FindAudibleOperators(), false);                foreach (double hz in fixedPartials.Take(2))                {                    if (slot >= 0)                    {                        OperatorMatrixPatch variant = hypothesis.Patch.WithOperator(slot, OperatorPatch.Sine(OperatorFrequency.AtFixed(hz), fixedEnvelope)).WithOutputLevel(slot, 0.2);                        hypotheses.Add(new PatchHypothesis(variant, hypothesis.PriorScore + 0.02, FormattableString.Invariant($"{hypothesis.Origin} + fixed {hz:0.#} Hz")));                    }                }            }        }
         hypotheses.RemoveAll(h => !PatchCompatibilityValidator.Instance.Validate(h.Patch, capabilities).IsCompatible);
         if (hypotheses.Count > options.HypothesisCount)
         {
@@ -139,7 +201,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         foreach (double scale in scales)
         {
             var patches = hypotheses.Select(h => ScaleAmounts(h.Patch, scale, capabilities)).ToList();
-            IReadOnlyList<PatchEvaluation> results = evaluator.Evaluate(patches, EvaluationLevel.Coarse);
+            IReadOnlyList<PatchEvaluation> results = screening.Evaluate(patches, EvaluationLevel.Coarse);
             for (int i = 0; i < results.Count; i++)
             {
                 screened.Add((hypotheses[i], results[i]));
@@ -159,7 +221,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
 
         // Survivors: first normal-level evaluation, then a short continuous optimization.
         usedBefore = evaluator.Used;
-        IReadOnlyList<PatchEvaluation> firstNormal = evaluator.Evaluate([.. survivors.Select(static s => s.Evaluation.Patch)], EvaluationLevel.Normal);
+        IReadOnlyList<PatchEvaluation> firstNormal = screening.Evaluate([.. survivors.Select(static s => s.Evaluation.Patch)], EvaluationLevel.Normal);
         var basins = new List<SearchBasin>();
         int nextBasinId = 1;
         for (int i = 0; i < firstNormal.Count; i++)
@@ -182,12 +244,28 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                 break;
             }
 
-            RunCycle(optimizer, basin, perSurvivor, tuningMatters, NextSeed, 1.0, includeDetail: false);
+            RunCycle(screeningOptimizer, basin, perSurvivor, tuningMatters, NextSeed, 1.0, includeDetail: false);
             basin.Fate = "survivor";
             progress?.Report(new SearchProgress("survivor optimization", evaluator.Used, evaluator.Budget, basins.Min(static b => b.Best.Loss)));
         }
 
         basins = Distinct(basins, options.BasinCount);
+
+        // From here on every candidate is judged on the whole set. The losses change scale, so the basins are
+        // re-evaluated and their optimizer runs start afresh; the initial loss is the best untouched hypothesis on the set.
+        if (!ReferenceEquals(screening, evaluator))
+        {
+            foreach (SearchBasin basin in basins)
+            {
+                if (evaluator.Evaluate(basin.Best.Patch, EvaluationLevel.Normal) is { } onSet)
+                {
+                    basin.Rebase(onSet);
+                    basin.Evaluations++;
+                }
+            }
+
+            initialAudioLoss = evaluator.Evaluate(survivors[0].Evaluation.Patch, EvaluationLevel.Normal)?.AudioLoss ?? initialAudioLoss;
+        }
         stages.Add(new SearchStageSummary("survivor optimization", evaluator.Used - usedBefore, basins[0].Best.Loss, EvaluationLevel.Normal, $"{firstNormal.Count} survivors, {basins.Count} distinct basins kept"));
 
         // Deep optimization with successive halving: better basins earn more of the budget.
@@ -381,6 +459,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             RandomSeed = options.RandomSeed,
             EvaluationBudget = options.EvaluationBudget,
             EvaluationsUsed = evaluator.Used,
+            RendersUsed = evaluator.Renders,
             CacheHits = evaluator.CacheHits,
             InitialAudioLoss = initialAudioLoss,
             FinalAudioLoss = finalNormalAudioLoss,
@@ -389,7 +468,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             Basins = [.. ranked.Concat(retired.OrderBy(static b => b.Id)).Select(static b => new BasinSummary(b.Id, b.Origin, b.Regime.Value, b.Best.Loss, b.Evaluations, b.Restarts, b.Fate))],
             Elapsed = stopwatch.Elapsed,
         };
-        return new SearchOutcome(candidates, analysis, request, summary, store);
+        return new SearchOutcome(candidates, analysis, request, summary, store) { Analyses = prepared.Select(static p => p.Analysis).ToList(), Requests = requests };
     }
 
     /// <summary>One optimization cycle over the continuous stages. Returns true when the basin improved.</summary>

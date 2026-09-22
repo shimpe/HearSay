@@ -14,18 +14,19 @@ internal static class Cli
         hearsay - audio-to-operator-matrix solver
 
         Usage:
-          hearsay match <target.wav> [options]     find a patch that approximates a monophonic note
+          hearsay match <target.wav>... [options]  find a patch that approximates one note, or one patch for several notes
+                                                   of the same sound: file.wav@60 (MIDI note), file.wav@261.6 (Hz), file.wav@60:v0.5 (velocity)
           hearsay analyze <target.wav> [options]   print the target analysis as JSON
           hearsay profiles                         list synthesis profiles
 
         Options for match:
           --profile <name>     synthesis profile (default supercollider-fm7)
-          --budget <n>         number of candidate renders (default 20000)
+          --budget <n>         number of candidate evaluations; one evaluation renders every target note (default 20000)
           --seed <n>           random seed (default 1234)
           --seeds <n>          run n consecutive seeds with the full budget each and keep the best (default 1)
           --output <dir>       result folder (default result)
-          --note <midi>        MIDI note of the target, when known
-          --f0 <hz>            fundamental of the target, when known
+          --note <midi>        MIDI note of targets without a pitch of their own, when known
+          --f0 <hz>            fundamental of targets without a pitch of their own, when known
           --sample-rate <hz>   analysis and render rate; use the rate the patch will run at (default 48000)
           --max-seconds <s>    longest stretch of the target that is matched (default 4)
           --parallel <n>       simultaneous evaluations (default: all processors)
@@ -93,10 +94,10 @@ internal static class Cli
 
     private static int Match(string[] args)
     {
-        (string? path, Dictionary<string, string> options) = Parse(args);
-        if (path is null)
+        (IReadOnlyList<string> paths, Dictionary<string, string> options) = ParseAll(args);
+        if (paths.Count == 0)
         {
-            return Fail("match needs a WAV file.");
+            return Fail("match needs at least one WAV file.");
         }
 
         string profileName = options.GetValueOrDefault("profile", SynthesisProfiles.SuperColliderFm7.Name);
@@ -118,7 +119,7 @@ internal static class Cli
         string output = options.GetValueOrDefault("output", "result");
         bool quiet = options.ContainsKey("quiet");
 
-        AudioTarget target = AudioTarget.FromWaveFile(path, Number(options, "f0"), (int?)Number(options, "note"));
+        List<AudioTarget> targets = [.. paths.Select(p => ReadTarget(p, options))];
         string lastStage = string.Empty;
         var progress = new SynchronousProgress(p =>
         {
@@ -130,12 +131,16 @@ internal static class Cli
         });
 
         int seeds = (int)(Number(options, "seeds") ?? 1);
-        PatchMatchResult result = new OperatorMatrixPatchMatcher().MatchBestOf(target, seeds, matchOptions, progress);
+        PatchMatchResult result = new OperatorMatrixPatchMatcher().MatchBestOf(targets, seeds, matchOptions, progress);
         IReadOnlyList<string> files = PatchMatchResultWriter.Write(result, output);
 
         SearchSummary summary = result.SearchSummary;
-        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"target      {Path.GetFileName(path)}: f0 {result.Analysis.FundamentalHz:F2} Hz, {result.Analysis.DurationSeconds:F2} s, {result.Analysis.Partials.Count} partials, inharmonicity {result.Analysis.Inharmonicity:F2}"));
-        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"search      {summary.EvaluationsUsed} renders in {summary.Elapsed.TotalSeconds:F1} s, profile {summary.Profile}, seed {summary.RandomSeed}"));
+        foreach (NoteMatch note in result.Notes)
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"target      f0 {note.Analysis.FundamentalHz:F2} Hz, velocity {note.Request.Velocity:F2}, {note.Analysis.DurationSeconds:F2} s, {note.Analysis.Partials.Count} partials, inharmonicity {note.Analysis.Inharmonicity:F2}, similarity {note.Comparison.Scores.Similarity:F3}"));
+        }
+
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"search      {summary.EvaluationsUsed} evaluations, {summary.RendersUsed} renders in {summary.Elapsed.TotalSeconds:F1} s, profile {summary.Profile}, seed {summary.RandomSeed}"));
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"audio loss  {summary.InitialAudioLoss:F4} (best untouched hypothesis) -> {summary.FinalAudioLoss:F4}"));
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"similarity  {result.Comparison.Scores.Similarity:F3} (HearSay overall distance {result.Comparison.Scores.Overall:F4})"));
         Console.WriteLine($"structure   {result.AlternativePatches[0].Regime}");
@@ -148,7 +153,13 @@ internal static class Cli
 
     private static (string? Path, Dictionary<string, string> Options) Parse(string[] args)
     {
-        string? path = null;
+        (IReadOnlyList<string> paths, Dictionary<string, string> options) = ParseAll(args);
+        return (paths.Count > 0 ? paths[0] : null, options);
+    }
+
+    private static (IReadOnlyList<string> Paths, Dictionary<string, string> Options) ParseAll(string[] args)
+    {
+        var paths = new List<string>();
         var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 1; i < args.Length; i++)
         {
@@ -160,11 +171,48 @@ internal static class Cli
             }
             else
             {
-                path ??= args[i];
+                paths.Add(args[i]);
             }
         }
 
-        return (path, options);
+        return (paths, options);
+    }
+
+    /// <summary>
+    /// Reads a target argument: <c>file.wav</c>, <c>file.wav@60</c> (MIDI note), <c>file.wav@261.6</c> (hertz, any
+    /// value above 127) and an optional <c>:v0.8</c> velocity suffix. Global --f0 and --note apply to files without a pitch.
+    /// </summary>
+    private static AudioTarget ReadTarget(string argument, Dictionary<string, string> options)
+    {
+        string spec = argument;
+        double? velocity = null;
+        int colon = spec.LastIndexOf(":v", StringComparison.OrdinalIgnoreCase);
+        if (colon > 0 && double.TryParse(spec[(colon + 2)..], NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+        {
+            velocity = Math.Clamp(v, 0.0, 1.0);
+            spec = spec[..colon];
+        }
+
+        double? f0 = Number(options, "f0");
+        int? midi = (int?)Number(options, "note");
+        int at = spec.LastIndexOf('@');
+        if (at > 0 && double.TryParse(spec[(at + 1)..], NumberStyles.Float, CultureInfo.InvariantCulture, out double pitch))
+        {
+            spec = spec[..at];
+            if (pitch > 127)
+            {
+                f0 = pitch;
+                midi = null;
+            }
+            else
+            {
+                midi = (int)Math.Round(pitch);
+                f0 = null;
+            }
+        }
+
+        AudioTarget target = AudioTarget.FromWaveFile(spec, f0, midi);
+        return velocity is null ? target : target with { Velocity = velocity };
     }
 
     private static double? Number(Dictionary<string, string> options, string name) =>

@@ -14,17 +14,20 @@ public sealed partial class MainWindow : Window
 
     private MainViewModel ViewModel => (MainViewModel)DataContext!;
 
-    private async void OnLoad(object? sender, RoutedEventArgs e)
+    private async void OnAdd(object? sender, RoutedEventArgs e)
     {
         IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Load a target note",
-            AllowMultiple = false,
+            Title = "Add target notes",
+            AllowMultiple = true,
             FileTypeFilter = [new FilePickerFileType("WAV audio") { Patterns = ["*.wav"] }, FilePickerFileTypes.All],
         });
-        if (files.Count == 1 && files[0].TryGetLocalPath() is string path)
+        foreach (IStorageFile file in files)
         {
-            await ViewModel.LoadAsync(path);
+            if (file.TryGetLocalPath() is string path)
+            {
+                await ViewModel.AddAsync(path);
+            }
         }
     }
 
@@ -38,6 +41,14 @@ public sealed partial class MainWindow : Window
         if (folders.Count == 1 && folders[0].TryGetLocalPath() is string directory)
         {
             await ViewModel.SaveAsync(directory);
+        }
+    }
+
+    private async void OnPitchChanged(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: TargetItem item })
+        {
+            await ViewModel.RefreshAsync(item);
         }
     }
 

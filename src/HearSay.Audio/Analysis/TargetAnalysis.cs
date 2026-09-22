@@ -14,11 +14,13 @@ namespace HearSay.Analysis;
 /// <param name="SampleRate">Sample rate in hertz.</param>
 /// <param name="ExpectedFundamentalHz">Known fundamental; estimated when null.</param>
 /// <param name="MidiNote">Known MIDI note; used for the fundamental when <paramref name="ExpectedFundamentalHz"/> is null.</param>
+/// <param name="Velocity">Key velocity 0..1 the note was played with, when known; matters for target sets with several velocities.</param>
 public sealed record AudioTarget(
     ReadOnlyMemory<float> Samples,
     int SampleRate,
     double? ExpectedFundamentalHz = null,
-    int? MidiNote = null)
+    int? MidiNote = null,
+    double? Velocity = null)
 {
     /// <summary>Fundamental given by the caller, from the frequency or the MIDI note; null when neither is known.</summary>
     public double? KnownFundamentalHz =>

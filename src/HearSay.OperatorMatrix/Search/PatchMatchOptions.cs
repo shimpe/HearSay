@@ -8,7 +8,7 @@ namespace HearSay.OperatorMatrix.Search;
 /// <summary>Configuration of a patch search. The same target, options, seed and profile give the same search.</summary>
 public sealed record PatchMatchOptions
 {
-    /// <summary>Total number of candidate renders the search may spend. Every render counts, at any evaluation level.</summary>
+    /// <summary>Total number of candidate evaluations the search may spend, at any evaluation level. One evaluation renders the candidate at every target note.</summary>
     public int EvaluationBudget { get; init; } = 20000;
 
     /// <summary>Seed of all random decisions.</summary>
@@ -122,8 +122,11 @@ public sealed record SearchSummary
     /// <summary>Render budget.</summary>
     public required int EvaluationBudget { get; init; }
 
-    /// <summary>Renders actually used.</summary>
+    /// <summary>Candidate evaluations actually used.</summary>
     public required int EvaluationsUsed { get; init; }
+
+    /// <summary>Renders made: evaluations times target notes.</summary>
+    public required int RendersUsed { get; init; }
 
     /// <summary>Evaluations answered from the cache without rendering.</summary>
     public required int CacheHits { get; init; }
