@@ -484,7 +484,8 @@ HearSay.sln
 │   ├── HearSay.SuperCollider             FM7 exporter, SuperCollider NRT renderer, backend-equivalence validation
 │   ├── HearSay.OperatorMatrix            which synthesis structure and parameters should be explored?
 │   ├── HearSay                           facade: OperatorMatrixPatchMatcher, SynthesisBackends, PatchMatchResultWriter
-│   └── HearSay.Cli                       hearsay match | analyze | profiles
+│   ├── HearSay.Cli                       hearsay match | analyze | profiles
+│   └── HearSay.Studio                    Avalonia desktop app: load a WAV, run the search, show patch.scd
 ├── tests                                 xUnit: Audio, Modeling, Synthesis, OperatorMatrix, SuperCollider, IntegrationTests
 ├── benchmarks/HearSay.Benchmarks         BenchmarkDotNet
 ├── docs
@@ -559,6 +560,9 @@ dotnet run -c Release --project samples/HearSay.Tutorial [-- 9]
 
 # Find a patch for a target note (writes patch.json, preview.wav, patch.scd and diagnostics)
 dotnet run -c Release --project src/HearSay.Cli -- match target.wav --budget 20000 --output result/
+
+# Desktop app: load a WAV, run the search, read or copy the SuperCollider patch, save the result folder
+dotnet run -c Release --project src/HearSay.Studio [-- target.wav]
 
 # Round trip over the twelve reference patches; --supercollider also compares the result with the real FM7 UGen
 dotnet run -c Release --project samples/HearSay.MatchDemo -- [--budget 20000] [--only bell,bass] [--supercollider]

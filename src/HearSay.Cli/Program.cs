@@ -141,52 +141,9 @@ internal static class Cli
         Console.WriteLine($"structure   {result.AlternativePatches[0].Regime}");
         Console.WriteLine($"origin      {result.AlternativePatches[0].Origin}");
         Console.WriteLine();
-        Console.WriteLine(DescribeRouting(result.BestPatch));
+        Console.WriteLine(PatchDescription.Routing(result.BestPatch));
         Console.WriteLine($"{files.Count} files written to {Path.GetFullPath(output)}");
         return 0;
-    }
-
-    /// <summary>Operators and modulation matrix as text.</summary>
-    internal static string DescribeRouting(OperatorMatrixPatch patch)
-    {
-        bool[] audible = patch.FindAudibleOperators();
-        var text = new System.Text.StringBuilder();
-        for (int i = 0; i < patch.OperatorCount; i++)
-        {
-            if (!audible[i])
-            {
-                continue;
-            }
-
-            OperatorPatch op = patch.Operators[i];
-            string frequency = op.Frequency.Mode == OperatorFrequencyMode.Ratio
-                ? string.Create(CultureInfo.InvariantCulture, $"ratio {op.Frequency.Ratio:0.###}")
-                : string.Create(CultureInfo.InvariantCulture, $"fixed {op.Frequency.FixedFrequencyHz:0.#} Hz");
-            text.AppendLine(string.Create(CultureInfo.InvariantCulture, $"OP{i + 1}  {op.Waveform,-8} {frequency,-16} fine {op.FineTuneCents,6:F1} ct  detune {op.DetuneHz,5:F2} Hz  output {patch.OutputLevels[i]:F3}"));
-        }
-
-        text.AppendLine();
-        text.AppendLine("modulation matrix (rows: destination, columns: source, radians)");
-        text.Append("      ");
-        for (int s = 0; s < patch.OperatorCount; s++)
-        {
-            text.Append(CultureInfo.InvariantCulture, $"   OP{s + 1} ");
-        }
-
-        text.AppendLine();
-        for (int d = 0; d < patch.OperatorCount; d++)
-        {
-            text.Append(CultureInfo.InvariantCulture, $"  OP{d + 1} ");
-            for (int s = 0; s < patch.OperatorCount; s++)
-            {
-                double amount = audible[d] && audible[s] ? patch.ModulationMatrix[d, s] : 0.0;
-                text.Append(amount == 0.0 ? "     . " : string.Create(CultureInfo.InvariantCulture, $" {amount,6:F2}"));
-            }
-
-            text.AppendLine();
-        }
-
-        return text.ToString();
     }
 
     private static (string? Path, Dictionary<string, string> Options) Parse(string[] args)

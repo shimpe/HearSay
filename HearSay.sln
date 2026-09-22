@@ -49,6 +49,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.MatchDemo", "sample
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.OperatorMatrix.Tests", "tests\HearSay.OperatorMatrix.Tests\HearSay.OperatorMatrix.Tests.csproj", "{E69545B4-C348-453A-8A16-2FB72E198F96}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HearSay.Studio", "src\HearSay.Studio\HearSay.Studio.csproj", "{67287669-2E68-4E89-BBDA-3A4FA49CC465}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -287,6 +289,18 @@ Global
 		{E69545B4-C348-453A-8A16-2FB72E198F96}.Release|x64.Build.0 = Release|Any CPU
 		{E69545B4-C348-453A-8A16-2FB72E198F96}.Release|x86.ActiveCfg = Release|Any CPU
 		{E69545B4-C348-453A-8A16-2FB72E198F96}.Release|x86.Build.0 = Release|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Debug|x64.Build.0 = Debug|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Debug|x86.Build.0 = Debug|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Release|Any CPU.Build.0 = Release|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Release|x64.ActiveCfg = Release|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Release|x64.Build.0 = Release|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Release|x86.ActiveCfg = Release|Any CPU
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -311,5 +325,6 @@ Global
 		{697011D6-1416-4EED-ACB3-F80B98DC9048} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{6548DAC4-A716-4474-864E-9BF97249D92D} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 		{E69545B4-C348-453A-8A16-2FB72E198F96} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{67287669-2E68-4E89-BBDA-3A4FA49CC465} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

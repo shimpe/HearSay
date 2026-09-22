@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:HearSay.Studio"
+        x:Class="HearSay.Studio.MainWindow"
+        x:DataType="local:MainViewModel"
+        Title="HearSay Studio"
+        Width="1100" Height="760"
+        MinWidth="800" MinHeight="500">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.label">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+    </Style>
+    <Style Selector="TextBox.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Menlo, monospace" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="IsReadOnly" Value="True" />
+      <Setter Property="AcceptsReturn" Value="True" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12" RowSpacing="10">
+
+    <!-- Target -->
+    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+      <Button Grid.Column="0" Content="Load WAV…" Click="OnLoad" IsEnabled="{Binding !IsRunning}" />
+      <TextBlock Grid.Column="1" Classes="label" Text="{Binding TargetPath, FallbackValue=''}" TextTrimming="CharacterEllipsis" />
+      <TextBlock Grid.Column="2" Classes="label" Text="f0 (Hz, optional)" />
+      <TextBox Grid.Column="3" Width="90" Text="{Binding Fundamental}" Watermark="auto" IsEnabled="{Binding !IsRunning}" />
+    </Grid>
+
+    <TextBox Grid.Row="1" Classes="mono" Text="{Binding TargetSummary}" Height="110" />
+
+    <!-- Options and run -->
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" ColumnSpacing="8">
+      <TextBlock Grid.Column="0" Classes="label" Text="Budget" />
+      <NumericUpDown Grid.Column="1" Width="160" Minimum="200" Maximum="1000000" Increment="1000" FormatString="0" Value="{Binding Budget}" IsEnabled="{Binding !IsRunning}" />
+      <TextBlock Grid.Column="2" Classes="label" Text="Seed" />
+      <NumericUpDown Grid.Column="3" Width="170" Minimum="0" Maximum="2147483647" Increment="1" FormatString="0" Value="{Binding Seed}" IsEnabled="{Binding !IsRunning}" />
+      <TextBlock Grid.Column="4" Classes="label" Text="Seeds" />
+      <NumericUpDown Grid.Column="5" Width="110" Minimum="1" Maximum="16" Increment="1" FormatString="0" Value="{Binding Seeds}" IsEnabled="{Binding !IsRunning}" />
+      <Button Grid.Column="6" Content="Run search" Command="{Binding RunCommand}" Classes="accent" />
+      <Button Grid.Column="7" Content="Stop" Command="{Binding CancelCommand}" />
+      <ProgressBar Grid.Column="8" Minimum="0" Maximum="1" Value="{Binding Progress}" VerticalAlignment="Center" />
+    </Grid>
+
+    <!-- Result -->
+    <Grid Grid.Row="3" ColumnDefinitions="2*,3*" ColumnSpacing="10">
+      <DockPanel Grid.Column="0">
+        <TextBlock DockPanel.Dock="Top" Text="Result" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <TextBox Classes="mono" Text="{Binding ResultSummary}" />
+      </DockPanel>
+      <DockPanel Grid.Column="1">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,4">
+          <TextBlock Grid.Column="0" Text="SuperCollider patch (patch.scd)" FontWeight="SemiBold" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" />
+          <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasResult}" />
+        </Grid>
+        <TextBox Classes="mono" Text="{Binding Scd}" />
+      </DockPanel>
+    </Grid>
+
+    <TextBlock Grid.Row="4" Text="{Binding Status}" TextWrapping="Wrap" />
+  </Grid>
+</Window>
