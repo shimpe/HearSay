@@ -4,13 +4,37 @@
         x:Class="HearSay.Studio.MainWindow"
         x:DataType="local:MainViewModel"
         Title="HearSay Studio"
-        Width="1150" Height="800"
-        MinWidth="820" MinHeight="560">
+        Width="1220" Height="860"
+        MinWidth="900" MinHeight="620"
+        Background="{StaticResource WindowBackgroundBrush}"
+        FontFamily="Inter, Segoe UI, sans-serif">
+
+  <Window.Resources>
+    <local:IntensityToBrushConverter x:Key="CellBrush" />
+    <local:IntensityToForegroundConverter x:Key="CellForeground" />
+  </Window.Resources>
 
   <Window.Styles>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="14" />
+    </Style>
+    <Style Selector="TextBlock.title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
     <Style Selector="TextBlock.label">
       <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
       <Setter Property="Margin" Value="0,0,6,0" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
     </Style>
     <Style Selector="TextBox.mono">
       <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Menlo, monospace" />
@@ -18,65 +42,218 @@
       <Setter Property="IsReadOnly" Value="True" />
       <Setter Property="AcceptsReturn" Value="True" />
       <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="Background" Value="{StaticResource EditorBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBox.mono:pointerover /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="{StaticResource EditorBackgroundBrush}" />
+    </Style>
+    <Style Selector="TextBox.mono:focus /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="{StaticResource EditorBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource AccentDimBrush}" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="#0F172A" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="18,8" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#67E8F9" />
+      <Setter Property="Foreground" Value="#0F172A" />
+    </Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource AccentDimBrush}" />
+      <Setter Property="Foreground" Value="#0F172A" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="ProgressBar">
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Background" Value="{StaticResource EditorBackgroundBrush}" />
+      <Setter Property="Height" Value="8" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,6" />
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="#243247" />
     </Style>
   </Window.Styles>
 
-  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12" RowSpacing="10">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16" RowSpacing="12">
 
-    <!-- Targets -->
-    <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
-      <Button Grid.Column="0" Content="Add WAV…" Click="OnAdd" IsEnabled="{Binding !IsRunning}" />
-      <Button Grid.Column="1" Content="Remove" Command="{Binding RemoveCommand}" />
-      <Button Grid.Column="2" Content="Clear" Command="{Binding ClearCommand}" />
-      <TextBlock Grid.Column="3" Classes="label" Text="Several notes of the same sound at different pitches or velocities are matched by one patch." Opacity="0.7" TextWrapping="Wrap" />
-    </Grid>
+    <!-- Header -->
+    <Border Grid.Row="0" CornerRadius="10" Padding="18,14">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+          <GradientStop Offset="0" Color="#1E3A5F" />
+          <GradientStop Offset="1" Color="#0F172A" />
+        </LinearGradientBrush>
+      </Border.Background>
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Border Width="36" Height="36" CornerRadius="18" Background="{StaticResource AccentBrush}">
+            <TextBlock Text="♪" FontSize="20" Foreground="#0F172A" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel>
+            <TextBlock Text="HearSay Studio" FontSize="20" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" />
+            <TextBlock Text="audio → six-operator patch → SuperCollider FM7" Classes="muted" FontSize="12" />
+          </StackPanel>
+        </StackPanel>
+        <!-- Options and run -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <TextBlock Classes="label" Text="Budget" ToolTip.Tip="Candidate evaluations; one evaluation renders every target note" />
+          <NumericUpDown Width="150" Minimum="200" Maximum="1000000" Increment="1000" FormatString="0" Value="{Binding Budget}" IsEnabled="{Binding !IsRunning}" />
+          <TextBlock Classes="label" Text="Seed" />
+          <NumericUpDown Width="150" Minimum="0" Maximum="2147483647" Increment="1" FormatString="0" Value="{Binding Seed}" IsEnabled="{Binding !IsRunning}" />
+          <TextBlock Classes="label" Text="Seeds" ToolTip.Tip="Run this many seeds and keep the best" />
+          <NumericUpDown Width="100" Minimum="1" Maximum="16" Increment="1" FormatString="0" Value="{Binding Seeds}" IsEnabled="{Binding !IsRunning}" />
+          <Button Content="▶  Run search" Classes="primary" Command="{Binding RunCommand}" />
+          <Button Content="Stop" Command="{Binding CancelCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
 
-    <ListBox Grid.Row="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" Height="150" IsEnabled="{Binding !IsRunning}">
-      <ListBox.ItemTemplate>
-        <DataTemplate x:DataType="local:TargetItem">
-          <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
-            <StackPanel Grid.Column="0">
-              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding Summary}" FontSize="11" Opacity="0.8" TextWrapping="Wrap" />
-            </StackPanel>
-            <TextBlock Grid.Column="1" Classes="label" Text="pitch" />
-            <TextBox Grid.Column="2" Width="80" Text="{Binding Pitch}" Watermark="auto" ToolTip.Tip="MIDI note (0-127) or frequency in Hz; empty = estimate" LostFocus="OnPitchChanged" />
-            <TextBlock Grid.Column="3" Classes="label" Text="velocity" />
-            <TextBox Grid.Column="4" Width="60" Text="{Binding Velocity}" Watermark="1.0" ToolTip.Tip="0..1" />
+    <!-- Body -->
+    <Grid Grid.Row="1" ColumnDefinitions="2*,3*" ColumnSpacing="12">
+
+      <!-- Left column: targets and result -->
+      <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12">
+        <Border Grid.Row="0" Classes="card">
+          <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
+              <TextBlock Grid.Column="0" Classes="title" Text="TARGET NOTES" Margin="0" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Content="Add WAV…" Click="OnAdd" IsEnabled="{Binding !IsRunning}" />
+              <Button Grid.Column="2" Content="Remove" Command="{Binding RemoveCommand}" />
+              <Button Grid.Column="3" Content="Clear" Command="{Binding ClearCommand}" />
+            </Grid>
+            <ListBox Grid.Row="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}" Height="168" Background="Transparent" IsEnabled="{Binding !IsRunning}">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:TargetItem">
+                  <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                    <StackPanel Grid.Column="0">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Summary}" FontSize="11" Classes="muted" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="label" Text="pitch" FontSize="11" />
+                    <TextBox Grid.Column="2" Width="70" Text="{Binding Pitch}" Watermark="auto" ToolTip.Tip="MIDI note (0-127) or frequency in Hz; empty = estimate" LostFocus="OnPitchChanged" />
+                    <TextBlock Grid.Column="3" Classes="label" Text="vel" FontSize="11" />
+                    <TextBox Grid.Column="4" Width="56" Text="{Binding Velocity}" Watermark="1.0" ToolTip.Tip="0..1" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Grid.Row="2" Classes="muted" FontSize="11" TextWrapping="Wrap" Text="Several notes of the same sound at different pitches or velocities are matched by one patch; that makes key scaling, velocity and fixed-frequency operators searchable." />
           </Grid>
-        </DataTemplate>
-      </ListBox.ItemTemplate>
-    </ListBox>
+        </Border>
 
-    <!-- Options and run -->
-    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" ColumnSpacing="8">
-      <TextBlock Grid.Column="0" Classes="label" Text="Budget" ToolTip.Tip="Candidate evaluations; one evaluation renders every target note" />
-      <NumericUpDown Grid.Column="1" Width="160" Minimum="200" Maximum="1000000" Increment="1000" FormatString="0" Value="{Binding Budget}" IsEnabled="{Binding !IsRunning}" />
-      <TextBlock Grid.Column="2" Classes="label" Text="Seed" />
-      <NumericUpDown Grid.Column="3" Width="170" Minimum="0" Maximum="2147483647" Increment="1" FormatString="0" Value="{Binding Seed}" IsEnabled="{Binding !IsRunning}" />
-      <TextBlock Grid.Column="4" Classes="label" Text="Seeds" ToolTip.Tip="Run this many seeds and keep the best" />
-      <NumericUpDown Grid.Column="5" Width="110" Minimum="1" Maximum="16" Increment="1" FormatString="0" Value="{Binding Seeds}" IsEnabled="{Binding !IsRunning}" />
-      <Button Grid.Column="6" Content="Run search" Command="{Binding RunCommand}" Classes="accent" />
-      <Button Grid.Column="7" Content="Stop" Command="{Binding CancelCommand}" />
-      <ProgressBar Grid.Column="8" Minimum="0" Maximum="1" Value="{Binding Progress}" VerticalAlignment="Center" />
+        <Border Grid.Row="1" Classes="card">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
+            <TextBlock Grid.Row="0" Classes="title" Text="RESULT" />
+
+            <!-- Stat tiles -->
+            <ItemsControl Grid.Row="1" ItemsSource="{Binding Stats}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Columns="4" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:StatTile">
+                  <Border Background="{StaticResource EditorBackgroundBrush}" CornerRadius="8" Padding="10,8" Margin="0,0,6,0">
+                    <StackPanel>
+                      <TextBlock Text="{Binding Label}" Classes="muted" FontSize="10" />
+                      <TextBlock Text="{Binding Value}" FontSize="22" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+                      <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="10" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Per-note similarity -->
+            <ItemsControl Grid.Row="2" ItemsSource="{Binding NoteRows}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:NoteRow">
+                  <Grid ColumnDefinitions="120,*,40" ColumnSpacing="8" Margin="0,2">
+                    <TextBlock Grid.Column="0" Text="{Binding Label}" Classes="muted" FontSize="11" VerticalAlignment="Center" />
+                    <ProgressBar Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Percent}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding Text}" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Modulation matrix -->
+            <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
+              <StackPanel Grid.Column="0">
+                <TextBlock Text="modulation matrix" Classes="muted" FontSize="10" Margin="0,0,0,4" />
+                <Grid ColumnDefinitions="30,Auto" RowDefinitions="Auto,Auto">
+                  <ItemsControl Grid.Row="0" Grid.Column="1" ItemsSource="{Binding OperatorNames}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <TextBlock Text="{Binding}" Width="38" FontSize="9" Classes="muted" HorizontalAlignment="Center" TextAlignment="Center" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ItemsControl Grid.Row="1" Grid.Column="0" ItemsSource="{Binding OperatorNames}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <TextBlock Text="{Binding}" Height="38" FontSize="9" Classes="muted" VerticalAlignment="Center" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ItemsControl Grid.Row="1" Grid.Column="1" ItemsSource="{Binding MatrixCells}" Width="228">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><UniformGrid Columns="6" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="local:MatrixCell">
+                        <Border Width="36" Height="36" Margin="1" CornerRadius="4" Background="{Binding Intensity, Converter={StaticResource CellBrush}}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1">
+                          <TextBlock Text="{Binding Text}" FontSize="10" Foreground="{Binding Intensity, Converter={StaticResource CellForeground}}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Grid>
+                <TextBlock Text="rows: destination · columns: source · radians" Classes="muted" FontSize="9" Margin="0,4,0,0" />
+              </StackPanel>
+              <TextBox Grid.Column="1" Classes="mono" Text="{Binding ResultSummary}" FontSize="11" />
+            </Grid>
+            <TextBlock Grid.Row="4" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
+          </Grid>
+        </Border>
+      </Grid>
+
+      <!-- Right column: SuperCollider code -->
+      <Border Grid.Column="1" Classes="card">
+        <DockPanel>
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+            <TextBlock Grid.Column="0" Classes="title" Text="SUPERCOLLIDER PATCH  ·  patch.scd" Margin="0" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" />
+            <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasResult}" />
+          </Grid>
+          <TextBox Classes="mono" Text="{Binding Scd}" Watermark="The generated SynthDef appears here. It needs SuperCollider with sc3-plugins (FM7) and nothing of HearSay." />
+        </DockPanel>
+      </Border>
     </Grid>
 
-    <!-- Result -->
-    <Grid Grid.Row="3" ColumnDefinitions="2*,3*" ColumnSpacing="10">
-      <DockPanel Grid.Column="0">
-        <TextBlock DockPanel.Dock="Top" Text="Result" FontWeight="SemiBold" Margin="0,0,0,4" />
-        <TextBox Classes="mono" Text="{Binding ResultSummary}" />
-      </DockPanel>
-      <DockPanel Grid.Column="1">
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,4">
-          <TextBlock Grid.Column="0" Text="SuperCollider patch (patch.scd)" FontWeight="SemiBold" VerticalAlignment="Center" />
-          <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" />
-          <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasResult}" />
-        </Grid>
-        <TextBox Classes="mono" Text="{Binding Scd}" />
-      </DockPanel>
-    </Grid>
-
-    <TextBlock Grid.Row="4" Text="{Binding Status}" TextWrapping="Wrap" />
+    <!-- Footer: progress and status -->
+    <Border Grid.Row="2" Classes="card" Padding="14,10">
+      <Grid ColumnDefinitions="*,220" ColumnSpacing="14">
+        <TextBlock Grid.Column="0" Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        <ProgressBar Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding Progress}" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
   </Grid>
 </Window>

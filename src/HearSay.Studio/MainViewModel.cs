@@ -6,6 +6,7 @@ using System.Windows.Input;
 using HearSay.Analysis;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Export;
+using HearSay.Synthesis.Patches;
 
 namespace HearSay.Studio;
 
@@ -231,6 +232,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set => Set(ref _scd, value);
     }
 
+    /// <summary>Headline numbers of the result, empty without one.</summary>
+    public ObservableCollection<StatTile> Stats { get; } = [];
+
+    /// <summary>Similarity per target note.</summary>
+    public ObservableCollection<NoteRow> NoteRows { get; } = [];
+
+    /// <summary>The 6x6 modulation matrix of the best patch, row-major, destination rows and source columns.</summary>
+    public ObservableCollection<MatrixCell> MatrixCells { get; } = [];
+
+    /// <summary>Column headers of the matrix.</summary>
+    public ObservableCollection<string> OperatorNames { get; } = [];
+
     /// <summary>True once a result exists.</summary>
     public bool HasResult => _result is not null;
 
@@ -354,6 +367,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _result = result;
         if (result is null)
         {
+            Stats.Clear();
+            NoteRows.Clear();
+            MatrixCells.Clear();
+            OperatorNames.Clear();
             ResultSummary = string.Empty;
             Scd = string.Empty;
         }
@@ -361,14 +378,45 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             SearchSummary s = result.SearchSummary;
             PatchCandidateResult best = result.AlternativePatches[0];
-            string notes = string.Join('\n', result.Notes.Select(static n => string.Create(CultureInfo.InvariantCulture, $"note        f0 {n.Analysis.FundamentalHz:F1} Hz, velocity {n.Request.Velocity:F2}: similarity {n.Comparison.Scores.Similarity:F3}")));
+            Stats.Clear();
+            Stats.Add(new StatTile("initial loss", FormattableString.Invariant($"{s.InitialAudioLoss:F3}"), "best untouched hypothesis"));
+            Stats.Add(new StatTile("final loss", FormattableString.Invariant($"{s.FinalAudioLoss:F3}"), FormattableString.Invariant($"{s.InitialAudioLoss / Math.Max(1e-9, s.FinalAudioLoss):F1}× better")));
+            Stats.Add(new StatTile("similarity", FormattableString.Invariant($"{result.Comparison.Scores.Similarity:F2}"), "1 = identical"));
+            Stats.Add(new StatTile("renders", s.RendersUsed.ToString("N0", CultureInfo.InvariantCulture), FormattableString.Invariant($"{s.Elapsed.TotalSeconds:F0} s, seed {s.RandomSeed}")));
+            NoteRows.Clear();
+            foreach (NoteMatch n in result.Notes)
+            {
+                NoteRows.Add(new NoteRow(FormattableString.Invariant($"{n.Analysis.FundamentalHz:F1} Hz · v{n.Request.Velocity:F2}"), n.Comparison.Scores.Similarity));
+            }
+
+            OperatorMatrixPatch patch = result.BestPatch;
+            bool[] audible = patch.FindAudibleOperators();
+            OperatorNames.Clear();
+            MatrixCells.Clear();
+            for (int i = 0; i < patch.OperatorCount; i++)
+            {
+                OperatorNames.Add("OP" + (i + 1));
+            }
+
+            for (int d = 0; d < patch.OperatorCount; d++)
+            {
+                for (int src = 0; src < patch.OperatorCount; src++)
+                {
+                    double amount = audible[d] && audible[src] ? patch.ModulationMatrix[d, src] : 0.0;
+                    MatrixCells.Add(new MatrixCell(amount, src == d));
+                }
+            }
+
             string routing = PatchDescription.Routing(result.BestPatch);
+            int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
+            if (matrixAt > 0)
+            {
+                routing = routing[..matrixAt].TrimEnd();
+            }
             ResultSummary = FormattableString.Invariant(
                 $"""
-                audio loss  {s.InitialAudioLoss:F4} (best untouched hypothesis) -> {s.FinalAudioLoss:F4}
-                search      {s.EvaluationsUsed} evaluations, {s.RendersUsed} renders in {s.Elapsed.TotalSeconds:F1} s, seed {s.RandomSeed}
                 origin      {best.Origin}
-                {notes}
+                structure   {best.Regime.Value}
 
                 {routing}
                 """);
@@ -409,4 +457,34 @@ public sealed class RelayCommand(Action execute, Func<bool> canExecute) : IComma
     public void Execute(object? parameter) => execute();
 
     public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+}
+
+/// <summary>One headline number of a result.</summary>
+/// <param name="Label">What the number is.</param>
+/// <param name="Value">The number as text.</param>
+/// <param name="Detail">A short qualification.</param>
+public sealed record StatTile(string Label, string Value, string Detail);
+
+/// <summary>Similarity of one target note, for a bar.</summary>
+/// <param name="Label">Pitch and velocity.</param>
+/// <param name="Similarity">0..1.</param>
+public sealed record NoteRow(string Label, double Similarity)
+{
+    /// <summary>Similarity as text.</summary>
+    public string Text => Similarity.ToString("F2", CultureInfo.InvariantCulture);
+
+    /// <summary>Similarity in percent, for the bar.</summary>
+    public double Percent => 100.0 * Similarity;
+}
+
+/// <summary>One cell of the modulation matrix.</summary>
+/// <param name="Amount">Modulation amount in radians; zero when the edge is absent.</param>
+/// <param name="IsDiagonal">True for self-feedback cells.</param>
+public sealed record MatrixCell(double Amount, bool IsDiagonal)
+{
+    /// <summary>Amount as text; empty for absent edges.</summary>
+    public string Text => Amount == 0.0 ? string.Empty : Amount.ToString("0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>Colour intensity 0..1, saturating at 6 radians.</summary>
+    public double Intensity => Math.Clamp(Math.Abs(Amount) / 6.0, 0.0, 1.0);
 }
