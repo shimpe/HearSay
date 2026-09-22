@@ -187,7 +187,7 @@
           <Grid RowDefinitions="Auto,*" RowSpacing="10">
             <TextBlock Grid.Row="0" Classes="title" Text="RESULT" />
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
 
             <!-- Stat tiles -->
             <ItemsControl Grid.Row="0" ItemsSource="{Binding Stats}">
@@ -222,10 +222,27 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- Modulation matrix -->
+            <!-- Finalists: the one selected is shown below and played by the keyboard -->
+            <StackPanel Grid.Row="2" Spacing="4" IsVisible="{Binding HasAlternatives}">
+              <TextBlock Text="finalists · select one to inspect, play and export it" Classes="muted" FontSize="10" />
+              <ListBox ItemsSource="{Binding Alternatives}" SelectedItem="{Binding SelectedAlternative}" MaxHeight="150" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="local:AlternativeItem">
+                    <Grid ColumnDefinitions="28,48,*" ColumnSpacing="8" Margin="0,1">
+                      <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Text="{Binding Loss}" FontSize="11" VerticalAlignment="Center" ToolTip.Tip="audio loss, lower is better" />
+                      <StackPanel Grid.Column="2">
+                        <TextBlock Text="{Binding Structure}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Origin}" Classes="muted" FontSize="9" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </StackPanel>
 
-            <!-- Keyboard: plays the best patch at any pitch; the target notes are marked -->
-            <StackPanel Grid.Row="2" Spacing="4" IsVisible="{Binding HasResult}">
+            <!-- Keyboard: plays the shown patch at any pitch; the target notes are marked -->
+            <StackPanel Grid.Row="3" Spacing="4" IsVisible="{Binding HasResult}">
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                 <TextBlock Grid.Column="0" Text="play the result" Classes="muted" FontSize="10" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
@@ -236,7 +253,7 @@
               </ScrollViewer>
               <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
             </StackPanel>
-            <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
+            <Grid Grid.Row="4" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
               <StackPanel Grid.Column="0">
                 <TextBlock Text="modulation matrix" Classes="muted" FontSize="10" Margin="0,0,0,4" />
                 <Grid ColumnDefinitions="30,Auto" RowDefinitions="Auto,Auto">
@@ -274,7 +291,7 @@
               </StackPanel>
               <TextBox Grid.Column="1" Classes="mono" Text="{Binding ResultSummary}" FontSize="11" MinHeight="260" />
             </Grid>
-            <TextBlock Grid.Row="4" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
+            <TextBlock Grid.Row="5" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
             </Grid>
             </ScrollViewer>
           </Grid>

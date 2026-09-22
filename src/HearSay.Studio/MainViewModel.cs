@@ -136,6 +136,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly AudioPlayer _player = new();
     private string _playingText = string.Empty;
     private float _resultGain;
+    private AlternativeItem? _selectedAlternative;
+    private OperatorMatrixPatch? _shownPatch;
 
     public MainViewModel()
     {
@@ -260,8 +262,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>Column headers of the matrix.</summary>
     public ObservableCollection<string> OperatorNames { get; } = [];
 
+    /// <summary>The finalists of the search, best first; with several seeds, the finalists of every seed.</summary>
+    public ObservableCollection<AlternativeItem> Alternatives { get; } = [];
+
+    /// <summary>The finalist shown in the matrix, the summary, the code and on the keyboard.</summary>
+    public AlternativeItem? SelectedAlternative
+    {
+        get => _selectedAlternative;
+        set
+        {
+            if (Set(ref _selectedAlternative, value) && value is not null && _result is not null)
+            {
+                ShowCandidate(_result, value.Candidate);
+            }
+        }
+    }
+
     /// <summary>True once a result exists.</summary>
     public bool HasResult => _result is not null;
+
+    /// <summary>True when the search produced more than one finalist.</summary>
+    public bool HasAlternatives => Alternatives.Count > 1;
 
     /// <summary>Loads and analyses a WAV file and adds it to the targets.</summary>
     /// <param name="path">Path of the file.</param>
@@ -360,27 +381,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <param name="velocity">Key velocity 0..1.</param>
     public void PlayNote(int midiNote, double velocity)
     {
-        if (_result is null)
+        if (_result is null || _shownPatch is null)
         {
             return;
         }
 
         PatchMatchResult result = _result;
+        OperatorMatrixPatch patch = _shownPatch;
         double hz = 440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0);
         double held = Math.Clamp(result.Request.NoteDuration.TotalSeconds, 0.3, 2.0);
         double tail = Math.Clamp(Math.Max(0.3, result.Request.ReleaseDuration.TotalSeconds), 0.3, 2.0);
         var request = new RenderRequest(hz, midiNote, velocity, TimeSpan.FromSeconds(held), TimeSpan.FromSeconds(tail), result.Request.SampleRate);
-        RenderedAudio audio = SynthesisBackends.RendererFor(result.Profile).Render(result.BestPatch, request);
-        // One gain per result, from the reference note at full velocity: the level differences between keys and
+        RenderedAudio audio = SynthesisBackends.RendererFor(result.Profile).Render(patch, request);
+        // One gain per shown patch, from the reference note at full velocity: the level differences between keys and
         // velocities survive, unlike with a peak normalization of every note.
         if (_resultGain <= 0)
         {
-            RenderedAudio full = SynthesisBackends.RendererFor(result.Profile).Render(result.BestPatch, result.Request with { Velocity = 1.0 });
+            RenderedAudio full = SynthesisBackends.RendererFor(result.Profile).Render(patch, result.Request with { Velocity = 1.0 });
             _resultGain = full.Peak > 0 ? 0.5f / full.Peak : 1f;
         }
 
         // A patch without velocity sensitivity ignores the key velocity; the keyboard then applies it as volume.
-        bool patchResponds = result.BestPatch.Operators.Any(static o => o.Enabled && o.VelocitySensitivity > 0);
+        bool patchResponds = patch.Operators.Any(static o => o.Enabled && o.VelocitySensitivity > 0);
         float gain = _resultGain * (patchResponds ? 1f : (float)velocity);
         _player.Play(Scale(audio, Math.Min(gain, 0.98f / Math.Max(1e-6f, audio.Peak))));
         PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (patchResponds ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
@@ -477,6 +499,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void SetResult(PatchMatchResult? result)
     {
         _result = result;
+        _selectedAlternative = null;
+        _shownPatch = null;
+        Alternatives.Clear();
         if (result is null)
         {
             Stats.Clear();
@@ -489,7 +514,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         else
         {
             SearchSummary s = result.SearchSummary;
-            PatchCandidateResult best = result.AlternativePatches[0];
             Stats.Clear();
             Stats.Add(new StatTile("initial loss", FormattableString.Invariant($"{s.InitialAudioLoss:F3}"), "best untouched hypothesis"));
             Stats.Add(new StatTile("final loss", FormattableString.Invariant($"{s.FinalAudioLoss:F3}"), FormattableString.Invariant($"{s.InitialAudioLoss / Math.Max(1e-9, s.FinalAudioLoss):F1}× better")));
@@ -501,47 +525,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 NoteRows.Add(new NoteRow(FormattableString.Invariant($"{n.Analysis.FundamentalHz:F1} Hz · v{n.Request.Velocity:F2}"), n.Comparison.Scores.Similarity));
             }
 
-            OperatorMatrixPatch patch = result.BestPatch;
-            bool[] audible = patch.FindAudibleOperators();
-            OperatorNames.Clear();
-            MatrixCells.Clear();
-            for (int i = 0; i < patch.OperatorCount; i++)
+            for (int i = 0; i < result.AlternativePatches.Count; i++)
             {
-                OperatorNames.Add("OP" + (i + 1));
+                Alternatives.Add(new AlternativeItem(i + 1, result.AlternativePatches[i]));
             }
 
-            for (int d = 0; d < patch.OperatorCount; d++)
-            {
-                for (int src = 0; src < patch.OperatorCount; src++)
-                {
-                    double amount = audible[d] && audible[src] ? patch.ModulationMatrix[d, src] : 0.0;
-                    MatrixCells.Add(new MatrixCell(amount, src == d));
-                }
-            }
-
-            string routing = PatchDescription.Routing(result.BestPatch);
-            int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
-            if (matrixAt > 0)
-            {
-                routing = routing[..matrixAt].TrimEnd();
-            }
-            ResultSummary = FormattableString.Invariant(
-                $"""
-                origin      {best.Origin}
-                structure   {best.Regime.Value}
-
-                {routing}
-                """);
-            Scd = SynthesisBackends.ExporterFor(result.Profile)?.Export(result.BestPatch, new PatchExportOptions
-            {
-                HeaderComments =
-                [
-                    string.Create(CultureInfo.InvariantCulture, $"Matched to {result.Notes.Count} note(s) of {string.Join(", ", Targets.Select(static t => t.Name))}; audio loss {best.AudioLoss:F4}, similarity {result.Comparison.Scores.Similarity:F3} at {result.Analysis.FundamentalHz:F2} Hz."),
-                ],
-            }) ?? "This profile has no export backend.";
+            // Through the property, so that the list selects it and the patch is shown.
+            SelectedAlternative = Alternatives[0];
         }
 
-        _resultGain = 0;
+        OnPropertyChanged(nameof(HasAlternatives));
         TargetNotes.Clear();
         if (result is not null)
         {
@@ -553,6 +546,57 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         PlayingText = string.Empty;
         OnPropertyChanged(nameof(HasResult));
+    }
+
+    /// <summary>Shows one finalist: its matrix, routing, code, and what the keyboard plays.</summary>
+    private void ShowCandidate(PatchMatchResult result, PatchCandidateResult candidate)
+    {
+        OperatorMatrixPatch patch = candidate.Patch;
+        _shownPatch = patch;
+        _resultGain = 0;
+        bool[] audible = patch.FindAudibleOperators();
+        OperatorNames.Clear();
+        MatrixCells.Clear();
+        for (int i = 0; i < patch.OperatorCount; i++)
+        {
+            OperatorNames.Add("OP" + (i + 1));
+        }
+
+        for (int d = 0; d < patch.OperatorCount; d++)
+        {
+            for (int src = 0; src < patch.OperatorCount; src++)
+            {
+                double amount = audible[d] && audible[src] ? patch.ModulationMatrix[d, src] : 0.0;
+                MatrixCells.Add(new MatrixCell(amount, src == d));
+            }
+        }
+
+        string routing = PatchDescription.Routing(patch);
+        int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
+        if (matrixAt > 0)
+        {
+            routing = routing[..matrixAt].TrimEnd();
+        }
+
+        ResultSummary = FormattableString.Invariant(
+            $"""
+            audio loss  {candidate.AudioLoss:F4}
+            origin      {candidate.Origin}
+            structure   {candidate.Regime.Value}
+
+            {routing}
+            """);
+        bool isBest = ReferenceEquals(candidate, result.AlternativePatches[0]);
+        string comparison = isBest ? FormattableString.Invariant($", similarity {result.Comparison.Scores.Similarity:F3}") : string.Empty;
+        Scd = SynthesisBackends.ExporterFor(result.Profile)?.Export(patch, new PatchExportOptions
+        {
+            HeaderComments =
+            [
+                string.Create(CultureInfo.InvariantCulture, $"Matched to {result.Notes.Count} note(s) of {string.Join(", ", Targets.Select(static t => t.Name))}; audio loss {candidate.AudioLoss:F4}{comparison} at {result.Analysis.FundamentalHz:F2} Hz."),
+                string.Create(CultureInfo.InvariantCulture, $"{(isBest ? "Best patch" : "Alternative")}: {candidate.Origin}"),
+            ],
+        }) ?? "This profile has no export backend.";
+        PlayingText = string.Empty;
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
@@ -587,6 +631,45 @@ public sealed class RelayCommand(Action execute, Func<bool> canExecute) : IComma
 /// <param name="Value">The number as text.</param>
 /// <param name="Detail">A short qualification.</param>
 public sealed record StatTile(string Label, string Value, string Detail);
+
+/// <summary>One finalist of the search, for the alternatives list.</summary>
+/// <param name="Rank">1 for the best patch.</param>
+/// <param name="Candidate">The finalist.</param>
+public sealed record AlternativeItem(int Rank, PatchCandidateResult Candidate)
+{
+    /// <summary>"#1", "#2", …</summary>
+    public string Label => "#" + Rank.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>Audio loss, three decimals.</summary>
+    public string Loss => Candidate.AudioLoss.ToString("F3", CultureInfo.InvariantCulture);
+
+    /// <summary>Operators in use, for example "OP1 Saw r1 → out · OP2 Sine r3".</summary>
+    public string Structure
+    {
+        get
+        {
+            OperatorMatrixPatch patch = Candidate.Patch;
+            bool[] audible = patch.FindAudibleOperators();
+            var parts = new List<string>();
+            for (int i = 0; i < patch.OperatorCount; i++)
+            {
+                if (audible[i])
+                {
+                    OperatorPatch op = patch.Operators[i];
+                    string frequency = op.Frequency.Mode == OperatorFrequencyMode.Ratio
+                        ? "r" + op.Frequency.Ratio.ToString("0.###", CultureInfo.InvariantCulture)
+                        : op.Frequency.FixedFrequencyHz.ToString("0.#", CultureInfo.InvariantCulture) + " Hz";
+                    parts.Add($"OP{i + 1} {op.Waveform} {frequency}{(patch.OutputLevels[i] != 0.0 ? " → out" : string.Empty)}");
+                }
+            }
+
+            return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>Hypothesis and mutations, with the seed when several were run.</summary>
+    public string Origin => Candidate.Origin;
+}
 
 /// <summary>Similarity of one target note, for a bar.</summary>
 /// <param name="Label">Pitch and velocity.</param>
