@@ -126,7 +126,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _budget = 20000;
     private int _seed = 1234;
     private int _seeds = 1;
-    private SynthesisProfile _selectedProfile = SynthesisProfiles.SuperColliderFm7;
+    private SynthesisTargetChoice? _selectedSynthesisTarget;
     private bool _isRunning;
     private double _progress;
     private string _status = "Add one or more WAV files with a single dry note each. Several notes of the same sound at different pitches make key scaling and fixed-frequency operators searchable.";
@@ -205,32 +205,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>Synthesis targets that can be searched and exported: the SuperCollider FM7 and FMX6 UGens.</summary>
     public IReadOnlyList<SynthesisProfile> Profiles { get; } = [SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderFmx6];
 
-    /// <summary>Profile of the next search; FM7 has sine operators only, FMX6 adds band-limited waveforms and noise.</summary>
-    public SynthesisProfile SelectedProfile
+    /// <summary>Choices of the Target selector: each profile alone, and both one after the other.</summary>
+    public IReadOnlyList<SynthesisTargetChoice> SynthesisTargets { get; } =
+    [
+        new("FM7", [SynthesisProfiles.SuperColliderFm7]),
+        new("FMX6", [SynthesisProfiles.SuperColliderFmx6]),
+        new("FM7 & FMX6", [SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderFmx6]),
+    ];
+
+    /// <summary>
+    /// Target of the next search: FM7 (sine operators only), FMX6 (band-limited waveforms and noise as well), or both,
+    /// searched one after the other with the full budget each. Selecting a target shows its kept result.
+    /// </summary>
+    public SynthesisTargetChoice SelectedSynthesisTarget
     {
-        get => _selectedProfile;
+        get => _selectedSynthesisTarget ?? SynthesisTargets[0];
         set
         {
-            if (Set(ref _selectedProfile, value ?? SynthesisProfiles.SuperColliderFm7))
+            if (Set(ref _selectedSynthesisTarget, value ?? SynthesisTargets[0]))
             {
                 OnPropertyChanged(nameof(ScdWatermark));
                 if (!IsRunning)
                 {
-                    // Every target keeps its last result; the selector switches between them.
-                    PatchMatchResult? kept = _results.GetValueOrDefault(_selectedProfile.Name);
-                    SetResult(kept);
-                    if (kept is not null)
-                    {
-                        Status = FormattableString.Invariant($"Showing the {ProfileNameConverter.Short(_selectedProfile.Name)} result: audio loss {kept.AlternativePatches[0].AudioLoss:F4}, similarity {kept.Comparison.Scores.Similarity:F3}.");
-                    }
-                    else if (_results.Count > 0)
-                    {
-                        Status = $"No {ProfileNameConverter.Short(_selectedProfile.Name)} result yet; run a search to compare it with {string.Join(" and ", _results.Keys.Select(ProfileNameConverter.Short))}.";
-                    }
+                    ShowKeptResult();
                 }
             }
         }
     }
+
+    /// <summary>Profile of the next single search: the first of the selected target.</summary>
+    public SynthesisProfile SelectedProfile => SelectedSynthesisTarget.Profiles[0];
 
     /// <summary>Which targets have a result to switch to, for the result header; empty with none.</summary>
     public string ResultsKept => _results.Count == 0 ? string.Empty : "results kept: " + string.Join(", ", Profiles.Where(p => _results.ContainsKey(p.Name)).Select(p => ProfileNameConverter.Short(p.Name)));
@@ -238,8 +242,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>What the code box says before there is code: which plugin the export of the selected target needs.</summary>
     public string ScdWatermark =>
         "The generated SynthDef appears here. It needs SuperCollider with "
-        + (ReferenceEquals(SelectedProfile, SynthesisProfiles.SuperColliderFmx6) ? "the FMX6 plugin (github.com/shimpe/fmx6)" : "sc3-plugins (FM7)")
+        + string.Join(" or ", SelectedSynthesisTarget.Profiles.Select(static p => ReferenceEquals(p, SynthesisProfiles.SuperColliderFmx6) ? "the FMX6 plugin (github.com/shimpe/fmx6)" : "sc3-plugins (FM7)"))
         + " and nothing of HearSay.";
+
+    /// <summary>Shows the kept result of the selected target: with both targets selected, the better of the two.</summary>
+    private void ShowKeptResult()
+    {
+        var kept = SelectedSynthesisTarget.Profiles
+            .Select(p => _results.GetValueOrDefault(p.Name))
+            .Where(static r => r is not null)
+            .OrderBy(static r => r!.AlternativePatches[0].Loss)
+            .ToList();
+        SetResult(kept.Count > 0 ? kept[0] : null);
+        if (kept.Count > 0)
+        {
+            Status = "Showing " + string.Join("; ", kept.Select(static r => FormattableString.Invariant($"{ProfileNameConverter.Short(r!.Profile.Name)}: audio loss {r.AlternativePatches[0].AudioLoss:F4}, similarity {r.Comparison.Scores.Similarity:F3}")))
+                + (kept.Count > 1 ? $". The {ProfileNameConverter.Short(kept[0]!.Profile.Name)} result is shown; select one target to see the other." : ".");
+        }
+        else if (_results.Count > 0)
+        {
+            Status = $"No {SelectedSynthesisTarget.Label} result yet; run a search to compare it with {string.Join(" and ", _results.Keys.Select(ProfileNameConverter.Short))}.";
+        }
+    }
 
     /// <summary>True while a search runs.</summary>
     public bool IsRunning
@@ -367,26 +391,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Progress = 0;
         SetResult(null);
         _cancellation = new CancellationTokenSource();
-        var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = SelectedProfile };
-        var progress = new Progress<SearchProgress>(p =>
-        {
-            Progress = p.Fraction;
-            string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run} of {p.RunCount} (seed {Seed + p.Run - 1}) · ") : string.Empty;
-            string previous = double.IsNaN(p.BestLossOfPreviousRuns) ? string.Empty : FormattableString.Invariant($" · best of earlier seeds {p.BestLossOfPreviousRuns:F4}");
-            Status = FormattableString.Invariant($"{run}{p.Stage}: {p.EvaluationsUsed} of {p.EvaluationBudget} evaluations, best loss {p.BestLoss:F4}{previous}");
-        });
-
+        IReadOnlyList<SynthesisProfile> profiles = SelectedSynthesisTarget.Profiles;
         try
         {
             List<AudioTarget> targets = [.. Targets.Select(static t => t.ToTarget())];
             int seeds = Seeds;
             CancellationToken token = _cancellation.Token;
-            PatchMatchResult result = await Task.Run(() => _matcher.MatchBestOf(targets, seeds, options, progress, token), CancellationToken.None);
-            _results[result.Profile.Name] = result;
-            OnPropertyChanged(nameof(ResultsKept));
-            SetResult(result);
+            var done = new List<PatchMatchResult>();
+            for (int i = 0; i < profiles.Count && !token.IsCancellationRequested; i++)
+            {
+                SynthesisProfile profile = profiles[i];
+                int index = i;
+                string prefix = profiles.Count > 1 ? ProfileNameConverter.Short(profile.Name) + " · " : string.Empty;
+                var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = profile };
+                var progress = new Progress<SearchProgress>(p =>
+                {
+                    Progress = (index + p.Fraction) / profiles.Count;
+                    string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run} of {p.RunCount} (seed {Seed + p.Run - 1}) · ") : string.Empty;
+                    string previous = double.IsNaN(p.BestLossOfPreviousRuns) ? string.Empty : FormattableString.Invariant($" · best of earlier seeds {p.BestLossOfPreviousRuns:F4}");
+                    Status = FormattableString.Invariant($"{prefix}{run}{p.Stage}: {p.EvaluationsUsed} of {p.EvaluationBudget} evaluations, best loss {p.BestLoss:F4}{previous}");
+                });
+                PatchMatchResult result = await Task.Run(() => _matcher.MatchBestOf(targets, seeds, options, progress, token), CancellationToken.None);
+                _results[result.Profile.Name] = result;
+                done.Add(result);
+                OnPropertyChanged(nameof(ResultsKept));
+                SetResult(result);
+            }
+
             Progress = 1;
-            Status = token.IsCancellationRequested ? "Stopped; showing the best patch found so far." : "Done.";
+            if (done.Count > 1)
+            {
+                // Both targets: the better one is shown, the status line has both.
+                ShowKeptResult();
+                Status = (token.IsCancellationRequested ? "Stopped. " : "Done. ") + Status;
+            }
+            else
+            {
+                Status = token.IsCancellationRequested ? "Stopped; showing the best patch found so far." : "Done.";
+            }
         }
         catch (Exception e) when (e is IOException or InvalidDataException or ArgumentException or NotSupportedException)
         {
@@ -668,6 +710,20 @@ public sealed class RelayCommand(Action execute, Func<bool> canExecute) : IComma
 /// <param name="Value">The number as text.</param>
 /// <param name="Detail">A short qualification.</param>
 public sealed record StatTile(string Label, string Value, string Detail);
+
+/// <summary>One entry of the Target selector: a label and the profiles searched, one after the other.</summary>
+/// <param name="Label">Text in the selector.</param>
+/// <param name="Profiles">Profiles searched, in order.</param>
+public sealed class SynthesisTargetChoice(string label, IReadOnlyList<SynthesisProfile> profiles)
+{
+    /// <inheritdoc cref="SynthesisTargetChoice"/>
+    public string Label { get; } = label;
+
+    /// <inheritdoc cref="SynthesisTargetChoice"/>
+    public IReadOnlyList<SynthesisProfile> Profiles { get; } = profiles;
+
+    public override string ToString() => Label;
+}
 
 /// <summary>One finalist of the search, for the alternatives list.</summary>
 /// <param name="Rank">1 for the best patch.</param>

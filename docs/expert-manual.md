@@ -201,12 +201,14 @@ one-shot envelopes only frees itself after the longest one, so it can be played 
 
 Studio is the library with a window around it. Everything it does is available in the API.
 
-**Header.** Target (FM7 or FMX6), Budget, Seed, Seeds, Run, Stop. Stop returns the best patch found so far; the
-progress bar shows the run within the seeds and the stage within the run.
+**Header.** Target (FM7, FMX6, or FM7 & FMX6), Budget, Seed, Seeds, Run, Stop. Stop returns the best patch found so
+far; the progress bar shows the run within the seeds and the stage within the run.
 
 Every target keeps its last result for the current target set: search under FM7, switch the Target selector to
 FMX6, search again, and switch back and forth to compare the two by ear on the keyboard, in the matrix and in the
-code. The result header says which results are kept; adding a target file discards them all.
+code. "FM7 & FMX6" runs both searches one after the other with the full budget and seeds each, keeps both results
+and shows the one with the lower loss; the status line has both losses and similarities, and selecting a single
+target shows that one. The result header says which results are kept; adding a target file discards them all.
 
 **Target notes.** Add one or more WAV files; each is analysed at once and shows its fundamental, length, note-off,
 partial count and inharmonicity. Override the pitch (MIDI note or Hz) and the velocity per note when known. The play

@@ -118,11 +118,11 @@
           </WrapPanel.Styles>
           <!-- Each label stays with its control when the row wraps. -->
           <StackPanel Orientation="Horizontal" Spacing="10">
-            <TextBlock Classes="label" Text="Target" ToolTip.Tip="SuperCollider UGen the patch is searched for and exported to. FM7 (sc3-plugins): sine operators. FMX6 (github.com/shimpe/fmx6): sine, triangle, saw, square, pulse and noise operators." />
-            <ComboBox Width="90" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" IsEnabled="{Binding !IsRunning}">
+            <TextBlock Classes="label" Text="Target" ToolTip.Tip="SuperCollider UGen the patch is searched for and exported to. FM7 (sc3-plugins): sine operators. FMX6 (github.com/shimpe/fmx6): sine, triangle, saw, square, pulse and noise operators. FM7 &amp; FMX6: both, one after the other with the full budget each; every target keeps its result." />
+            <ComboBox Width="130" ItemsSource="{Binding SynthesisTargets}" SelectedItem="{Binding SelectedSynthesisTarget}" IsEnabled="{Binding !IsRunning}">
               <ComboBox.ItemTemplate>
-                <DataTemplate>
-                  <TextBlock Text="{Binding Name, Converter={x:Static local:ProfileNameConverter.Instance}}" />
+                <DataTemplate x:DataType="local:SynthesisTargetChoice">
+                  <TextBlock Text="{Binding Label}" />
                 </DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
