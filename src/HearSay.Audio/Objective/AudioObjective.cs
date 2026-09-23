@@ -2,6 +2,7 @@ using HearSay.Analysis;
 using HearSay.Audio;
 using HearSay.Comparison;
 using HearSay.Dsp;
+using HearSay.Models;
 using HearSay.Partials;
 using HearSay.Pitch;
 using HearSay.Preprocessing;
@@ -47,9 +48,26 @@ public sealed record ObjectiveWeights
     public double Ltas { get; init; } = 0.05;
 }
 
+/// <summary>What the search minimizes.</summary>
+public enum ObjectiveCriterion
+{
+    /// <summary>The audio loss: the weighted terms of <see cref="ObjectiveWeights"/>, at every evaluation level.</summary>
+    AudioLoss,
+
+    /// <summary>
+    /// One minus the similarity of the tone comparer (<see cref="SimilarityScores.Similarity"/>), the number a
+    /// listener sees in reports. The coarse level keeps the audio loss, which is cheap enough for screening hundreds
+    /// of hypotheses; the normal and detailed levels compare with the tone comparer.
+    /// </summary>
+    Similarity,
+}
+
 /// <summary>Configuration of <see cref="AudioObjective"/>.</summary>
 public sealed record ObjectiveOptions
 {
+    /// <summary>What is minimized: the audio loss, or one minus the similarity of the tone comparer.</summary>
+    public ObjectiveCriterion Criterion { get; init; } = ObjectiveCriterion.AudioLoss;
+
     /// <summary>Term weights.</summary>
     public ObjectiveWeights Weights { get; init; } = new();
 
@@ -88,7 +106,9 @@ public sealed class PreparedObjectiveTarget
 {
     private readonly Lazy<NoteFeatures>[] _features;
 
-    internal PreparedObjectiveTarget(TargetAnalysis analysis, ObjectiveOptions options, Func<EvaluationLevel, NoteFeatures> extract)
+    private readonly Lazy<PreparedTarget> _comparerTarget;
+
+    internal PreparedObjectiveTarget(TargetAnalysis analysis, ObjectiveOptions options, Func<EvaluationLevel, NoteFeatures> extract, Func<PreparedTarget> prepareForComparer)
     {
         Analysis = analysis;
         Options = options;
@@ -98,6 +118,7 @@ public sealed class PreparedObjectiveTarget
             new Lazy<NoteFeatures>(() => extract(EvaluationLevel.Normal)),
             new Lazy<NoteFeatures>(() => extract(EvaluationLevel.Detailed)),
         ];
+        _comparerTarget = new Lazy<PreparedTarget>(prepareForComparer);
     }
 
     /// <summary>Full analysis of the target.</summary>
@@ -107,6 +128,9 @@ public sealed class PreparedObjectiveTarget
     public ObjectiveOptions Options { get; }
 
     internal NoteFeatures Features(EvaluationLevel level) => _features[(int)level].Value;
+
+    /// <summary>The target as the tone comparer sees it, for the similarity criterion; prepared on first use.</summary>
+    internal PreparedTarget ComparerTarget => _comparerTarget.Value;
 }
 
 /// <summary>What is measured on a note for one evaluation level.</summary>
@@ -145,6 +169,7 @@ public sealed class AudioObjective
     private readonly AudioPreprocessor _preprocessor = new();
     private readonly StftAnalyzer _stft = new();
     private readonly TargetAnalyzer _analyzer = new();
+    private readonly ToneComparer _comparer = new();
 
     /// <summary>Analyses a target once for any number of evaluations.</summary>
     /// <param name="target">Target audio.</param>
@@ -161,7 +186,10 @@ public sealed class AudioObjective
         return new PreparedObjectiveTarget(
             analysis,
             options,
-            level => Extract(analysis.Audio, analysis.FundamentalHz, level, options, trackPitch || (pitched && level == EvaluationLevel.Detailed), magnitudeFloors: null));
+            level => Extract(analysis.Audio, analysis.FundamentalHz, level, options, trackPitch || (pitched && level == EvaluationLevel.Detailed), magnitudeFloors: null),
+            () => _comparer.PrepareTarget(
+                new AudioNote(analysis.Audio.Samples, analysis.Audio.SampleRate, analysis.FundamentalHz),
+                new ToneComparisonOptions { LoudnessMode = LoudnessMode.SeparateLoudness, ExpectedFundamentalHz = analysis.FundamentalHz }));
     }
 
     /// <summary>Evaluates a candidate.</summary>
@@ -185,6 +213,21 @@ public sealed class AudioObjective
         if (!audio.IsUsable)
         {
             return unusable;
+        }
+
+        if (options.Criterion == ObjectiveCriterion.Similarity && level != EvaluationLevel.Coarse)
+        {
+            // The number a listener reads in reports, as a loss: the tone comparer judges the raw candidate the same
+            // way the final comparison of a result does. The coarse level stays the audio loss (see the enum).
+            ToneComparisonResult comparison = _comparer.Compare(target.ComparerTarget, new AudioNote(candidate.Samples, candidate.SampleRate, analysis.FundamentalHz));
+            SimilarityScores s = comparison.Scores;
+            double similarityLoss = 1.0 - s.Similarity;
+            if (!double.IsFinite(similarityLoss))
+            {
+                return unusable;
+            }
+
+            return new ObjectiveResult(similarityLoss, new ObjectiveTerms(1.0 - s.Spectral, 1.0 - s.Perceptual, 1.0 - s.Harmonic, double.NaN, 1.0 - s.Envelope, double.NaN, double.NaN), level, true);
         }
 
         if (!options.TimbreNormalized)

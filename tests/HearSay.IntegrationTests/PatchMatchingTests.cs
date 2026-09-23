@@ -230,6 +230,20 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void SimilarityCriterion_MinimizesWhatTheResultReports()
+    {
+        AudioTarget target = TargetOf("simple-2op");
+        var options = new PatchMatchOptions { EvaluationBudget = 1500, RandomSeed = 5, Objective = new HearSay.Objective.ObjectiveOptions { Criterion = HearSay.Objective.ObjectiveCriterion.Similarity } };
+
+        PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(target, options);
+
+        output.WriteLine($"1 - similarity {result.AlternativePatches[0].AudioLoss:F4}, similarity of the preview {result.Comparison.Scores.Similarity:F4}");
+        Assert.Equal("Similarity", result.SearchSummary.Criterion);
+        Assert.Equal(1.0 - result.Comparison.Scores.Similarity, result.AlternativePatches[0].AudioLoss, 2);
+        Assert.True(result.Comparison.Scores.Similarity > 0.7, $"similarity {result.Comparison.Scores.Similarity}");
+    }
+
+    [Fact]
     public void ResultWriter_ProducesTheDocumentedFolder()
     {
         string directory = Path.Combine(Path.GetTempPath(), "hearsay-test-" + Guid.NewGuid().ToString("N"));
