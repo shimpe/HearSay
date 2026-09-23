@@ -183,7 +183,10 @@
 
         <Border Grid.Row="1" Classes="card" ClipToBounds="True">
           <Grid RowDefinitions="Auto,*" RowSpacing="10">
-            <TextBlock Grid.Row="0" Classes="title" Text="RESULT" />
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*">
+              <TextBlock Grid.Column="0" Classes="title" Text="RESULT" />
+              <TextBlock Grid.Column="1" Text="{Binding ResultsKept}" Classes="muted" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip.Tip="Every target keeps its last result for this target set; switch the Target selector to compare them by ear" />
+            </Grid>
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
 

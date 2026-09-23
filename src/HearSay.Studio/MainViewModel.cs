@@ -139,6 +139,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private AlternativeItem? _selectedAlternative;
     private OperatorMatrixPatch? _shownPatch;
 
+    /// <summary>The last result of every synthesis target, by profile name, so that FM7 and FMX6 can be compared by ear.</summary>
+    private readonly Dictionary<string, PatchMatchResult> _results = new(StringComparer.Ordinal);
+
     public MainViewModel()
     {
         RunCommand = new RelayCommand(() => _ = RunAsync(), () => Targets.Count > 0 && !IsRunning);
@@ -211,9 +214,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (Set(ref _selectedProfile, value ?? SynthesisProfiles.SuperColliderFm7))
             {
                 OnPropertyChanged(nameof(ScdWatermark));
+                if (!IsRunning)
+                {
+                    // Every target keeps its last result; the selector switches between them.
+                    PatchMatchResult? kept = _results.GetValueOrDefault(_selectedProfile.Name);
+                    SetResult(kept);
+                    if (kept is not null)
+                    {
+                        Status = FormattableString.Invariant($"Showing the {ProfileNameConverter.Short(_selectedProfile.Name)} result: audio loss {kept.AlternativePatches[0].AudioLoss:F4}, similarity {kept.Comparison.Scores.Similarity:F3}.");
+                    }
+                    else if (_results.Count > 0)
+                    {
+                        Status = $"No {ProfileNameConverter.Short(_selectedProfile.Name)} result yet; run a search to compare it with {string.Join(" and ", _results.Keys.Select(ProfileNameConverter.Short))}.";
+                    }
+                }
             }
         }
     }
+
+    /// <summary>Which targets have a result to switch to, for the result header; empty with none.</summary>
+    public string ResultsKept => _results.Count == 0 ? string.Empty : "results kept: " + string.Join(", ", Profiles.Where(p => _results.ContainsKey(p.Name)).Select(p => ProfileNameConverter.Short(p.Name)));
 
     /// <summary>What the code box says before there is code: which plugin the export of the selected target needs.</summary>
     public string ScdWatermark =>
@@ -308,6 +328,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Targets.Add(item);
             SelectedTarget = item;
             Status = analysis.IsUsable ? $"{Targets.Count} target(s). Press Run." : "This file cannot be matched: " + string.Join(", ", analysis.Issues);
+            // Another target set makes every kept result stale.
+            _results.Clear();
+            OnPropertyChanged(nameof(ResultsKept));
             SetResult(null);
         }
         catch (Exception e) when (e is IOException or InvalidDataException or ArgumentException or FormatException)
@@ -359,6 +382,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             int seeds = Seeds;
             CancellationToken token = _cancellation.Token;
             PatchMatchResult result = await Task.Run(() => _matcher.MatchBestOf(targets, seeds, options, progress, token), CancellationToken.None);
+            _results[result.Profile.Name] = result;
+            OnPropertyChanged(nameof(ResultsKept));
             SetResult(result);
             Progress = 1;
             Status = token.IsCancellationRequested ? "Stopped; showing the best patch found so far." : "Done.";
