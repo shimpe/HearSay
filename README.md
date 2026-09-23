@@ -31,7 +31,9 @@ phase-modulation patch that approximates it, renders a preview offline and expor
 FM7 is its first synthesis profile, and the [FMX6 UGen](https://github.com/shimpe/fmx6) with band-limited
 triangle, saw, square, pulse and noise operators is the second (`--profile supercollider-fmx6`, or the target
 selector in HearSay Studio). See [Patch matching](#patch-matching) and the full
-[patch-matching documentation](docs/patch-matching.md).
+[patch-matching documentation](docs/patch-matching.md). The [expert manual](docs/expert-manual.md) is the
+practical guide: preparing targets, target sets, choosing FM7 or FMX6, budget and seeds, reading results, Studio,
+the command line, the API, every search option, hand-editing patches and troubleshooting.
 
 ## Contents
 

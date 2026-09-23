@@ -22,6 +22,9 @@ HearSay is an *audio-to-operator-matrix solver*. The SuperCollider `FM7` UGen is
 profile, not its identity: nothing outside the FM7 profile, the FM7-compatible renderer, the FM7 exporter and the
 sine phase-modulation prior provider knows about sine waves or about FM7.
 
+This document is the design and the evidence. For day-to-day use (preparing targets, budget and seeds, reading
+results, Studio, the CLI, the API, hand-editing, troubleshooting) see the [expert manual](expert-manual.md).
+
 - [Quick start](#quick-start)
 - [Assemblies and what was reused](#assemblies-and-what-was-reused)
 - [The canonical patch model](#the-canonical-patch-model)
