@@ -227,6 +227,10 @@ the whole folder of section 7 for the result.
 Studio plays through OpenAL Soft. Without an audio device the keyboard is silent and a note says so; everything else
 works.
 
+The logo in the header and the window icon are one vector drawing (`HearSayLogo`): six operators on a ring, the
+chords of a modulation matrix, a wave through them. `HearSay.Studio --logo out.png [size]` writes it as a PNG and
+exits, for packaging.
+
 ## 10. The command line
 
 ```

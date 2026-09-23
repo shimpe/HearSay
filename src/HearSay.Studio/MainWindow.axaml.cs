@@ -11,6 +11,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Icon = new WindowIcon(new MemoryStream(HearSayLogo.RenderPng(256)));
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext!;

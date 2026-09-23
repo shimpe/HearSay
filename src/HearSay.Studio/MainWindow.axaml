@@ -99,9 +99,7 @@
       </Border.Background>
       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-          <Border Width="36" Height="36" CornerRadius="18" Background="{StaticResource AccentBrush}">
-            <TextBlock Text="♪" FontSize="20" Foreground="#0F172A" HorizontalAlignment="Center" VerticalAlignment="Center" />
-          </Border>
+          <local:HearSayLogo Width="44" Height="44" />
           <StackPanel>
             <TextBlock Text="HearSay Studio" FontSize="20" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" />
             <TextBlock Text="audio → six-operator patch → SuperCollider FM7 or FMX6" Classes="muted" FontSize="12" />

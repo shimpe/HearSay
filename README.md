@@ -22,6 +22,8 @@ synth parameters → synth render → candidate audio → HearSay comparison →
 * Deterministic: the same input and configuration always give the same output.
 * Thread-safe core: all caches are immutable after initialization.
 
+<img src="docs/images/hearsay-logo.png" alt="HearSay: six operators on a ring, joined by the chords of a modulation matrix, with a wave through them" width="96" align="right" />
+
 **New here? Start with the [tutorial](docs/tutorial.md)**: eleven hands-on steps from a first comparison to a closed
 loop that finds synth parameters, backed by a runnable sample. This README is the reference.
 

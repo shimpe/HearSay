@@ -13,10 +13,24 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            string[] args = desktop.Args ?? [];
+
+            // "--logo file.png [size]" writes the logo and exits, for documentation and packaging.
+            int logoAt = Array.IndexOf(args, "--logo");
+            if (logoAt >= 0 && logoAt + 1 < args.Length)
+            {
+                int size = logoAt + 2 < args.Length && int.TryParse(args[logoAt + 2], out int given) ? given : 512;
+                File.WriteAllBytes(args[logoAt + 1], HearSayLogo.RenderPng(size));
+                desktop.MainWindow = new MainWindow { DataContext = new MainViewModel() };
+                Avalonia.Threading.Dispatcher.UIThread.Post(desktop.MainWindow.Close);
+                base.OnFrameworkInitializationCompleted();
+                return;
+            }
+
             var viewModel = new MainViewModel();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
             // WAV files on the command line are loaded at start-up, one after the other so that the order is kept.
-            string[] files = [.. (desktop.Args ?? []).Where(File.Exists)];
+            string[] files = [.. args.Where(File.Exists)];
             if (files.Length > 0)
             {
                 _ = LoadAllAsync(viewModel, files);
