@@ -206,8 +206,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public SynthesisProfile SelectedProfile
     {
         get => _selectedProfile;
-        set => Set(ref _selectedProfile, value ?? SynthesisProfiles.SuperColliderFm7);
+        set
+        {
+            if (Set(ref _selectedProfile, value ?? SynthesisProfiles.SuperColliderFm7))
+            {
+                OnPropertyChanged(nameof(ScdWatermark));
+            }
+        }
     }
+
+    /// <summary>What the code box says before there is code: which plugin the export of the selected target needs.</summary>
+    public string ScdWatermark =>
+        "The generated SynthDef appears here. It needs SuperCollider with "
+        + (ReferenceEquals(SelectedProfile, SynthesisProfiles.SuperColliderFmx6) ? "the FMX6 plugin (github.com/shimpe/fmx6)" : "sc3-plugins (FM7)")
+        + " and nothing of HearSay.";
 
     /// <summary>True while a search runs.</summary>
     public bool IsRunning

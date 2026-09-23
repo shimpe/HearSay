@@ -306,7 +306,7 @@
             <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" />
             <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasResult}" />
           </Grid>
-          <TextBox Classes="mono" Text="{Binding Scd}" Watermark="The generated SynthDef appears here. It needs SuperCollider with sc3-plugins (FM7) and nothing of HearSay." />
+          <TextBox Classes="mono" Text="{Binding Scd}" Watermark="{Binding ScdWatermark}" />
         </DockPanel>
       </Border>
     </Grid>
