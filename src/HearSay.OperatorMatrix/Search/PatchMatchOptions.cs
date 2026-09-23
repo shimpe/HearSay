@@ -116,9 +116,6 @@ public sealed record SearchSummary
     /// <summary>Name of the synthesis profile.</summary>
     public required string Profile { get; init; }
 
-    /// <summary>What was minimized: "AudioLoss" or "Similarity" (one minus the tone comparer's similarity).</summary>
-    public string Criterion { get; init; } = "AudioLoss";
-
     /// <summary>Random seed.</summary>
     public required int RandomSeed { get; init; }
 

@@ -24,7 +24,6 @@ internal static class Cli
 
         Options for match:
           --profile <name>     synthesis profile: supercollider-fm7 (default) or supercollider-fmx6
-          --criterion <name>   what is optimized: loss (minimize the audio loss, default) or similarity (maximize the tone comparer's similarity)
           --budget <n>         number of candidate evaluations; one evaluation renders every target note (default 20000)
           --seed <n>           random seed (default 1234)
           --seeds <n>          run n consecutive seeds with the full budget each; the best wins, the finalists of all seeds become alternatives (default 1)
@@ -160,22 +159,9 @@ internal static class Cli
             return Fail($"Unknown profile '{profileName}'. Run 'hearsay profiles'.");
         }
 
-        string criterionName = options.GetValueOrDefault("criterion", "loss");
-        HearSay.Objective.ObjectiveCriterion criterion = criterionName switch
-        {
-            "loss" => HearSay.Objective.ObjectiveCriterion.AudioLoss,
-            "similarity" => HearSay.Objective.ObjectiveCriterion.Similarity,
-            _ => (HearSay.Objective.ObjectiveCriterion)(-1),
-        };
-        if (criterion < 0)
-        {
-            return Fail($"Unknown criterion '{criterionName}'; use loss or similarity.");
-        }
-
         var matchOptions = new PatchMatchOptions
         {
             SynthesisProfile = profile,
-            Objective = new HearSay.Objective.ObjectiveOptions { Criterion = criterion },
             EvaluationBudget = (int)(Number(options, "budget") ?? 20000),
             RandomSeed = (int)(Number(options, "seed") ?? 1234),
             SampleRate = (int)(Number(options, "sample-rate") ?? 48000),

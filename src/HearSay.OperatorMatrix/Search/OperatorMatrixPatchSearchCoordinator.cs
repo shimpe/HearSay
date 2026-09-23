@@ -501,7 +501,6 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             InitialAudioLoss = initialAudioLoss,
             FinalAudioLoss = finalNormalAudioLoss,
             HypothesisCount = hypotheses.Count,
-            Criterion = options.Objective.Criterion.ToString(),
             Stages = stages,
             Basins = [.. ranked.Concat(retired.OrderBy(static b => b.Id)).Select(static b => new BasinSummary(b.Id, b.Origin, b.Regime.Value, b.Best.Loss, b.Evaluations, b.Restarts, b.Fate))],
             Elapsed = stopwatch.Elapsed,

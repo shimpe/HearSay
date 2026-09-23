@@ -240,8 +240,8 @@ exits, for packaging.
 ## 10. The command line
 
 ```
-hearsay match <target.wav>... [--profile p] [--criterion loss|similarity] [--budget n] [--seed n] [--seeds n]
-              [--output dir] [--note midi | --f0 hz] [--sample-rate hz] [--max-seconds s] [--parallel n] [--quiet]
+hearsay match <target.wav>... [--profile p] [--budget n] [--seed n] [--seeds n] [--output dir]
+              [--note midi | --f0 hz] [--sample-rate hz] [--max-seconds s] [--parallel n] [--quiet]
 hearsay analyze <target.wav>
 hearsay profiles
 hearsay reference [name] [--notes 48,60,72] [--velocities 1,0.5] [--seconds 1.0] [--release 0.3] [--output dir]
@@ -325,7 +325,7 @@ Threading: the matcher is thread-safe and stateless; evaluations run in parallel
 | `FinalistCount` [3] | patches refined and reported | more alternatives |
 | `ComplexityWeight` [0.02] | tie-breaker that prefers simpler patches | raise to 0.05 for cleaner patches at a small loss cost; 0 to ignore complexity |
 | `Complexity` | per-operator, per-edge, per-tiny-contribution and per-envelope-point weights | shape what "simpler" means |
-| `Objective` | criterion (audio loss or similarity), term weights and analysis options | section 13 |
+| `Objective` | objective weights and analysis options | section 13 |
 | `StagnationGenerations` [25], `MinimumRelativeImprovement` [0.01] | when a continuous run counts as stuck | lower for faster restarts on rough landscapes |
 | `MaxRestartsPerBasin` [3] | topology-mutation rounds for a stuck basin | more for structures that need several additions |
 | `MaxActiveParameters` [32] | largest CMA-ES dimension; bigger patches are optimized group by group | rarely |
@@ -351,17 +351,6 @@ The audio loss is a weighted sum of seven terms, each 0 for identical audio:
 
 `ObjectiveOptions.Weights` changes them; `TimbreNormalized` (default true) compares timbre at equal loudness;
 `UnusableLoss` (10) is the value of a render that clipped, went silent or became NaN.
-
-**Similarity as the criterion.** `ObjectiveOptions.Criterion = ObjectiveCriterion.Similarity` (CLI
-`--criterion similarity`, Studio "Optimize: maximize similarity") makes the search maximize the tone comparer's
-similarity, the number the result reports, instead of minimizing the audio loss. Internally it minimizes
-`1 − similarity`, so the loss fields of such a search hold `1 − similarity`: the result's `AudioLoss` and its
-`Comparison.Scores.Similarity` add up to one, Studio's tiles show the similarity itself, and
-`SearchSummary.Criterion` says which criterion ran. Screening (the coarse level) keeps the audio loss, everything
-from the survivors on uses the comparer. Expect it to be slower per evaluation, and to trade some spectral detail for the balance of the
-comparer's terms (spectral, harmonic, envelope, perceptual): use it when listeners judge by the similarity number, or
-when the two criteria disagree on a target and the comparer's choice sounds better. The two are not comparable across
-runs: a loss of 0.16 and a `1 − similarity` of 0.16 are different distances.
 
 Practical readings of the terms (`AlternativePatches[i].Terms`):
 
