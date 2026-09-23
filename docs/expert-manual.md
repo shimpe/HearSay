@@ -313,7 +313,7 @@ Threading: the matcher is thread-safe and stateless; evaluations run in parallel
 | `SampleRate` [48000] | analysis and render rate | the rate SuperCollider will run at |
 | `Velocity` [1.0] | velocity of rendered candidates for a target without one | rarely |
 | `MaxSeconds` [4] | longest matched stretch | shorter for speed on long targets |
-| `HypothesisCount` [128] | structures screened | more when a prior produces many good structures (watch the screening stage) |
+| `HypothesisCount` [128] | least number of structures screened; the screening share of the budget raises it (all structures from about 8000 evaluations on) | more for small budgets when a prior produces many good structures (watch the screening stage) |
 | `SurvivorCount` [32] | structures that get a short optimization | more for very varied targets |
 | `BasinCount` [6] | structures optimized deeply | more to keep unusual structures alive; costs budget per basin |
 | `FinalistCount` [3] | patches refined and reported | more alternatives |

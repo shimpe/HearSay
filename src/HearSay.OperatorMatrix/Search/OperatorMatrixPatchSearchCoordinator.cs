@@ -220,8 +220,11 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             groups.Add(fixedVariants);
         }
 
-        // The cut takes the best of every provider in turn, so that a provider with modest scores still reaches screening.
-        List<PatchHypothesis> hypotheses = Interleave(groups, options.HypothesisCount);
+        // The cut takes the best of every provider in turn, so that a provider with modest scores still reaches
+        // screening. Screening is cheap and has its own share of the budget, so when that share can afford it, more
+        // hypotheses than the configured count are screened, up to all of them at three modulation scales.
+        int affordable = (int)(options.EvaluationBudget * options.ScreeningShare) / 3;
+        List<PatchHypothesis> hypotheses = Interleave(groups, Math.Max(options.HypothesisCount, affordable));
 
         if (hypotheses.Count == 0)
         {
@@ -646,7 +649,10 @@ public sealed class OperatorMatrixPatchSearchCoordinator
 
         // First the best basin of every structural family, then the best of the rest. Early losses are deceptive: an
         // additive structure sounds roughly right at once, a deep stack only after its amounts have been found. Keeping
-        // one of each kind protects structures that need more optimization before they show what they can do.
+        // one of each kind protects structures that need more optimization before they show what they can do. A
+        // family whose best is far behind gets no such protection: with many families (every waveform is one) it
+        // would otherwise crowd out the second-best basin of the family that is actually close.
+        double protectedUpTo = ordered.Count > 0 ? ordered[0].Best.Loss * 1.6 : double.PositiveInfinity;
         foreach (bool familiesOnly in new[] { true, false })
         {
             foreach (SearchBasin basin in ordered)
@@ -656,7 +662,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                     break;
                 }
 
-                if (result.Contains(basin) || (familiesOnly && families.Contains(Family(basin.Best.Patch))))
+                if (result.Contains(basin) || (familiesOnly && (families.Contains(Family(basin.Best.Patch)) || basin.Best.Loss > protectedUpTo)))
                 {
                     continue;
                 }
