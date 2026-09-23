@@ -128,8 +128,8 @@
             </ComboBox>
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="10">
-            <TextBlock Classes="label" Text="Minimize" ToolTip.Tip="audio loss: the search objective (STFT, mel, partials, trajectories, envelope, pitch, LTAS). similarity: 1 minus the similarity of the tone comparer, the number shown in the result; slower per evaluation, screening still uses the audio loss." />
-            <ComboBox Width="112" ItemsSource="{Binding Criteria}" SelectedItem="{Binding SelectedCriterion}" IsEnabled="{Binding !IsRunning}" />
+            <TextBlock Classes="label" Text="Optimize" ToolTip.Tip="minimize audio loss: the search objective (STFT, mel, partials, trajectories, envelope, pitch, LTAS). maximize similarity: the similarity of the tone comparer, the number shown in the result; slower per evaluation, and screening still uses the audio loss." />
+            <ComboBox Width="176" ItemsSource="{Binding Criteria}" SelectedItem="{Binding SelectedCriterion}" IsEnabled="{Binding !IsRunning}" />
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="10">
             <TextBlock Classes="label" Text="Budget" ToolTip.Tip="Candidate evaluations; one evaluation renders every target note" />

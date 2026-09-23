@@ -128,7 +128,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _seed = 1234;
     private int _seeds = 1;
     private SynthesisTargetChoice? _selectedSynthesisTarget;
-    private string _selectedCriterion = "audio loss";
+    private string _selectedCriterion = "minimize audio loss";
     private bool _isRunning;
     private double _progress;
     private string _status = "Add one or more WAV files with a single dry note each. Several notes of the same sound at different pitches make key scaling and fixed-frequency operators searchable.";
@@ -238,8 +238,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>Profile of the next single search: the first of the selected target.</summary>
     public SynthesisProfile SelectedProfile => SelectedSynthesisTarget.Profiles[0];
 
-    /// <summary>What the search minimizes: the audio loss, or one minus the similarity of the tone comparer.</summary>
-    public IReadOnlyList<string> Criteria { get; } = ["audio loss", "similarity"];
+    /// <summary>What the search optimizes: the audio loss, driven down, or the similarity of the tone comparer, driven up.</summary>
+    public IReadOnlyList<string> Criteria { get; } = ["minimize audio loss", "maximize similarity"];
 
     /// <inheritdoc cref="Criteria"/>
     public string SelectedCriterion
@@ -248,7 +248,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => Set(ref _selectedCriterion, Criteria.Contains(value) ? value : Criteria[0]);
     }
 
-    private ObjectiveCriterion Criterion => SelectedCriterion == "similarity" ? ObjectiveCriterion.Similarity : ObjectiveCriterion.AudioLoss;
+    private ObjectiveCriterion Criterion => SelectedCriterion == Criteria[1] ? ObjectiveCriterion.Similarity : ObjectiveCriterion.AudioLoss;
 
     /// <summary>Which targets have a result to switch to, for the result header; empty with none.</summary>
     public string ResultsKept => _results.Count == 0 ? string.Empty : "results kept: " + string.Join(", ", Profiles.Where(p => _results.ContainsKey(p.Name)).Select(p => ProfileNameConverter.Short(p.Name)));
@@ -608,10 +608,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             SearchSummary s = result.SearchSummary;
             Stats.Clear();
-            bool bySimilarity = s.Criterion == nameof(ObjectiveCriterion.Similarity);
-            string lossName = bySimilarity ? "1 − similarity" : "loss";
-            Stats.Add(new StatTile("initial " + lossName, FormattableString.Invariant($"{s.InitialAudioLoss:F3}"), "best untouched hypothesis"));
-            Stats.Add(new StatTile("final " + lossName, FormattableString.Invariant($"{s.FinalAudioLoss:F3}"), FormattableString.Invariant($"{s.InitialAudioLoss / Math.Max(1e-9, s.FinalAudioLoss):F1}× better")));
+            if (s.Criterion == nameof(ObjectiveCriterion.Similarity))
+            {
+                // The search drove the similarity up; the tiles show it as such, not as the loss it was internally.
+                double initial = 1.0 - s.InitialAudioLoss, final = 1.0 - s.FinalAudioLoss;
+                Stats.Add(new StatTile("initial similarity", FormattableString.Invariant($"{initial:F3}"), "best untouched hypothesis"));
+                Stats.Add(new StatTile("final similarity", FormattableString.Invariant($"{final:F3}"), FormattableString.Invariant($"{final - initial:+0.000;-0.000} by the search")));
+            }
+            else
+            {
+                Stats.Add(new StatTile("initial loss", FormattableString.Invariant($"{s.InitialAudioLoss:F3}"), "best untouched hypothesis"));
+                Stats.Add(new StatTile("final loss", FormattableString.Invariant($"{s.FinalAudioLoss:F3}"), FormattableString.Invariant($"{s.InitialAudioLoss / Math.Max(1e-9, s.FinalAudioLoss):F1}× better")));
+            }
             Stats.Add(new StatTile("similarity", FormattableString.Invariant($"{result.Comparison.Scores.Similarity:F2}"), "1 = identical"));
             Stats.Add(new StatTile("renders", s.RendersUsed.ToString("N0", CultureInfo.InvariantCulture), FormattableString.Invariant($"{s.Elapsed.TotalSeconds:F0} s, seed {s.RandomSeed}")));
             NoteRows.Clear();

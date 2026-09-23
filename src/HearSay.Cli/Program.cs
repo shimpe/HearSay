@@ -24,7 +24,7 @@ internal static class Cli
 
         Options for match:
           --profile <name>     synthesis profile: supercollider-fm7 (default) or supercollider-fmx6
-          --criterion <name>   what is minimized: loss (the audio loss, default) or similarity (1 - the tone comparer's similarity)
+          --criterion <name>   what is optimized: loss (minimize the audio loss, default) or similarity (maximize the tone comparer's similarity)
           --budget <n>         number of candidate evaluations; one evaluation renders every target note (default 20000)
           --seed <n>           random seed (default 1234)
           --seeds <n>          run n consecutive seeds with the full budget each; the best wins, the finalists of all seeds become alternatives (default 1)

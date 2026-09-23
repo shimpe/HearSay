@@ -353,11 +353,12 @@ The audio loss is a weighted sum of seven terms, each 0 for identical audio:
 `UnusableLoss` (10) is the value of a render that clipped, went silent or became NaN.
 
 **Similarity as the criterion.** `ObjectiveOptions.Criterion = ObjectiveCriterion.Similarity` (CLI
-`--criterion similarity`, Studio "Minimize: similarity") makes the search minimize one minus the tone comparer's
-similarity, the number the result reports, instead of the audio loss. Screening (the coarse level) keeps the audio
-loss, everything from the survivors on uses the comparer. The loss numbers of such a search are `1 − similarity`, so
-the result's `AudioLoss` and its `Comparison.Scores.Similarity` add up to one, and `SearchSummary.Criterion` says
-which criterion ran. Expect it to be slower per evaluation, and to trade some spectral detail for the balance of the
+`--criterion similarity`, Studio "Optimize: maximize similarity") makes the search maximize the tone comparer's
+similarity, the number the result reports, instead of minimizing the audio loss. Internally it minimizes
+`1 − similarity`, so the loss fields of such a search hold `1 − similarity`: the result's `AudioLoss` and its
+`Comparison.Scores.Similarity` add up to one, Studio's tiles show the similarity itself, and
+`SearchSummary.Criterion` says which criterion ran. Screening (the coarse level) keeps the audio loss, everything
+from the survivors on uses the comparer. Expect it to be slower per evaluation, and to trade some spectral detail for the balance of the
 comparer's terms (spectral, harmonic, envelope, perceptual): use it when listeners judge by the similarity number, or
 when the two criteria disagree on a target and the comparer's choice sounds better. The two are not comparable across
 runs: a loss of 0.16 and a `1 − similarity` of 0.16 are different distances.
