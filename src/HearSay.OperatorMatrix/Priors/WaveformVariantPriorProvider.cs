@@ -52,7 +52,9 @@ public sealed class WaveformVariantPriorProvider : ISynthesisPriorProvider
 
         foreach (PatchHypothesis hypothesis in inner.Take(_variantsOfBest))
         {
-            foreach (OperatorWaveform waveform in capabilities.SupportedWaveforms.Order())
+            // Noise is left to the providers that propose it on purpose: a noise output operator ignores its frequency
+            // and whatever modulates it, so every structure would become the same noise, many times over.
+            foreach (OperatorWaveform waveform in capabilities.SupportedWaveforms.Where(static w => w is not (OperatorWaveform.Noise or OperatorWaveform.SampleHoldNoise)).Order())
             {
                 OperatorMatrixPatch patch = hypothesis.Patch;
                 bool changed = false;

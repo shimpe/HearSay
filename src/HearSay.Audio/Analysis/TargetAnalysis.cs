@@ -110,6 +110,9 @@ public sealed record TargetAnalysis
     /// <summary>Long-term average spectrum.</summary>
     public required LongTermAverageSpectrum Ltas { get; init; }
 
+    /// <summary>How much of the note is noise between the partials, and its colour.</summary>
+    public required NoiseProfile Noise { get; init; }
+
     /// <summary>Fundamental over time.</summary>
     public required PitchTrajectory Pitch { get; init; }
 
@@ -237,6 +240,7 @@ public sealed class TargetAnalyzer
             PartialTracks = tracks,
             Trajectories = trajectories,
             Ltas = LongTermAverageSpectrum.From(average),
+            Noise = NoiseAnalyzer.Analyze(longSpectrogram),
             Pitch = pitch,
             Beating = beating,
             Issues = audio.Issues,

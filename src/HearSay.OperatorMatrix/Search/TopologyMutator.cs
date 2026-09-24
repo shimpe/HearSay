@@ -109,6 +109,13 @@ public sealed class TopologyMutator
         }
 
         var candidates = new List<TopologyMutation>();
+
+        // A few noise washes first, so that the cap on screened variants cannot cut them off.
+        if (free >= 0)
+        {
+            candidates.AddRange(NoiseWashes(patch, analysis, audible, free));
+        }
+
         foreach (int destination in used)
         {
             foreach (int source in used)
@@ -211,19 +218,27 @@ public sealed class TopologyMutator
                 }
             }
 
-            // Half of the list comes from screening; one description is one structure, whatever the amount. Edges and
-            // new operators take turns, best first: there are many more operator variants than edges, and they would
-            // otherwise crowd out the single edge that is missing.
+            // Half of the list comes from screening; one description is one structure, whatever the amount. Edges, new
+            // operators and noise washes take turns, best first: there are many more operator variants than edges, and
+            // they would otherwise crowd out the single edge that is missing. After the edges, the kind whose best
+            // variant helps more goes first.
             var edgesFirst = new List<int>();
             var operatorsFirst = new List<int>();
+            var noiseFirst = new List<int>();
             foreach ((double _, int index) in ranked)
             {
-                (candidates[index].Description.StartsWith("add edge", StringComparison.Ordinal) || candidates[index].Description.Contains(" fixed at ", StringComparison.Ordinal) ? edgesFirst : operatorsFirst).Add(index);
+                string description = candidates[index].Description;
+                (description.StartsWith("add edge", StringComparison.Ordinal) || description.Contains(" fixed at ", StringComparison.Ordinal) ? edgesFirst
+                    : description.Contains(" noise", StringComparison.Ordinal) ? noiseFirst
+                    : operatorsFirst).Add(index);
             }
 
-            for (int i = 0; i < Math.Max(edgesFirst.Count, operatorsFirst.Count) && result.Count < (count + 1) / 2; i++)
+            List<int>[] turns = noiseFirst.Count > 0 && (operatorsFirst.Count == 0 || screened[noiseFirst[0]].Loss < screened[operatorsFirst[0]].Loss)
+                ? [edgesFirst, noiseFirst, operatorsFirst]
+                : [edgesFirst, operatorsFirst, noiseFirst];
+            for (int i = 0; i < turns.Max(static t => t.Count) && result.Count < (count + 1) / 2; i++)
             {
-                foreach (List<int> list in new[] { edgesFirst, operatorsFirst })
+                foreach (List<int> list in turns)
                 {
                     if (i < list.Count && result.Count < (count + 1) / 2 && seen.Add(candidates[list[i]].Description))
                     {
@@ -532,6 +547,58 @@ public sealed class TopologyMutator
                 return null;
             }
         }
+    }
+
+    /// <summary>
+    /// Noise next to the structure, in one step: white noise straight into the mix, and a sine at a high fixed
+    /// frequency that noise modulates deeply, which spreads into a band of noise around that frequency and is how a
+    /// coloured wash, such as the high-passed noise of a cymbal, is made from these operators. Through "add a sine to
+    /// the output" and "make it noise" a wash would need an intermediate that sounds worse. Nothing for profiles
+    /// without noise.
+    /// </summary>
+    private List<TopologyMutation> NoiseWashes(OperatorMatrixPatch patch, TargetAnalysis analysis, bool[] audible, int free)
+    {
+        var result = new List<TopologyMutation>();
+        if (!_capabilities.SupportedWaveforms.Contains(OperatorWaveform.Noise))
+        {
+            return result;
+        }
+
+        double loudest = Math.Max(0.1, patch.OutputLevels.Max());
+        OperatorEnvelope decaying = TemporalPriors.OutputEnvelope(analysis);
+        OperatorEnvelope burst = OperatorEnvelope.Adsr(0.001, 0.03, 0.0, 0.03);
+        OperatorPatch Noise(OperatorEnvelope envelope) => OperatorPatch.Sine(OperatorFrequency.AtRatio(1), envelope) with { Waveform = OperatorWaveform.Noise };
+
+        foreach (double level in new[] { 0.15, 0.4 })
+        {
+            result.Add(new TopologyMutation(patch.WithOperator(free, Noise(decaying)).WithOutputLevel(free, level * loudest), $"add OP{free + 1} white noise to the output"));
+        }
+
+        result.Add(new TopologyMutation(patch.WithOperator(free, Noise(burst)).WithOutputLevel(free, 0.3 * loudest), $"add OP{free + 1} noise burst to the output"));
+
+        int source = Array.FindIndex(audible, free + 1, static a => !a);
+        if (source < 0 || !EdgeAllowed(source, free) || !_capabilities.SupportedWaveforms.Contains(OperatorWaveform.Sine))
+        {
+            return result;
+        }
+
+        double depth = Math.Min(4.0, _capabilities.MaxModulationRadiansPerDestination);
+        foreach (double hz in new[] { 3000.0, 7000.0, 12000.0 })
+        {
+            OperatorFrequency frequency = _capabilities.SupportsFixedFrequency ? OperatorFrequency.AtFixed(hz) : OperatorFrequency.AtRatio(Math.Round(hz / analysis.FundamentalHz, 2));
+            foreach (double level in new[] { 0.15, 0.4 })
+            {
+                OperatorMatrixPatch variant = patch
+                    .WithOperator(free, OperatorPatch.Sine(frequency, decaying))
+                    .WithOutputLevel(free, level * loudest)
+                    .WithOperator(source, Noise(OperatorEnvelope.Constant()))
+                    .WithOutputLevel(source, 0.0)
+                    .WithEdge(new ModulationEdge(source, free, true, depth));
+                result.Add(new TopologyMutation(variant, FormattableString.Invariant($"add OP{free + 1} with a noise band at {hz:0} Hz from OP{source + 1} to the output")));
+            }
+        }
+
+        return result;
     }
 
     private bool EdgeAllowed(int source, int destination) =>

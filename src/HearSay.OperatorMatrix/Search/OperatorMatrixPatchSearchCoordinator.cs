@@ -245,14 +245,23 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             }
         }
 
-        // The best scale of every hypothesis competes.
-        var survivors = screened
+        // The best scale of every hypothesis competes, within its own group first: see SelectSurvivors.
+        var groupOf = new Dictionary<PatchHypothesis, int>();
+        for (int g = 0; g < groups.Count; g++)
+        {
+            foreach (PatchHypothesis hypothesis in groups[g])
+            {
+                groupOf.TryAdd(hypothesis, g);
+            }
+        }
+
+        var screenedBest = screened
             .GroupBy(static s => s.Hypothesis)
             .Select(static g => g.OrderBy(static s => s.Evaluation.Loss).First())
             .OrderBy(static s => s.Evaluation.Loss)
             .ThenBy(static s => s.Hypothesis.Origin, StringComparer.Ordinal)
-            .Take(options.SurvivorCount)
             .ToList();
+        var survivors = SelectSurvivors(screenedBest, s => groupOf.GetValueOrDefault(s.Hypothesis), options.SurvivorCount);
         stages.Add(new SearchStageSummary("hypothesis screening", evaluator.Used - usedBefore, survivors[0].Evaluation.Loss, EvaluationLevel.Coarse, $"{hypotheses.Count} hypotheses at {scales.Length} modulation scales, {survivors.Count} survive"));
         progress?.Report(new SearchProgress("hypothesis screening", evaluator.Used, evaluator.Budget, survivors[0].Evaluation.Loss));
 
@@ -607,6 +616,47 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Picks the screened hypotheses that become basins. Half of the slots go to the best of every provider group in
+    /// turn, the other half to the best of the rest, whatever their group. Screening judges untuned patches: a noise
+    /// operator sounds roughly right at once on a noisy target, while an FM structure only after its ratios and amounts
+    /// have been found, so a purely global cut can hand every slot to one kind of structure.
+    /// </summary>
+    /// <param name="ranked">Screened hypotheses, best first.</param>
+    /// <param name="group">Provider group of a hypothesis.</param>
+    /// <param name="count">Number of survivors.</param>
+    /// <returns>The survivors, best first.</returns>
+    internal static List<T> SelectSurvivors<T>(IReadOnlyList<T> ranked, Func<T, int> group, int count)
+    {
+        var chosen = new HashSet<int>();
+        List<List<int>> byGroup = [.. ranked.Select((item, index) => (Group: group(item), Index: index)).GroupBy(static x => x.Group).Select(static g => g.Select(static x => x.Index).ToList())];
+        int reserved = count / 2;
+        for (int rank = 0; chosen.Count < reserved; rank++)
+        {
+            bool any = false;
+            foreach (List<int> members in byGroup)
+            {
+                if (rank < members.Count && chosen.Count < reserved)
+                {
+                    chosen.Add(members[rank]);
+                    any = true;
+                }
+            }
+
+            if (!any)
+            {
+                break;
+            }
+        }
+
+        for (int i = 0; i < ranked.Count && chosen.Count < count; i++)
+        {
+            chosen.Add(i);
+        }
+
+        return [.. chosen.Order().Select(i => ranked[i])];
     }
 
     private static OperatorMatrixPatch ScaleAmounts(OperatorMatrixPatch patch, double scale, SynthesisCapabilities capabilities)

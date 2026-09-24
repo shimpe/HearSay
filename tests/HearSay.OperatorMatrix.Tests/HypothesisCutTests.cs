@@ -29,4 +29,25 @@ public sealed class HypothesisCutTests
 
         Assert.Equal(["a1", "b0", "a2", "a0"], kept.Select(static h => h.Origin));
     }
+
+    [Fact]
+    public void Survivors_ReserveHalfTheSlotsForTheBestOfEveryGroup()
+    {
+        // Ranked best first. Group 0 sounds right before any tuning and takes the whole top of the ranking; group 1
+        // only gets good after optimization and would not survive a global cut.
+        (string Name, int Group)[] ranked = [("n0", 0), ("n1", 0), ("n2", 0), ("n3", 0), ("n4", 0), ("n5", 0), ("s0", 1), ("s1", 1), ("h0", 2)];
+
+        List<(string Name, int Group)> survivors = OperatorMatrixPatchSearchCoordinator.SelectSurvivors(ranked, static r => r.Group, 6);
+
+        // Three reserved slots, the best of every group in turn; then the rest of the ranking; best first again.
+        Assert.Equal(["n0", "n1", "n2", "n3", "s0", "h0"], survivors.Select(static s => s.Name));
+    }
+
+    [Fact]
+    public void Survivors_AreTheWholeRankingWhenItFits()
+    {
+        (string Name, int Group)[] ranked = [("a", 0), ("b", 1), ("c", 0)];
+
+        Assert.Equal(["a", "b", "c"], OperatorMatrixPatchSearchCoordinator.SelectSurvivors(ranked, static r => r.Group, 10).Select(static s => s.Name));
+    }
 }

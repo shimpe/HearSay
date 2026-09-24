@@ -144,6 +144,39 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void WaveformVariants_LeaveNoiseToItsOwnHypotheses()
+    {
+        // A noise output operator ignores its frequency and everything that modulates it: every structure would turn
+        // into the same noise, many times over.
+        IReadOnlyList<PatchHypothesis> variants = new WaveformVariantPriorProvider(new SinePhaseModulationPriorProvider(), includeInner: false)
+            .Generate(StackTarget.Value.Analysis, SynthesisProfiles.SuperColliderFmx6.Capabilities);
+
+        Assert.Contains(variants, static h => h.Origin.EndsWith("[Saw output operators]", StringComparison.Ordinal));
+        Assert.DoesNotContain(variants, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Waveform is OperatorWaveform.Noise or OperatorWaveform.SampleHoldNoise));
+    }
+
+    [Fact]
+    public void NoisePriors_AddANoiseBandOfTheRightColour_OnlyWhenTheTargetIsNoisy()
+    {
+        var provider = new NoisePriorProvider(new SinePhaseModulationPriorProvider());
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        TargetAnalysis noisy = StackTarget.Value.Analysis with { Noise = new HearSay.Spectral.NoiseProfile(0.3, 9000) };
+        TargetAnalysis clean = StackTarget.Value.Analysis with { Noise = new HearSay.Spectral.NoiseProfile(0.02, 9000) };
+
+        IReadOnlyList<PatchHypothesis> hypotheses = provider.Generate(noisy, fmx6);
+
+        Assert.NotEmpty(hypotheses);
+        Assert.All(hypotheses, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, fmx6).IsCompatible, h.Origin));
+        Assert.All(hypotheses, static h => Assert.Contains(h.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Noise));
+        Assert.Contains(hypotheses, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Frequency.Mode == OperatorFrequencyMode.Fixed && o.Frequency.FixedFrequencyHz == 9000));
+
+        // Every hypothesis keeps the sine structure it started from.
+        Assert.All(hypotheses, static h => Assert.Contains(h.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Sine));
+        Assert.Empty(provider.Generate(clean, fmx6));
+        Assert.Empty(provider.Generate(noisy, Fm7));
+    }
+
+    [Fact]
     public void TemporalPriors_FollowTheTarget()
     {
         TargetAnalysis analysis = StackTarget.Value.Analysis;
@@ -199,6 +232,31 @@ public sealed class SearchComponentTests
         Assert.Equal(4, proposals.Count);
         Assert.Equal(4, proposals.Select(static p => p.Description).Distinct().Count());
         Assert.All(proposals, p => Assert.True(PatchCompatibilityValidator.Instance.Validate(p.Patch, Fm7).IsCompatible));
+    }
+
+    [Fact]
+    public void ScreenedMutations_AddANoiseWashInOneStep_WhereTheProfileHasNoise()
+    {
+        // Target: a sine stack with a noise wash next to it. Candidate: the stack alone. Reaching the wash through
+        // "add a sine to the output" and then "make it noise" would need an intermediate that sounds worse.
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var renderer = new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer();
+        RenderRequest request = RenderRequest.Create(220, 0.8, 0.3);
+        OperatorPatch wash = OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.002, 0.3, 0.0, 0.1)) with { Waveform = OperatorWaveform.Noise };
+        OperatorMatrixPatch stack = ParameterTests.Stack(2.5);
+        RenderedAudio audio = renderer.Render(stack.WithOperator(2, wash).WithOutputLevel(2, 0.3), request);
+        PreparedObjectiveTarget target = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 220.0));
+        var evaluator = new PatchEvaluator(renderer, new AudioObjective(), target, request, 1000, 0.02, null, 8);
+
+        IReadOnlyList<TopologyMutation> proposals = new TopologyMutator(fmx6).ProposeScreened(stack, target.Analysis, evaluator, new Random(1), 6);
+        IReadOnlyList<TopologyMutation> fm7 = new TopologyMutator(Fm7).ProposeScreened(stack, StackTarget.Value.Analysis, Evaluator(1000), new Random(1), 6);
+
+        // The first half of the list comes from screening.
+        Assert.Contains(proposals.Take(3), static p => p.Description.Contains("noise", StringComparison.Ordinal));
+        TopologyMutation noise = proposals.First(static p => p.Description.Contains("noise", StringComparison.Ordinal));
+        Assert.Contains(noise.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Noise);
+        Assert.All(proposals, p => Assert.True(PatchCompatibilityValidator.Instance.Validate(p.Patch, fmx6).IsCompatible, p.Description));
+        Assert.DoesNotContain(fm7, static p => p.Description.Contains("noise", StringComparison.Ordinal));
     }
 
     [Fact]

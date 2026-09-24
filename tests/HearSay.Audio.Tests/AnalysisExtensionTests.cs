@@ -81,6 +81,66 @@ public sealed class AnalysisExtensionTests
         Assert.InRange(analysis.Partials[1].LevelDb - analysis.Partials[2].LevelDb, 5.0, 7.0);
     }
 
+    /// <summary>Gaussian-like noise with a first-order filter: y[n] = x[n] + a·x[n−1] + b·y[n−1].</summary>
+    private static float[] Noise(double seconds, double rms, double a = 0.0, double b = 0.0, int seed = 7)
+    {
+        var random = new Random(seed);
+        var samples = new float[(int)(seconds * SampleRate)];
+        double previousX = 0, previousY = 0, power = 0;
+        var raw = new double[samples.Length];
+        for (int i = 0; i < raw.Length; i++)
+        {
+            double x = random.NextDouble() + random.NextDouble() + random.NextDouble() + random.NextDouble() - 2.0;
+            double y = x + (a * previousX) + (b * previousY);
+            previousX = x;
+            previousY = y;
+            raw[i] = y;
+            power += y * y;
+        }
+
+        double gain = rms / Math.Sqrt(power / raw.Length);
+        for (int i = 0; i < raw.Length; i++)
+        {
+            samples[i] = (float)(raw[i] * gain);
+        }
+
+        return samples;
+    }
+
+    private static float[] Mix(float[] x, float[] y) => [.. x.Select((v, i) => v + y[i])];
+
+    private static double Rms(float[] x) => Math.Sqrt(x.Sum(static v => (double)v * v) / x.Length);
+
+    [Fact]
+    public void Noise_IsSeparatedFromThePartials()
+    {
+        float[] tone = Partials(1.5, [(220, 1.0, 0), (440, 0.5, 0), (990, 0.3, 0), (1650, 0.2, 0)]);
+        double toneRms = Rms(tone);
+
+        NoiseProfile clean = Analyze(tone, 220.0).Noise;
+        // Noise with a third of the power of the tone: a quarter of the total.
+        NoiseProfile noisy = Analyze(Mix(tone, Noise(1.5, toneRms / Math.Sqrt(3.0))), 220.0).Noise;
+        NoiseProfile pure = Analyze(Noise(1.5, toneRms), 220.0).Noise;
+
+        Assert.InRange(clean.Fraction, 0.0, 0.03);
+        Assert.InRange(noisy.Fraction, 0.17, 0.33);
+        Assert.InRange(pure.Fraction, 0.85, 1.0);
+    }
+
+    [Fact]
+    public void Noise_HasTheColourOfItsFilter()
+    {
+        float[] tone = Partials(1.5, [(220, 1.0, 0), (440, 0.5, 0)]);
+        double rms = Rms(tone);
+
+        // The high-passed wash of a cymbal (first difference) and a low-passed rumble (one-pole low-pass).
+        NoiseProfile high = Analyze(Mix(tone, Noise(1.5, rms, a: -0.94)), 220.0).Noise;
+        NoiseProfile low = Analyze(Mix(tone, Noise(1.5, rms, b: 0.97)), 220.0).Noise;
+
+        Assert.True(high.CentroidHz > 8000, $"high-passed centroid {high.CentroidHz:F0} Hz");
+        Assert.True(low.CentroidHz < 2000, $"low-passed centroid {low.CentroidHz:F0} Hz");
+    }
+
     [Fact]
     public void WithoutAKnownFundamental_ItIsEstimated()
     {

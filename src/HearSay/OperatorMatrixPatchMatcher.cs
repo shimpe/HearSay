@@ -52,10 +52,12 @@ public static class SynthesisBackends
     {
         ArgumentNullException.ThrowIfNull(profile);
         ISynthesisPriorProvider sine = new SinePhaseModulationPriorProvider();
-        // Three groups for the hypothesis cut: the sine structures, their waveform variants, and the waveforms read
-        // from the spectrum. Each reaches screening on its own merits; the variants cannot crowd out the originals.
+        // Separate groups, both for the hypothesis cut and for the survivors of screening: the sine structures, their
+        // waveform variants, the waveforms and noise read from the spectrum, and the sine structures with the noise of
+        // a noisy target added. The best of each group always gets a basin, so one kind of hypothesis cannot crowd out
+        // the others.
         return profile.Capabilities.SupportedWaveforms.Count > 1
-            ? [sine, new WaveformVariantPriorProvider(sine, includeInner: false), new HarmonicWaveformPriorProvider()]
+            ? [sine, new WaveformVariantPriorProvider(sine, includeInner: false), new HarmonicWaveformPriorProvider(), new NoisePriorProvider(sine)]
             : [sine];
     }
 

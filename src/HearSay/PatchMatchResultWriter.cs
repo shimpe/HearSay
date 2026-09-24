@@ -55,6 +55,9 @@ public sealed record TargetAnalysisReport
     /// <summary>Long-term average spectrum: band levels in dB relative to the total.</summary>
     public required IReadOnlyList<double> LtasLevelsDb { get; init; }
 
+    /// <summary>Noise between the partials: its share of the energy and its colour.</summary>
+    public required HearSay.Spectral.NoiseProfile Noise { get; init; }
+
     /// <summary>Pitch features.</summary>
     public required PitchReport Pitch { get; init; }
 
@@ -91,6 +94,7 @@ public sealed record TargetAnalysisReport
             ],
             LtasCenterHz = analysis.Ltas.CenterHz,
             LtasLevelsDb = analysis.Ltas.LevelsDb,
+            Noise = analysis.Noise,
             Pitch = new PitchReport(
                 analysis.Pitch.ReferenceHz,
                 analysis.Pitch.AttackOffsetCents,
