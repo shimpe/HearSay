@@ -52,13 +52,14 @@ public static class SynthesisBackends
     {
         ArgumentNullException.ThrowIfNull(profile);
         ISynthesisPriorProvider sine = new SinePhaseModulationPriorProvider();
-        // Separate groups, both for the hypothesis cut and for the survivors of screening: the sine structures, their
-        // waveform variants, the waveforms and noise read from the spectrum, and the sine structures with the noise of
-        // a noisy target added. The best of each group always gets a basin, so one kind of hypothesis cannot crowd out
-        // the others.
+        ISynthesisPriorProvider tracks = new PartialTrackPriorProvider(sine);
+        // Separate groups, both for the hypothesis cut and for the survivors of screening: the sine structures, the
+        // operators on the measured partial tracks, their waveform variants, the waveforms and noise read from the
+        // spectrum, and both kinds of structure with the noise of a noisy target added. The best of each group always
+        // gets a basin, so one kind of hypothesis cannot crowd out the others.
         return profile.Capabilities.SupportedWaveforms.Count > 1
-            ? [sine, new WaveformVariantPriorProvider(sine, includeInner: false), new HarmonicWaveformPriorProvider(), new NoisePriorProvider(sine)]
-            : [sine];
+            ? [sine, tracks, new WaveformVariantPriorProvider(sine, includeInner: false), new HarmonicWaveformPriorProvider(), new NoisePriorProvider(sine), new NoisePriorProvider(tracks)]
+            : [sine, tracks];
     }
 
     /// <summary>

@@ -56,7 +56,8 @@ public sealed class NoisePriorProvider : ISynthesisPriorProvider
         }
 
         // Amplitude of the noise relative to the loudest operator of the structure, from the share of its energy.
-        double relative = Math.Clamp(Math.Sqrt(fraction / Math.Max(1e-3, 1.0 - fraction)), 0.1, 1.0);
+        // A noise that dominates the note needs to be louder than any one operator of the structure.
+        double relative = Math.Clamp(Math.Sqrt(fraction / Math.Max(1e-3, 1.0 - fraction)), 0.1, 3.0);
         double nyquistSafe = 0.45 * analysis.Audio.SampleRate;
         double centroid = Math.Clamp(analysis.Noise.CentroidHz, 100.0, nyquistSafe);
         OperatorEnvelope envelope = TemporalPriors.OutputEnvelope(analysis);

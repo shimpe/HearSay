@@ -371,13 +371,23 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
         public List<Pair> RankPairs()
         {
             var ratios = new List<double>(PatchParameterSchema.DefaultRatios);
-            foreach (SpectralPartial partial in StrongestPartials(6))
+            void Consider(double ratio, double limit)
             {
-                double snapped = Snap(partial.RelativeFrequency);
-                if (!ratios.Contains(snapped) && snapped is > 0.2 and < 20.0)
+                // Both the snapped value and, when it differs, the measured one: a simple ratio for a sound that has
+                // one, the exact value for an inharmonic sound whose partials lie just off a simple ratio.
+                foreach (double candidate in new[] { Snap(ratio), Math.Round(ratio, 3) })
                 {
-                    ratios.Add(snapped);
+                    if (candidate > 0.2 && candidate < limit && !ratios.Any(r => Math.Abs(1200.0 * Math.Log2(r / candidate)) < 2.0))
+                    {
+                        ratios.Add(candidate);
+                    }
                 }
+            }
+
+            IReadOnlyList<SpectralPartial> carriers = StrongestPartials(6);
+            foreach (SpectralPartial partial in carriers)
+            {
+                Consider(partial.RelativeFrequency, 20.0);
             }
 
             // Differences between strong partials are candidate modulator ratios: that is the sideband spacing.
@@ -386,11 +396,17 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             {
                 for (int b = a + 1; b < strong.Count; b++)
                 {
-                    double spacing = Snap(Math.Abs(strong[a].RelativeFrequency - strong[b].RelativeFrequency));
-                    if (spacing is > 0.2 and < 16.0 && !ratios.Contains(spacing))
-                    {
-                        ratios.Add(spacing);
-                    }
+                    Consider(Math.Abs(strong[a].RelativeFrequency - strong[b].RelativeFrequency), 16.0);
+                }
+            }
+
+            // A modulator above its carrier folds the lower sideband over zero: c - m is heard at m - c, so the
+            // modulator is the sum of the carrier and that partial.
+            foreach (SpectralPartial carrier in carriers)
+            {
+                foreach (SpectralPartial partial in StrongestPartials(12))
+                {
+                    Consider(carrier.RelativeFrequency + partial.RelativeFrequency, 16.0);
                 }
             }
 
@@ -520,13 +536,16 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                 bool found = false;
                 for (int i = 0; i < _relative.Length; i++)
                 {
-                    if (Math.Abs(1200.0 * Math.Log2(_relative[i] / sideband)) < MatchCents)
+                    double cents = Math.Abs(1200.0 * Math.Log2(_relative[i] / sideband));
+                    if (cents < MatchCents)
                     {
                         found = true;
                         if (!hit[i])
                         {
+                            // A sideband that lands exactly counts more than one at the edge of the tolerance, so that
+                            // measured ratios win over nearby simple ones when the partials say so.
                             hit[i] = true;
-                            covered += salience[i];
+                            covered += salience[i] * (1.0 - (0.3 * cents / MatchCents));
                         }
                     }
                 }
@@ -539,7 +558,19 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             }
 
             // Coverage is measured against the whole cloud so that scores of residual stacks stay comparable.
-            double score = (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0) * (total / _salienceSum));
+            // The same lines follow from a carrier at an outer sideband, but the carrier is where the energy stays:
+            // a carrier on a strong partial is the likelier reading. Only a tie-breaker: a weak carrier that explains
+            // the lines better, such as a low thump, has to win.
+            double carrierAmplitude = 0;
+            for (int i = 0; i < _relative.Length; i++)
+            {
+                if (Math.Abs(1200.0 * Math.Log2(_relative[i] / carrier)) < MatchCents)
+                {
+                    carrierAmplitude = Math.Max(carrierAmplitude, _amplitude[i]);
+                }
+            }
+
+            double score = (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0) * (total / _salienceSum)) + (0.035 * carrierAmplitude);
             return new Pair(carrier, modulator, index, score);
         }
 

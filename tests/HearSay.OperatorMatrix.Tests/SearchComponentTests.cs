@@ -187,6 +187,104 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void SinePriors_FindThreeInharmonicPairs_IncludingAModulatorAboveItsCarrier()
+    {
+        // Three parallel pairs at inharmonic frequencies, as in a six-operator FM cymbal. The third modulator lies
+        // above its carrier, so its lower sideband folds over: 1321 - 2089 is heard at 768 Hz.
+        (double Carrier, double Modulator)[] pairs = [(613, 941), (887, 1423), (1321, 2089)];
+        OperatorMatrixPatch cymbal = OperatorMatrixPatch.Silent(6);
+        for (int i = 0; i < 3; i++)
+        {
+            cymbal = cymbal
+                .WithOperator(i, OperatorPatch.Sine(OperatorFrequency.AtFixed(pairs[i].Carrier), OperatorEnvelope.Adsr(0.002, 1.5, 0.0, 0.1)))
+                .WithOutputLevel(i, 0.5)
+                .WithOperator(i + 3, OperatorPatch.Sine(OperatorFrequency.AtFixed(pairs[i].Modulator), OperatorEnvelope.Constant()))
+                .WithEdge(new ModulationEdge(i + 3, i, true, 2.5, OperatorEnvelope.Adsr(0.001, 0.6, 0.0, 0.1)));
+        }
+
+        RenderedAudio audio = Renderer.Render(cymbal, RenderRequest.Create(305, 1.2, 0.3));
+        TargetAnalysis analysis = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 305.0)).Analysis;
+
+        PatchHypothesis best = new SinePhaseModulationPriorProvider().Generate(analysis, Fm7).First(static h => h.Origin.StartsWith("3 stacks", StringComparison.Ordinal));
+
+        // Every pair is found within 10 cents: the carriers as measured, not snapped to simple ratios, and the modulators
+        // themselves rather than half of them.
+        OperatorMatrixPatch patch = best.Patch;
+        foreach ((double carrier, double modulator) in pairs)
+        {
+            ModulationEdge? edge = patch.ModulationMatrix.Edges.FirstOrDefault(e =>
+                Cents(patch.Operators[e.DestinationOperator].FrequencyHz(305.0), carrier) < 10 && Cents(patch.Operators[e.SourceOperator].FrequencyHz(305.0), modulator) < 10);
+            Assert.True(edge is not null, $"{carrier}:{modulator} Hz not found in {best.Origin}");
+        }
+
+        static double Cents(double a, double b) => Math.Abs(1200.0 * Math.Log2(a / b));
+    }
+
+    [Fact]
+    public void SinePriors_PutACarrierOnAWeakLowThump_RatherThanExplainingItAsASideband()
+    {
+        // The keyed electric piano has a fixed 60 Hz thump under a 262 Hz note. As a carrier of its own it can become a
+        // fixed-frequency operator; as a sideband of the note (262 - 0.77 * 262) it would transpose with it.
+        ReferencePatch piano = ReferencePatches.Find("electric-piano-keyed")!;
+        RenderRequest request = RenderRequest.Create(piano.FrequencyHz, piano.NoteSeconds, piano.ReleaseSeconds);
+        RenderedAudio audio = Renderer.Render(piano.Patch, request);
+        TargetAnalysis analysis = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, piano.FrequencyHz)).Analysis;
+
+        PatchHypothesis best = new SinePhaseModulationPriorProvider().Generate(analysis, Fm7).First(static h => h.Origin.StartsWith("3 stacks", StringComparison.Ordinal));
+
+        bool[] audible = best.Patch.FindAudibleOperators();
+        Assert.Contains(Enumerable.Range(0, 6), i => audible[i] && best.Patch.OutputLevels[i] > 0 && Math.Abs(best.Patch.Operators[i].FrequencyHz(piano.FrequencyHz) - 60.0) < 3.0);
+    }
+
+    [Fact]
+    public void PartialTrackPriors_PutOperatorsOnTheMeasuredPartials_WithTheirOwnDecays()
+    {
+        // A small bell: three inharmonic partials that decay at different rates, and a bright burst in the attack from
+        // a modulator whose modulation dies within a tenth of a second.
+        OperatorPatch Ring(double hz, double seconds) => OperatorPatch.Sine(OperatorFrequency.AtFixed(hz), OperatorEnvelope.Adsr(0.002, seconds, 0.0, 0.1));
+        OperatorMatrixPatch bell = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, Ring(520, 1.8)).WithOutputLevel(0, 0.5)
+            .WithOperator(1, Ring(941, 1.2)).WithOutputLevel(1, 0.5)
+            .WithOperator(2, Ring(1733, 0.7)).WithOutputLevel(2, 0.5)
+            .WithOperator(3, OperatorPatch.Sine(OperatorFrequency.AtFixed(731), OperatorEnvelope.Constant()))
+            .WithEdge(new ModulationEdge(3, 0, true, 4.0, OperatorEnvelope.Adsr(0.001, 0.08, 0.0, 0.05)));
+        RenderRequest request = RenderRequest.Create(210, 0.9, 0.3);
+        RenderedAudio audio = Renderer.Render(bell, request);
+        TargetAnalysis analysis = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 210.0)).Analysis;
+
+        IReadOnlyList<PatchHypothesis> hypotheses = new PartialTrackPriorProvider().Generate(analysis, Fm7);
+
+        Assert.NotEmpty(hypotheses);
+        Assert.All(hypotheses, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, Fm7).IsCompatible, h.Origin));
+        PatchHypothesis additive = hypotheses.First(static h => h.Patch.ModulationMatrix.Edges.Count == 0 && h.Patch.FindAudibleOperators().Count(static a => a) == 3);
+        double[] hz = [.. additive.Patch.Operators.Where(static o => o.Enabled).Select(o => o.FrequencyHz(analysis.FundamentalHz)).Order()];
+        Assert.Equal(3, hz.Length);
+        Assert.InRange(hz[0], 520 * 0.99, 520 * 1.01);
+        Assert.InRange(hz[1], 941 * 0.99, 941 * 1.01);
+        Assert.InRange(hz[2], 1733 * 0.99, 1733 * 1.01);
+
+        // Every partial keeps its own decay: the lowest rings longest.
+        double Remaining(OperatorPatch o) => o.AmplitudeEnvelope.EffectiveLevel(o.AmplitudeEnvelope.Points.Count - 2);
+        OperatorPatch[] byFrequency = [.. additive.Patch.Operators.Where(static o => o.Enabled).OrderBy(o => o.FrequencyHz(analysis.FundamentalHz))];
+        Assert.True(Remaining(byFrequency[0]) > Remaining(byFrequency[2]), "the lowest partial should decay slowest");
+
+        // And a variant with a modulator whose amount dies quickly, for the bright attack.
+        Assert.Contains(hypotheses, static h => h.Patch.ModulationMatrix.Edges.Any(static e => e.Enabled && e.AmountEnvelope is not null));
+    }
+
+    [Fact]
+    public void PartialTrackPriors_StayOut_WhenSidebandArithmeticExplainsTheSpectrum()
+    {
+        // A plain FM stack: its sidebands ring as long as the note, and read as partial tracks they would give an
+        // additive guess at what one modulator explains.
+        TargetAnalysis stack = StackTarget.Value.Analysis;
+        var gated = new PartialTrackPriorProvider(new SinePhaseModulationPriorProvider());
+
+        Assert.NotEmpty(new PartialTrackPriorProvider().Generate(stack, Fm7));
+        Assert.Empty(gated.Generate(stack, Fm7));
+    }
+
+    [Fact]
     public void TemporalPriors_FollowTheTarget()
     {
         TargetAnalysis analysis = StackTarget.Value.Analysis;

@@ -1,5 +1,6 @@
 using HearSay.Analysis;
 using HearSay.Envelope;
+using HearSay.Partials;
 using HearSay.Spectral;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
@@ -76,6 +77,22 @@ public static class TemporalPriors
         }
 
         return FromDecay(AttackSeconds(analysis) * 0.5, decay, held, ReleaseSeconds(analysis));
+    }
+
+    /// <summary>
+    /// Envelope of an operator that plays one tracked partial: the attack of the note and the decay of that partial,
+    /// which in a bell or a struck bar differs from partial to partial. Falls back to the amplitude of the note when
+    /// the decay of the track could not be measured.
+    /// </summary>
+    /// <param name="analysis">Analysis of the target.</param>
+    /// <param name="track">The partial.</param>
+    public static OperatorEnvelope PartialEnvelope(TargetAnalysis analysis, PartialTrack track)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        ArgumentNullException.ThrowIfNull(track);
+        double held = Math.Max(0.05, analysis.NoteOffSeconds - (analysis.Envelope.PeakMs / 1000.0));
+        DecayModel decay = track.Decay.Confidence >= 0.3 && track.Decay.FastRateDbPerSecond < 0 ? track.Decay : analysis.AmplitudeDecay;
+        return FromDecay(AttackSeconds(analysis), decay, held, ReleaseSeconds(analysis));
     }
 
     /// <summary>Pitch model from the measured pitch movement; <see cref="PitchModel.None"/> when the pitch is steady.</summary>
