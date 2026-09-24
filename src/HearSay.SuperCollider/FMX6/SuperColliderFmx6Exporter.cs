@@ -32,8 +32,8 @@ public sealed class SuperColliderFmx6Exporter : SuperColliderOperatorMatrixExpor
         string harmonicLimits = PerOperator(patch, audible, static o => o.HarmonicLimit.ToString(CultureInfo.InvariantCulture), "32");
         return $$"""
             operators = FMX6.ar(ctlMatrix, modMatrix,
-            		waves: [{{waves}}], // 0 sine, 1 triangle, 2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise
-            		shapes: [{{shapes}}], // pulse duty cycle
+            		waves: [{{waves}}], // 0 sine, 1 triangle, 2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise, 7 filtered noise
+            		shapes: [{{shapes}}], // pulse duty cycle; filtered noise: 0 low-pass, 0.5 band-pass, 1 high-pass
             		harmonicLimits: [{{harmonicLimits}}]);
             """;
     }

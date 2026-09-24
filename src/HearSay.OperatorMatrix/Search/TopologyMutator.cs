@@ -550,7 +550,8 @@ public sealed class TopologyMutator
     }
 
     /// <summary>
-    /// Noise next to the structure, in one step: white noise straight into the mix, and a sine at a high fixed
+    /// Noise next to the structure, in one step: filtered noise at the colour of the noise in the target, where the
+    /// profile has it; white noise straight into the mix; and a sine at a high fixed
     /// frequency that noise modulates deeply, which spreads into a band of noise around that frequency and is how a
     /// coloured wash, such as the high-passed noise of a cymbal, is made from these operators. Through "add a sine to
     /// the output" and "make it noise" a wash would need an intermediate that sounds worse. Nothing for profiles
@@ -559,7 +560,7 @@ public sealed class TopologyMutator
     private List<TopologyMutation> NoiseWashes(OperatorMatrixPatch patch, TargetAnalysis analysis, bool[] audible, int free)
     {
         var result = new List<TopologyMutation>();
-        if (!_capabilities.SupportedWaveforms.Contains(OperatorWaveform.Noise))
+        if (!_capabilities.SupportedWaveforms.Contains(OperatorWaveform.Noise) && !_capabilities.SupportedWaveforms.Contains(OperatorWaveform.FilteredNoise))
         {
             return result;
         }
@@ -568,6 +569,24 @@ public sealed class TopologyMutator
         OperatorEnvelope decaying = TemporalPriors.OutputEnvelope(analysis);
         OperatorEnvelope burst = OperatorEnvelope.Adsr(0.001, 0.03, 0.0, 0.03);
         OperatorPatch Noise(OperatorEnvelope envelope) => OperatorPatch.Sine(OperatorFrequency.AtRatio(1), envelope) with { Waveform = OperatorWaveform.Noise };
+
+        // Filtered noise does the band in one operator, at the colour measured in the target: band-pass there, and
+        // high-pass below a high colour.
+        if (_capabilities.SupportedWaveforms.Contains(OperatorWaveform.FilteredNoise) && analysis.Noise.CentroidHz > 0)
+        {
+            double centroid = Math.Min(analysis.Noise.CentroidHz, 0.45 * analysis.Audio.SampleRate);
+            foreach ((double shape, double hz, string name) in new[] { (0.5, centroid, "band-pass"), centroid >= 2000.0 ? (1.0, 0.6 * centroid, "high-pass") : (0.0, 1.5 * centroid, "low-pass") })
+            {
+                OperatorFrequency cutoff = _capabilities.SupportsFixedFrequency
+                    ? OperatorFrequency.AtFixed(Math.Round(hz))
+                    : OperatorFrequency.AtRatio(Math.Round(hz / analysis.FundamentalHz, 2));
+                OperatorPatch filtered = OperatorPatch.Sine(cutoff, decaying) with { Waveform = OperatorWaveform.FilteredNoise, Shape = shape };
+                foreach (double level in new[] { 0.15, 0.4 })
+                {
+                    result.Add(new TopologyMutation(patch.WithOperator(free, filtered).WithOutputLevel(free, level * loudest), FormattableString.Invariant($"add OP{free + 1} {name} noise at {hz:0} Hz to the output")));
+                }
+            }
+        }
 
         foreach (double level in new[] { 0.15, 0.4 })
         {

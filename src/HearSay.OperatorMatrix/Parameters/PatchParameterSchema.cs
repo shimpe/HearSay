@@ -85,6 +85,12 @@ public sealed class PatchParameterSchema
                 list.Add(Smooth(id + ".shape", group, 0.01, 0.99, ParameterTransforms.Linear, p => p.Operators[op].Shape, (p, v) => p.WithOperator(op, p.Operators[op] with { Shape = v }), p => Audible(p) && p.Operators[op].Waveform == OperatorWaveform.Pulse));
             }
 
+            if (capabilities.SupportedWaveforms.Contains(OperatorWaveform.FilteredNoise))
+            {
+                // The response of filtered noise, from low-pass through band-pass to high-pass; its cutoff is the frequency.
+                list.Add(Smooth(id + ".filter", group, 0.0, 1.0, ParameterTransforms.Linear, p => p.Operators[op].Shape, (p, v) => p.WithOperator(op, p.Operators[op] with { Shape = v }), p => Audible(p) && p.Operators[op].Waveform == OperatorWaveform.FilteredNoise));
+            }
+
             string frequency = group + "/Frequency";
             list.Add(Structural(id + ".frequency.mode", frequency, [.. frequencyModes], p => (int)p.Operators[op].Frequency.Mode, (p, v) => p.WithOperator(op, p.Operators[op] with { Frequency = p.Operators[op].Frequency with { Mode = (OperatorFrequencyMode)(int)v } }), Enabled));
             list.Add(Structural(id + ".frequency.ratio", frequency, ratios, p => p.Operators[op].Frequency.Ratio, (p, v) => p.WithOperator(op, p.Operators[op] with { Frequency = p.Operators[op].Frequency with { Ratio = v } }), p => Enabled(p) && p.Operators[op].Frequency.Mode == OperatorFrequencyMode.Ratio));

@@ -20,6 +20,7 @@ namespace HearSay.Synthesis.Fmx6Compatible.Rendering;
 /// instantaneous frequency, which includes the sample-to-sample change of the phase modulation.
 /// </item>
 /// <item>White noise and sample-and-hold noise from an xorshift generator seeded by operator slot; the held value changes when the base phase wraps.</item>
+/// <item>Filtered noise: the white noise through a TPT state-variable filter in double precision, cutoff at the operator frequency.</item>
 /// <item>Double-precision phase in cycles, single-precision frequency, phase offset, amplitude and matrix, all ramped linearly across each control block.</item>
 /// <item>No warm-up sample at construction: the first output sample is at phase zero. FM7 differs here.</item>
 /// <item>No oversampling: the aliasing of deep modulation is part of the sound of the backend.</item>
@@ -102,6 +103,8 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
         var mem = new float[n];
         var sampleHold = new float[n];
         var rng = new uint[n];
+        var filterState1 = new double[n];
+        var filterState2 = new double[n];
         var matrixPhaseMod = new float[n];
         var mod = new float[edges];
         var modInc = new float[edges];
@@ -177,6 +180,7 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
                     {
                         <= 4 => WaveformHarmonic(wave[k], phaseRad, ClampHarmonics(effectiveHz, harmonicLimit[k], sampleRate), shape[k]),
                         5 => sampleHold[k],
+                        7 => FilteredNoise(ref rng[k], ref filterState1[k], ref filterState2[k], freq[k], shape[k], sampleRate),
                         _ => RandBipolar(ref rng[k]),
                     };
 
@@ -220,6 +224,7 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
             OperatorWaveform.Pulse => 4,
             OperatorWaveform.SampleHoldNoise => 5,
             OperatorWaveform.Noise => 6,
+            OperatorWaveform.FilteredNoise => 7,
             _ => throw new NotSupportedException($"FMX6 has no {waveform} waveform."),
         };
 
@@ -237,6 +242,37 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
     {
         uint x = XorShift32(ref state) >> 8;
         return (x * (2.0f / 16777216.0f)) - 1.0f;
+    }
+
+    /// <summary>
+    /// White noise through a TPT state-variable filter with Q = 1/sqrt(2), as in the UGen: shape 0 = low-pass,
+    /// 0.5 = band-pass with unity gain at the centre, 1 = high-pass, crossfaded in between.
+    /// </summary>
+    private static float FilteredNoise(ref uint rng, ref double ic1, ref double ic2, float cutoffHz, float shape, float sampleRate)
+    {
+        double x = RandBipolar(ref rng);
+        double fc = Math.Max(10.0, Math.Min(Math.Abs(cutoffHz), 0.49 * (double)sampleRate));
+        double g = Math.Tan(Math.PI * fc / sampleRate);
+        const double k = 1.4142135623730951;
+        double a1 = 1.0 / (1.0 + (g * (g + k)));
+        double a2 = g * a1;
+        double a3 = g * a2;
+
+        double v3 = x - ic2;
+        double v1 = (a1 * ic1) + (a2 * v3);
+        double v2 = ic2 + (a2 * ic1) + (a3 * v3);
+        ic1 = (2.0 * v1) - ic1;
+        ic2 = (2.0 * v2) - ic2;
+
+        double lp = v2;
+        double bp = k * v1;
+        double hp = x - (k * v1) - v2;
+
+        double m = Math.Max(0.0, Math.Min(shape, 1.0));
+        double y = m < 0.5
+            ? ((1.0 - (2.0 * m)) * lp) + (2.0 * m * bp)
+            : ((2.0 - (2.0 * m)) * bp) + (((2.0 * m) - 1.0) * hp);
+        return (float)y;
     }
 
     private static int ClampHarmonics(float effectiveHz, int requested, float sampleRate)

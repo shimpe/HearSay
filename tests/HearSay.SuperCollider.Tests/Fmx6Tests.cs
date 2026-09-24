@@ -113,6 +113,72 @@ public sealed class Fmx6Tests(ITestOutputHelper output)
         Assert.All(runs.Skip(1), static r => Assert.InRange(r, 479, 481));
     }
 
+    private static OperatorMatrixPatch FilteredNoise(double cutoffHz, double shape) =>
+        OperatorMatrixPatch.Silent(6)
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtFixed(cutoffHz), OperatorEnvelope.Constant()) with { Waveform = OperatorWaveform.FilteredNoise, Shape = shape })
+            .WithOutputLevel(1, 1.0);
+
+    /// <summary>Power-weighted mean frequency of the settled part of a render.</summary>
+    private static double Centroid(float[] samples)
+    {
+        var spectrogram = new HearSay.Spectral.StftAnalyzer().Analyze(samples.AsSpan(Settled).ToArray(), 48000, 2048, 512);
+        double weighted = 0, total = 0;
+        for (int f = 0; f < spectrogram.FrameCount; f++)
+        {
+            ReadOnlySpan<float> frame = spectrogram.Frame(f);
+            for (int k = 1; k < spectrogram.BinCount; k++)
+            {
+                double power = (double)frame[k] * frame[k];
+                weighted += power * k * spectrogram.BinHz;
+                total += power;
+            }
+        }
+
+        return weighted / total;
+    }
+
+    [Fact]
+    public void FilteredNoise_HasTheColourOfItsShape_AndTheCutoffOfItsFrequency()
+    {
+        double low = Centroid(Render(FilteredNoise(3000, 0.0)));
+        double band = Centroid(Render(FilteredNoise(3000, 0.5)));
+        double high = Centroid(Render(FilteredNoise(3000, 1.0)));
+        double higherBand = Centroid(Render(FilteredNoise(8000, 0.5)));
+
+        Assert.True(low < 2500 && band > low && high > band && high > 8000, $"low {low:F0}, band {band:F0}, high {high:F0}");
+        Assert.True(higherBand > band + 2000, $"band at 3 kHz {band:F0}, at 8 kHz {higherBand:F0}");
+        Assert.Equal(Render(FilteredNoise(3000, 0.5)), Render(FilteredNoise(3000, 0.5)));
+
+        // The full range of the shape is valid for filtered noise; a pulse keeps its duty cycle away from 0 and 1.
+        Assert.Empty(FilteredNoise(3000, 1.0).Validate());
+        Assert.NotEmpty(Single(OperatorWaveform.Pulse, shape: 1.0).Validate());
+        Assert.Contains("waves: [0, 7, 0, 0, 0, 0]", new SuperColliderFmx6Exporter().Export(FilteredNoise(3000, 1.0)));
+    }
+
+    [SuperColliderFact]
+    public void FilteredNoise_IsSampleExactInSuperCollider()
+    {
+        var validator = new BackendEquivalenceValidator(
+            Renderer,
+            new SuperColliderFm7Renderer(SuperColliderFactAttribute.Installation.Value!, new SuperColliderFmx6Exporter(), Fmx6));
+        var request = new RenderRequest(220, null, 1.0, TimeSpan.FromSeconds(0.4), TimeSpan.FromSeconds(0.1), 48000);
+
+        // Low-, band- and high-pass, and a band whose cutoff follows the note while noise modulates a sine.
+        OperatorMatrixPatch following = FilteredNoise(3000, 0.5)
+            .WithOperator(1, FilteredNoise(3000, 0.5).Operators[1] with { Frequency = OperatorFrequency.AtRatio(20) })
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant()))
+            .WithOutputLevel(0, 0.5)
+            .WithEdge(new ModulationEdge(1, 0, true, 0.8));
+        IReadOnlyList<BackendExportValidation> results = validator.Validate(
+            [(FilteredNoise(500, 0.0), request), (FilteredNoise(3000, 0.5), request), (FilteredNoise(11000, 1.0), request), (following, request)]);
+
+        foreach (BackendExportValidation r in results)
+        {
+            output.WriteLine($"max sample diff {r.MaxSampleDifference:E2} (peak {r.PeakLevel:F2}), overall {r.OverallDistance:F5}");
+            Assert.True(r.MaxSampleDifference < 1e-4 * Math.Max(0.05, r.PeakLevel), r.ToString());
+        }
+    }
+
     [Fact]
     public void Triangle_PeaksAtQuarterCycle()
     {

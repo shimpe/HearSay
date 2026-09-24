@@ -93,6 +93,10 @@ public sealed class RandomPatchGenerator
             {
                 operators[i] = operators[i] with { Shape = Math.Round(0.1 + (random.NextDouble() * 0.8), 2) };
             }
+            else if (operators[i].Waveform == OperatorWaveform.FilteredNoise)
+            {
+                operators[i] = operators[i] with { Shape = Math.Round(random.NextDouble(), 2) };
+            }
 
             if (operators[i].Waveform is OperatorWaveform.Triangle or OperatorWaveform.Saw or OperatorWaveform.Square or OperatorWaveform.Pulse)
             {

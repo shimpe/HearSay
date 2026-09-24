@@ -39,11 +39,26 @@ public enum OperatorWaveform
     /// <summary>Sample-and-hold noise: a random value held for every cycle of the operator frequency.</summary>
     SampleHoldNoise,
 
+    /// <summary>
+    /// White noise through a two-pole filter whose cutoff is the operator frequency; <see cref="OperatorPatch.Shape"/>
+    /// selects low-pass (0), band-pass (0.5) or high-pass (1), crossfaded in between. Phase modulation has no effect.
+    /// </summary>
+    FilteredNoise,
+
     /// <summary>Sum of harmonics with individual levels.</summary>
     Additive,
 
     /// <summary>Single-cycle wavetable.</summary>
     Wavetable,
+}
+
+/// <summary>Properties of waveforms.</summary>
+public static class OperatorWaveformExtensions
+{
+    /// <summary>True for the noise waveforms: they ignore the phase, and so whatever modulates them.</summary>
+    /// <param name="waveform">Waveform.</param>
+    public static bool IsNoise(this OperatorWaveform waveform) =>
+        waveform is OperatorWaveform.Noise or OperatorWaveform.SampleHoldNoise or OperatorWaveform.FilteredNoise;
 }
 
 /// <summary>Whether an operator follows the played note.</summary>
@@ -135,7 +150,11 @@ public sealed record OperatorPatch(
     double VelocitySensitivity,
     KeyScaling KeyScaling)
 {
-    /// <summary>Waveform shape parameter, 0.01..0.99. For <see cref="OperatorWaveform.Pulse"/> it is the duty cycle; other waveforms ignore it.</summary>
+    /// <summary>
+    /// Waveform shape parameter. For <see cref="OperatorWaveform.Pulse"/> it is the duty cycle, 0.01..0.99; for
+    /// <see cref="OperatorWaveform.FilteredNoise"/> the filter response, 0 (low-pass) to 1 (high-pass); other waveforms
+    /// ignore it and keep it within 0.01..0.99.
+    /// </summary>
     public double Shape { get; init; } = 0.5;
 
     /// <summary>Largest number of harmonics a band-limited non-sine waveform is built from, 1..128; sine and noise ignore it.</summary>

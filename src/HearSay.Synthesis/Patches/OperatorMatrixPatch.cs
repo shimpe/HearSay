@@ -190,9 +190,13 @@ public sealed record OperatorMatrixPatch(
                 problems.Add($"OP{i + 1} needs a fixed frequency of zero or more.");
             }
 
-            if (op.Shape is < 0.01 or > 0.99 || !double.IsFinite(op.Shape))
+            if (op.Waveform == OperatorWaveform.FilteredNoise
+                ? op.Shape is < 0.0 or > 1.0 || !double.IsFinite(op.Shape)
+                : op.Shape is < 0.01 or > 0.99 || !double.IsFinite(op.Shape))
             {
-                problems.Add($"OP{i + 1} shape must be between 0.01 and 0.99.");
+                problems.Add(op.Waveform == OperatorWaveform.FilteredNoise
+                    ? $"OP{i + 1} filter shape must be between 0 and 1."
+                    : $"OP{i + 1} shape must be between 0.01 and 0.99.");
             }
 
             if (op.HarmonicLimit is < 1 or > 128)

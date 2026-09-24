@@ -152,7 +152,7 @@ public sealed class SearchComponentTests
             .Generate(StackTarget.Value.Analysis, SynthesisProfiles.SuperColliderFmx6.Capabilities);
 
         Assert.Contains(variants, static h => h.Origin.EndsWith("[Saw output operators]", StringComparison.Ordinal));
-        Assert.DoesNotContain(variants, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Waveform is OperatorWaveform.Noise or OperatorWaveform.SampleHoldNoise));
+        Assert.DoesNotContain(variants, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Waveform.IsNoise()));
     }
 
     [Fact]
@@ -163,15 +163,25 @@ public sealed class SearchComponentTests
         TargetAnalysis noisy = StackTarget.Value.Analysis with { Noise = new HearSay.Spectral.NoiseProfile(0.3, 9000) };
         TargetAnalysis clean = StackTarget.Value.Analysis with { Noise = new HearSay.Spectral.NoiseProfile(0.02, 9000) };
 
-        IReadOnlyList<PatchHypothesis> hypotheses = provider.Generate(noisy, fmx6);
+        SynthesisCapabilities whiteOnly = fmx6 with { SupportedWaveforms = new HashSet<OperatorWaveform>(fmx6.SupportedWaveforms.Where(static w => w != OperatorWaveform.FilteredNoise)) };
 
-        Assert.NotEmpty(hypotheses);
-        Assert.All(hypotheses, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, fmx6).IsCompatible, h.Origin));
-        Assert.All(hypotheses, static h => Assert.Contains(h.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Noise));
-        Assert.Contains(hypotheses, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Frequency.Mode == OperatorFrequencyMode.Fixed && o.Frequency.FixedFrequencyHz == 9000));
+        IReadOnlyList<PatchHypothesis> filtered = provider.Generate(noisy, fmx6);
+        IReadOnlyList<PatchHypothesis> white = provider.Generate(noisy, whiteOnly);
+
+        // With filtered noise, one operator carries the wash: a band at the colour of the noise, and a high-pass below it.
+        Assert.NotEmpty(filtered);
+        Assert.All(filtered, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, fmx6).IsCompatible, h.Origin));
+        Assert.All(filtered, static h => Assert.Single(h.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.FilteredNoise));
+        Assert.Contains(filtered, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Waveform == OperatorWaveform.FilteredNoise && o.Shape == 0.5 && o.Frequency.FixedFrequencyHz == 9000));
+        Assert.Contains(filtered, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Waveform == OperatorWaveform.FilteredNoise && o.Shape == 1.0 && o.Frequency.FixedFrequencyHz < 9000));
+
+        // Without it, noise modulating a sine at that colour, or white noise.
+        Assert.All(white, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, whiteOnly).IsCompatible, h.Origin));
+        Assert.All(white, static h => Assert.Contains(h.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Noise));
+        Assert.Contains(white, static h => h.Patch.Operators.Any(static o => o.Enabled && o.Frequency.Mode == OperatorFrequencyMode.Fixed && o.Frequency.FixedFrequencyHz == 9000));
 
         // Every hypothesis keeps the sine structure it started from.
-        Assert.All(hypotheses, static h => Assert.Contains(h.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Sine));
+        Assert.All(filtered.Concat(white), static h => Assert.Contains(h.Patch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Sine));
         Assert.Empty(provider.Generate(clean, fmx6));
         Assert.Empty(provider.Generate(noisy, Fm7));
     }

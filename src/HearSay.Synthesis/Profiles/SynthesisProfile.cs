@@ -103,7 +103,7 @@ public static class SynthesisProfiles
     /// <summary>
     /// Six phase-modulation operators with selectable waveforms, as played by the <c>FMX6</c> UGen
     /// (https://github.com/shimpe/fmx6): sine, band-limited triangle, saw, square and pulse, white and
-    /// sample-and-hold noise, over the same full matrix as FM7.
+    /// sample-and-hold noise, and filtered noise, over the same full matrix as FM7. Needs FMX6 with waveform 7.
     /// </summary>
     public static SynthesisProfile SuperColliderFmx6 { get; } = new(
         "supercollider-fmx6",
@@ -118,11 +118,12 @@ public static class SynthesisProfiles
                 OperatorWaveform.Pulse,
                 OperatorWaveform.Noise,
                 OperatorWaveform.SampleHoldNoise,
+                OperatorWaveform.FilteredNoise,
             },
         },
         RenderProfile.BackendExact,
         ControlBlockSize: 64,
-        "Six operators with sine, triangle, saw, square, pulse and noise waveforms, full 6x6 matrix, SuperCollider FMX6 UGen.");
+        "Six operators with sine, triangle, saw, square, pulse, noise and filtered-noise waveforms, full 6x6 matrix, SuperCollider FMX6 UGen.");
 
     /// <summary>
     /// Experimental profile that adds triangle operators. It exists to prove that waveform is a structural search
