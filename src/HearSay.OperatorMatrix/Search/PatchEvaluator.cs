@@ -272,8 +272,8 @@ public sealed class PatchEvaluator
     {
         double complexity = PatchComplexity.Measure(patch, _complexity);
         double loss = 0;
-        var terms = new double[7];
-        var termWeights = new double[7];
+        var terms = new double[8];
+        var termWeights = new double[8];
         RenderedAudio? reference = null;
         try
         {
@@ -297,7 +297,7 @@ public sealed class PatchEvaluator
         catch (PatchNotSupportedException)
         {
             // A search must not propose such patches; if one slips through it simply loses.
-            var unusable = new ObjectiveTerms(1, 1, 1, 1, 1, 1, 1);
+            var unusable = new ObjectiveTerms(1, 1, 1, 1, 1, 1, 1, 1);
             return (new PatchEvaluation(patch, Target.Options.UnusableLoss + (_complexityWeight * complexity), Target.Options.UnusableLoss, complexity, unusable, level), null);
         }
 
@@ -308,13 +308,14 @@ public sealed class PatchEvaluator
             Mean(terms, termWeights, 3),
             Mean(terms, termWeights, 4),
             Mean(terms, termWeights, 5),
-            Mean(terms, termWeights, 6));
+            Mean(terms, termWeights, 6),
+            Mean(terms, termWeights, 7));
         return (new PatchEvaluation(patch, loss + (_complexityWeight * complexity), loss, complexity, combined, level), reference);
     }
 
     private static void Accumulate(double[] sums, double[] weights, ObjectiveTerms t, double w)
     {
-        double[] values = [t.Stft, t.Mel, t.Partial, t.Trajectory, t.Envelope, t.Pitch, t.Ltas];
+        double[] values = [t.Stft, t.Mel, t.Partial, t.Trajectory, t.Envelope, t.Pitch, t.Ltas, t.BodyPartial];
         for (int i = 0; i < values.Length; i++)
         {
             if (!double.IsNaN(values[i]))

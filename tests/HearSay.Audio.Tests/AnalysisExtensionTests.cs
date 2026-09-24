@@ -388,6 +388,27 @@ public sealed class AnalysisExtensionTests
     }
 
     [Fact]
+    public void Objective_ComparesThePartialsOfTheBody_NotOnlyThoseOfTheWholeNote()
+    {
+        // A bell: sustained inharmonic partials, and a burst of other partials that is over within 0.1 s.
+        (double, double, double)[] body = [(520, 1.0, 30), (941, 0.8, 32), (1733, 0.7, 33), (2399, 0.6, 34)];
+        (double, double, double)[] burst = [(731, 1.0, 400), (1140, 1.0, 400), (1511, 1.0, 400), (2671, 1.0, 400), (3539, 1.0, 400)];
+        var objective = new AudioObjective();
+        PreparedObjectiveTarget prepared = objective.Prepare(new AudioTarget(Partials(1.5, [.. body, .. burst]), SampleRate, 220.0));
+
+        ObjectiveTerms Terms((double, double, double)[] partials) =>
+            objective.Evaluate(prepared, new AudioNote(Partials(1.5, partials), SampleRate, 220.0), EvaluationLevel.Normal).Terms;
+        ObjectiveTerms same = Terms([.. body, .. burst]);
+        ObjectiveTerms bodyOnly = Terms(body);
+        ObjectiveTerms burstHeld = Terms([.. burst.Select(static p => (p.Item1, p.Item2, 30.0))]);
+
+        Assert.True(same.BodyPartial < 1e-6, $"same {same.BodyPartial}");
+        Assert.True(bodyOnly.BodyPartial < 0.1, $"body only {bodyOnly.BodyPartial}");
+        Assert.True(burstHeld.BodyPartial > 0.8, $"burst held {burstHeld.BodyPartial}");
+        Assert.True(double.IsNaN(objective.Evaluate(prepared, new AudioNote(Partials(1.5, body), SampleRate, 220.0), EvaluationLevel.Coarse).Terms.BodyPartial));
+    }
+
+    [Fact]
     public void Objective_PenalizesUnusableCandidatesAndIgnoresLevelWhenTimbreNormalized()
     {
         var objective = new AudioObjective();

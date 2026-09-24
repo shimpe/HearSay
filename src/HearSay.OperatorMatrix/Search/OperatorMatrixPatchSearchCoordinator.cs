@@ -795,7 +795,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
 
     private static bool SameSound(PatchEvaluation a, PatchEvaluation b)
     {
-        static double[] Vector(ObjectiveTerms t) => [t.Stft, t.Mel, t.Partial, t.Trajectory, t.Envelope, t.Ltas];
+        static double[] Vector(ObjectiveTerms t) => [t.Stft, t.Mel, t.Partial, t.Trajectory, t.Envelope, t.Ltas, t.BodyPartial];
         double[] x = Vector(a.Terms), y = Vector(b.Terms);
         for (int i = 0; i < x.Length; i++)
         {

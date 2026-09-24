@@ -45,6 +45,12 @@ public sealed record ObjectiveWeights
 
     /// <summary>Long-term average spectrum.</summary>
     public double Ltas { get; init; } = 0.05;
+
+    /// <summary>
+    /// Partial-set assignment distance of the body of the note, after the attack: what rings on. The whole-note partial
+    /// set weighs short attack partials as much as the partials that are heard ringing.
+    /// </summary>
+    public double BodyPartial { get; init; } = 0.3;
 }
 
 /// <summary>Configuration of <see cref="AudioObjective"/>.</summary>
@@ -74,7 +80,8 @@ public sealed record ObjectiveOptions
 /// <param name="Envelope">Envelope distance.</param>
 /// <param name="Pitch">Pitch distance.</param>
 /// <param name="Ltas">Long-term spectrum distance.</param>
-public sealed record ObjectiveTerms(double Stft, double Mel, double Partial, double Trajectory, double Envelope, double Pitch, double Ltas);
+/// <param name="BodyPartial">Partial-set distance of the body of the note.</param>
+public sealed record ObjectiveTerms(double Stft, double Mel, double Partial, double Trajectory, double Envelope, double Pitch, double Ltas, double BodyPartial = double.NaN);
 
 /// <summary>Result of one evaluation.</summary>
 /// <param name="Loss">Weighted audio loss; 0 is a perfect match.</param>
@@ -128,6 +135,8 @@ internal sealed class NoteFeatures
 
     public IReadOnlyList<SpectralPartial>? Partials { get; init; }
 
+    public IReadOnlyList<SpectralPartial>? BodyPartials { get; init; }
+
     public SpectralTrajectories? Trajectories { get; init; }
 
     public PitchTrajectory? Pitch { get; init; }
@@ -161,7 +170,7 @@ public sealed class AudioObjective
         return new PreparedObjectiveTarget(
             analysis,
             options,
-            level => Extract(analysis.Audio, analysis.FundamentalHz, level, options, trackPitch || (pitched && level == EvaluationLevel.Detailed), magnitudeFloors: null));
+            level => Extract(analysis.Audio, analysis.FundamentalHz, level, options, trackPitch || (pitched && level == EvaluationLevel.Detailed), magnitudeFloors: null, BodyWindow(analysis)));
     }
 
     /// <summary>Evaluates a candidate.</summary>
@@ -174,7 +183,7 @@ public sealed class AudioObjective
         ArgumentNullException.ThrowIfNull(candidate);
         ObjectiveOptions options = target.Options;
         TargetAnalysis analysis = target.Analysis;
-        var unusable = new ObjectiveResult(options.UnusableLoss, new ObjectiveTerms(1, 1, 1, 1, 1, 1, 1), level, false);
+        var unusable = new ObjectiveResult(options.UnusableLoss, new ObjectiveTerms(1, 1, 1, 1, 1, 1, 1, 1), level, false);
         if (!analysis.IsUsable)
         {
             return unusable;
@@ -194,16 +203,20 @@ public sealed class AudioObjective
         }
 
         NoteFeatures t = target.Features(level);
-        NoteFeatures c = Extract(audio, analysis.FundamentalHz, level, options, t.Pitch is not null, t.MagnitudeFloors);
+        NoteFeatures c = Extract(audio, analysis.FundamentalHz, level, options, t.Pitch is not null, t.MagnitudeFloors, BodyWindow(analysis));
 
         double stft = StftDistance(t, c);
         double envelope = CurveDistance(t.EnvelopeDb, c.EnvelopeDb);
         double ltas = t.Ltas.DistanceTo(c.Ltas);
-        double mel = double.NaN, partial = double.NaN, trajectory = double.NaN, pitch = double.NaN;
+        double mel = double.NaN, partial = double.NaN, trajectory = double.NaN, pitch = double.NaN, bodyPartial = double.NaN;
         if (level != EvaluationLevel.Coarse)
         {
             mel = MelDistance(t, c);
             partial = PartialSetDistance.Compare(t.Partials!, c.Partials!).Distance;
+            if (t.BodyPartials is not null && c.BodyPartials is not null)
+            {
+                bodyPartial = PartialSetDistance.Compare(t.BodyPartials, c.BodyPartials).Distance;
+            }
             trajectory = SpectralTrajectoryAnalyzer.Compare(t.Trajectories!, c.Trajectories!).Combined;
             if (t.Pitch is not null && c.Pitch is not null)
             {
@@ -220,13 +233,14 @@ public sealed class AudioObjective
         Add(envelope, w.Envelope);
         Add(pitch, w.Pitch);
         Add(ltas, level == EvaluationLevel.Coarse ? w.Ltas + w.Partial + w.Mel : w.Ltas);
+        Add(bodyPartial, w.BodyPartial);
         double loss = weights > 0 ? sum / weights : 0.0;
         if (!double.IsFinite(loss))
         {
             return unusable;
         }
 
-        return new ObjectiveResult(loss, new ObjectiveTerms(stft, mel, partial, trajectory, envelope, pitch, ltas), level, true);
+        return new ObjectiveResult(loss, new ObjectiveTerms(stft, mel, partial, trajectory, envelope, pitch, ltas, bodyPartial), level, true);
 
         void Add(double term, double weight)
         {
@@ -238,7 +252,7 @@ public sealed class AudioObjective
         }
     }
 
-    private NoteFeatures Extract(PreprocessedAudio audio, double fundamentalHz, EvaluationLevel level, ObjectiveOptions options, bool trackPitch, float[]? magnitudeFloors)
+    private NoteFeatures Extract(PreprocessedAudio audio, double fundamentalHz, EvaluationLevel level, ObjectiveOptions options, bool trackPitch, float[]? magnitudeFloors, (double From, double To)? body)
     {
         float[] samples = audio.Samples;
         int sampleRate = audio.SampleRate;
@@ -280,9 +294,37 @@ public sealed class AudioObjective
             MelDb = melDb,
             MelBands = bank.BandCount,
             Partials = PartialDetector.Detect(average.Power, average.BinHz, fundamentalHz, options.Analysis.Partials),
+            BodyPartials = body is (double from, double to) ? BodyPartials(samples, sampleRate, from, to, fundamentalHz, options) : null,
             Trajectories = SpectralTrajectoryAnalyzer.Analyze(wide, options.Analysis.Bands),
             Pitch = trackPitch ? PitchTracker.Track(samples, sampleRate, fundamentalHz) : null,
         };
+    }
+
+    /// <summary>
+    /// The body of the target, in seconds from its onset: from a little after the peak, when an attack has died down,
+    /// to the note-off. Null when the note is too short to have one.
+    /// </summary>
+    private static (double From, double To)? BodyWindow(TargetAnalysis analysis)
+    {
+        double to = analysis.NoteOffSeconds;
+        double from = Math.Max((analysis.Envelope.PeakMs / 1000.0) + 0.1, 0.15 * to);
+        return to - from >= 0.2 ? (from, to) : null;
+    }
+
+    /// <summary>Partials of the average spectrum of one stretch of the note; none when the note ends before it.</summary>
+    private IReadOnlyList<SpectralPartial> BodyPartials(float[] samples, int sampleRate, double from, double to, double fundamentalHz, ObjectiveOptions options)
+    {
+        int start = (int)(from * sampleRate);
+        int end = Math.Min(samples.Length, (int)(to * sampleRate));
+        int fft = options.Analysis.Partials.FftSize;
+        if (end - start < fft)
+        {
+            return [];
+        }
+
+        Spectrogram spectrogram = _stft.Analyze(samples.AsSpan(start, end - start).ToArray(), sampleRate, fft, fft / 4);
+        AveragePowerSpectrum average = AveragePowerSpectrum.FromSpectrogram(spectrogram);
+        return PartialDetector.Detect(average.Power, average.BinHz, fundamentalHz, options.Analysis.Partials);
     }
 
     private static NoteFeatures Build(Spectrogram[] spectrograms, Spectrogram envelopeSource, AveragePowerSpectrum average, float[]? magnitudeFloors)
