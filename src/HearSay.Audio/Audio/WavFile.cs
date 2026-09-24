@@ -6,7 +6,7 @@ namespace HearSay.Audio;
 /// <summary>How a multi-channel WAV file is reduced to the mono signal the analysis works on.</summary>
 public enum WavChannelMode
 {
-    /// <summary>Average all channels.</summary>
+    /// <summary>Average all channels; a channel that is a copy of the first one delayed by up to 2 ms is aligned with it first.</summary>
     Downmix,
 
     /// <summary>Use a single channel, selected by index.</summary>
@@ -137,28 +137,95 @@ public static class WavFile
         }
 
         int frameCount = data.Length / (bytesPerSample * channels);
-        var samples = new float[frameCount];
-        ReadOnlySpan<byte> bytes = data;
+        float[] Channel(int c)
+        {
+            var channel = new float[frameCount];
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                channel[frame] = Decode(data.AsSpan((frame * channels * bytesPerSample) + (c * bytesPerSample), bytesPerSample), isFloat);
+            }
+
+            return channel;
+        }
+
+        if (channelMode == WavChannelMode.SingleChannel)
+        {
+            return new AudioNote(Channel(channelIndex), sampleRate, expectedFundamentalHz);
+        }
+
+        float[] first = Channel(0);
+        var sum = new double[frameCount];
         for (int frame = 0; frame < frameCount; frame++)
         {
-            int frameOffset = frame * channels * bytesPerSample;
-            if (channelMode == WavChannelMode.SingleChannel)
-            {
-                samples[frame] = Decode(bytes.Slice(frameOffset + (channelIndex * bytesPerSample), bytesPerSample), isFloat);
-            }
-            else
-            {
-                float sum = 0f;
-                for (int c = 0; c < channels; c++)
-                {
-                    sum += Decode(bytes.Slice(frameOffset + (c * bytesPerSample), bytesPerSample), isFloat);
-                }
+            sum[frame] = first[frame];
+        }
 
-                samples[frame] = sum / channels;
+        int maxLag = (int)Math.Round(MaxAlignmentSeconds * sampleRate);
+        for (int c = 1; c < channels; c++)
+        {
+            float[] channel = Channel(c);
+            int lag = DelayedCopyLag(first, channel, maxLag);
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                int source = frame + lag;
+                sum[frame] += source >= 0 && source < frameCount ? channel[source] : 0f;
             }
         }
 
+        var samples = new float[frameCount];
+        for (int frame = 0; frame < frameCount; frame++)
+        {
+            samples[frame] = (float)(sum[frame] / channels);
+        }
+
         return new AudioNote(samples, sampleRate, expectedFundamentalHz);
+    }
+
+    /// <summary>Longest delay between channels that is recognised as the same signal played twice.</summary>
+    private const double MaxAlignmentSeconds = 0.002;
+
+    /// <summary>Correlation above which a channel counts as a delayed copy of the first one.</summary>
+    private const double CopyCorrelation = 0.9;
+
+    /// <summary>
+    /// How many samples later <paramref name="channel"/> plays the same signal as <paramref name="first"/>, when it is a
+    /// delayed copy of it, as in a stereo file widened by a small delay; 0 otherwise. Averaging such channels as they
+    /// are would comb-filter the sound, with notches every sample rate / delay hertz.
+    /// </summary>
+    private static int DelayedCopyLag(float[] first, float[] channel, int maxLag)
+    {
+        double energyFirst = 0, energyChannel = 0;
+        for (int i = 0; i < first.Length; i++)
+        {
+            energyFirst += (double)first[i] * first[i];
+            energyChannel += (double)channel[i] * channel[i];
+        }
+
+        if (energyFirst <= 0 || energyChannel <= 0)
+        {
+            return 0;
+        }
+
+        int bestLag = 0;
+        double best = double.NegativeInfinity, atZero = 0;
+        for (int lag = -maxLag; lag <= maxLag; lag++)
+        {
+            double dot = 0;
+            for (int i = Math.Max(0, -lag); i < first.Length && i + lag < channel.Length; i++)
+            {
+                dot += (double)first[i] * channel[i + lag];
+            }
+
+            double correlation = dot / Math.Sqrt(energyFirst * energyChannel);
+            atZero = lag == 0 ? correlation : atZero;
+            if (correlation > best)
+            {
+                best = correlation;
+                bestLag = lag;
+            }
+        }
+
+        return best >= CopyCorrelation && best > atZero ? bestLag : 0;
     }
 
     /// <summary>Writes mono samples as a 16-bit PCM WAV file. Samples are clipped to -1..+1.</summary>

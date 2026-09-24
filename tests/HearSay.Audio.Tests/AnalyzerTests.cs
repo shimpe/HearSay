@@ -326,4 +326,42 @@ public class AnalyzerTests
         Assert.Equal(-0.25f, right.Samples.Span[50], 6);
         Assert.Throws<InvalidDataException>(() => WavFile.Read(new MemoryStream(new byte[64])));
     }
+
+    [Fact]
+    public void WavFile_AlignsChannelsThatAreDelayedCopiesBeforeMixingThemDown()
+    {
+        // Right is left 11 samples later, as in a widened stereo file: averaging them as they are would comb-filter the
+        // sound, with notches every sampleRate / 11 hertz.
+        float[] left = TestSignals.AddNoise(TestSignals.Tone(440, TestSignals.Rolloff(12, 1.0), seconds: 0.3), 0.05);
+        const int Delay = 11;
+        using var stereo = new MemoryStream();
+        using (var writer = new BinaryWriter(stereo, System.Text.Encoding.ASCII, leaveOpen: true))
+        {
+            writer.Write("RIFF"u8);
+            writer.Write(36 + (left.Length * 8));
+            writer.Write("WAVEfmt "u8);
+            writer.Write(16);
+            writer.Write((short)3);
+            writer.Write((short)2);
+            writer.Write(SampleRate);
+            writer.Write(SampleRate * 8);
+            writer.Write((short)8);
+            writer.Write((short)32);
+            writer.Write("data"u8);
+            writer.Write(left.Length * 8);
+            for (int i = 0; i < left.Length; i++)
+            {
+                writer.Write(left[i]);
+                writer.Write(i >= Delay ? left[i - Delay] : 0f);
+            }
+        }
+
+        stereo.Position = 0;
+        AudioNote mixed = WavFile.Read(stereo);
+
+        for (int i = 0; i < left.Length - Delay; i++)
+        {
+            Assert.Equal(left[i], mixed.Samples.Span[i], 5);
+        }
+    }
 }
