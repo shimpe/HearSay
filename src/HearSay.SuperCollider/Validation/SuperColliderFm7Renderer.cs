@@ -68,42 +68,8 @@ public sealed class SuperColliderFm7Renderer : IOperatorMatrixRenderer
         Directory.CreateDirectory(directory);
         try
         {
-            var script = new StringBuilder();
-            script.Append("(\nvar jobs, run;\njobs = [\n");
-            for (int i = 0; i < jobs.Count; i++)
-            {
-                (OperatorMatrixPatch patch, RenderRequest request) = jobs[i];
-                string def = _exporter.ExportSynthDef(patch, "HearSayJob" + i.ToString(CultureInfo.InvariantCulture));
-                script.Append("[\n").Append(def).Append(",\n");
-                script.Append(ScString(Path.Combine(directory, $"job{i}.osc"))).Append(", ");
-                script.Append(ScString(Path.Combine(directory, $"job{i}.wav"))).Append(", ");
-                script.Append(Invariant(request.FrequencyHz)).Append(", ");
-                script.Append(Invariant(request.Velocity)).Append(", ");
-                script.Append(Invariant((double)request.NoteSamples / request.SampleRate)).Append(", ");
-                script.Append(Invariant((double)request.TotalSamples / request.SampleRate)).Append(", ");
-                script.Append(request.SampleRate.ToString(CultureInfo.InvariantCulture));
-                script.Append("\n]").Append(i < jobs.Count - 1 ? "," : string.Empty).Append('\n');
-            }
-
-            script.Append("];\n");
-            script.Append("run = { |i|\n");
-            script.Append("\tif (i >= jobs.size) { \"HEARSAY_DONE\".postln; 0.exit } {\n");
-            script.Append("\t\tvar job = jobs[i];\n");
-            script.Append("\t\tvar def = job[0];\n");
-            script.Append("\t\tvar score = Score([\n");
-            script.Append("\t\t\t[0.0, [\\d_recv, def.asBytes]],\n");
-            script.Append("\t\t\t[0.0, [\\s_new, def.name, 1000, 0, 0, \\freq, job[3], \\velocity, job[4], \\amp, 1.0]],\n");
-            script.Append("\t\t\t[job[5], [\\n_set, 1000, \\gate, 0]],\n");
-            script.Append("\t\t\t[job[6], [\\c_set, 0, 0]]\n");
-            script.Append("\t\t]);\n");
-            script.Append("\t\tscore.recordNRT(job[1], job[2], sampleRate: job[7], headerFormat: \"WAV\", sampleFormat: \"float\",\n");
-            script.Append("\t\t\toptions: ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0).blockSize_(");
-            script.Append(_exporter.ControlBlockSize.ToString(CultureInfo.InvariantCulture));
-            script.Append("),\n\t\t\taction: { run.(i + 1) });\n");
-            script.Append("\t}\n};\nrun.(0);\n)\n");
-
             string scriptPath = Path.Combine(directory, "render.scd");
-            File.WriteAllText(scriptPath, script.ToString(), new UTF8Encoding(false));
+            File.WriteAllText(scriptPath, BuildScript(jobs, directory), new UTF8Encoding(false));
             string log = RunSclang(scriptPath, directory);
 
             var results = new RenderedAudio[jobs.Count];
@@ -182,6 +148,53 @@ public sealed class SuperColliderFm7Renderer : IOperatorMatrixRenderer
         }
 
         return text;
+    }
+
+    /// <summary>The sclang script that renders the jobs into <paramref name="directory"/> and exits.</summary>
+    internal string BuildScript(IReadOnlyList<(OperatorMatrixPatch Patch, RenderRequest Request)> jobs, string directory)
+    {
+        string Job(int i)
+        {
+            (OperatorMatrixPatch patch, RenderRequest request) = jobs[i];
+            string def = _exporter.ExportSynthDef(patch, $"HearSayJob{i}");
+            string osc = ScString(Path.Combine(directory, $"job{i}.osc"));
+            string wav = ScString(Path.Combine(directory, $"job{i}.wav"));
+            string gateOpen = Invariant((double)request.NoteSamples / request.SampleRate);
+            string total = Invariant((double)request.TotalSamples / request.SampleRate);
+            return $$"""
+                [
+                {{def}},
+                {{osc}}, {{wav}}, {{Invariant(request.FrequencyHz)}}, {{Invariant(request.Velocity)}}, {{gateOpen}}, {{total}}, {{request.SampleRate}}
+                ]
+                """;
+        }
+
+        string script = $$"""
+            (
+            var jobs, run;
+            jobs = [
+            {{string.Join(",\n", Enumerable.Range(0, jobs.Count).Select(Job))}}
+            ];
+            run = { |i|
+            	if (i >= jobs.size) { "HEARSAY_DONE".postln; 0.exit } {
+            		var job = jobs[i];
+            		var def = job[0];
+            		var score = Score([
+            			[0.0, [\d_recv, def.asBytes]],
+            			[0.0, [\s_new, def.name, 1000, 0, 0, \freq, job[3], \velocity, job[4], \amp, 1.0]],
+            			[job[5], [\n_set, 1000, \gate, 0]],
+            			[job[6], [\c_set, 0, 0]]
+            		]);
+            		score.recordNRT(job[1], job[2], sampleRate: job[7], headerFormat: "WAV", sampleFormat: "float",
+            			options: ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0).blockSize_({{_exporter.ControlBlockSize}}),
+            			action: { run.(i + 1) });
+            	}
+            };
+            run.(0);
+            )
+
+            """;
+        return script.ReplaceLineEndings("\n");
     }
 
     private static void Append(StringBuilder log, string? line)

@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using HearSay.Synthesis.Fmx6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
@@ -28,24 +27,17 @@ public sealed class SuperColliderFmx6Exporter : SuperColliderOperatorMatrixExpor
     /// <inheritdoc />
     protected override string UGenCall(OperatorMatrixPatch patch, bool[] audible)
     {
-        var text = new StringBuilder("operators = FMX6.ar(ctlMatrix, modMatrix,\n");
-        text.Append("\t\twaves: [");
-        Append(text, patch, audible, static o => Fmx6CompatibleOperatorMatrixRenderer.WaveIndex(o.Waveform).ToString(CultureInfo.InvariantCulture), "0");
-        text.Append("], // 0 sine, 1 triangle, 2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise\n");
-        text.Append("\t\tshapes: [");
-        Append(text, patch, audible, static o => Number(o.Shape), "0.5");
-        text.Append("], // pulse duty cycle\n");
-        text.Append("\t\tharmonicLimits: [");
-        Append(text, patch, audible, static o => o.HarmonicLimit.ToString(CultureInfo.InvariantCulture), "32");
-        text.Append("]);");
-        return text.ToString();
+        string waves = PerOperator(patch, audible, static o => Fmx6CompatibleOperatorMatrixRenderer.WaveIndex(o.Waveform).ToString(CultureInfo.InvariantCulture), "0");
+        string shapes = PerOperator(patch, audible, static o => Number(o.Shape), "0.5");
+        string harmonicLimits = PerOperator(patch, audible, static o => o.HarmonicLimit.ToString(CultureInfo.InvariantCulture), "32");
+        return $$"""
+            operators = FMX6.ar(ctlMatrix, modMatrix,
+            		waves: [{{waves}}], // 0 sine, 1 triangle, 2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise
+            		shapes: [{{shapes}}], // pulse duty cycle
+            		harmonicLimits: [{{harmonicLimits}}]);
+            """;
     }
 
-    private static void Append(StringBuilder text, OperatorMatrixPatch patch, bool[] audible, Func<OperatorPatch, string> value, string silent)
-    {
-        for (int i = 0; i < patch.OperatorCount; i++)
-        {
-            text.Append(audible[i] ? value(patch.Operators[i]) : silent).Append(i < patch.OperatorCount - 1 ? ", " : string.Empty);
-        }
-    }
+    private static string PerOperator(OperatorMatrixPatch patch, bool[] audible, Func<OperatorPatch, string> value, string silent) =>
+        List(patch.OperatorCount, i => audible[i] ? value(patch.Operators[i]) : silent);
 }
