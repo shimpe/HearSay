@@ -37,7 +37,7 @@ public sealed class PreparedTarget
                 continue;
             }
 
-            Spectrogram spectrogram = analysis.Spectrograms[size];
+            Spectrogram spectrogram = analysis.ComparedSpectrograms[size];
             float floor = (float)(spectrogram.MaxMagnitude * Math.Pow(10.0, -range / 20.0));
             floor = Math.Max(floor, 1e-12f);
             float[] magnitudes = spectrogram.Magnitudes;

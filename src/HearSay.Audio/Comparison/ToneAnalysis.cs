@@ -32,7 +32,14 @@ public sealed class ToneAnalysis
     /// <summary>Magnitude spectrograms by FFT size.</summary>
     public required IReadOnlyDictionary<int, Spectrogram> Spectrograms { get; init; }
 
-    /// <summary>Mel band powers, frame-major.</summary>
+    /// <summary>
+    /// The spectrograms that are compared, by FFT size, with their noise smoothed (see
+    /// <see cref="NoiseAnalyzer.SmoothNoise"/>): two notes that differ only in the random fine structure of their noise
+    /// compare as the same sound.
+    /// </summary>
+    public required IReadOnlyDictionary<int, Spectrogram> ComparedSpectrograms { get; init; }
+
+    /// <summary>Mel band powers, frame-major, from the smoothed spectrogram.</summary>
     public required float[] MelPower { get; init; }
 
     /// <summary>Number of Mel frames.</summary>

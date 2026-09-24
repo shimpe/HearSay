@@ -24,6 +24,22 @@ public class ToneComparerTests
     }
 
     [Fact]
+    public void AnotherRealizationOfTheSameNoise_IsNearlyTheSameSound()
+    {
+        float[] tone = TestSignals.Tone(220, TestSignals.Rolloff(8, 1.0), seconds: 1.5);
+        float[] target = TestSignals.AddNoise(tone, 0.04, seed: 1);
+
+        double Similarity(float[] candidate) => Comparer.Compare(TestSignals.Note(target, 220), TestSignals.Note(candidate, 220)).Scores.Similarity;
+        double realization = Similarity(TestSignals.AddNoise(tone, 0.04, seed: 2));
+        double noNoise = Similarity(tone);
+        double louderNoise = Similarity(TestSignals.AddNoise(tone, 0.12, seed: 2));
+
+        Assert.True(realization > 0.88, $"another realization {realization:F3}");
+        Assert.True(noNoise < realization - 0.05, $"no noise {noNoise:F3}, realization {realization:F3}");
+        Assert.True(louderNoise < realization - 0.05, $"louder noise {louderNoise:F3}, realization {realization:F3}");
+    }
+
+    [Fact]
     public void PhaseShiftedSine_IsNearlyIdenticalInTimbre()
     {
         float[] target = TestSignals.Tone(440, [1.0]);

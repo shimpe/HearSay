@@ -303,8 +303,8 @@ public sealed class ToneComparer : IToneComparer
 
         foreach (int size in sizes)
         {
-            Spectrogram t = target.Analysis.Spectrograms[size];
-            Spectrogram c = candidate.Spectrograms[size];
+            Spectrogram t = target.Analysis.ComparedSpectrograms[size];
+            Spectrogram c = candidate.ComparedSpectrograms[size];
             float[] logT = target.LogMagnitudesDb[size];
             float floor = target.MagnitudeFloors[size];
             float floorDb = 20f * MathF.Log10(floor);

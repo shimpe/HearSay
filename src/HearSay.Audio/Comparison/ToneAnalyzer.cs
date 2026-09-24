@@ -55,8 +55,17 @@ internal sealed class ToneAnalyzer
         AddSpectrogram(spectrograms, shifted, sampleRate, options.Mel.FftSize, options.Mel.HopFraction);
         AddSpectrogram(spectrograms, shifted, sampleRate, harmonicSize, 0.25);
 
-        // Mel.
-        Spectrogram melSource = spectrograms[options.Mel.FftSize];
+        // What is compared sees the noise smoothed: its level and colour, not its random fine structure.
+        var compared = new Dictionary<int, Spectrogram>();
+        foreach (int size in options.Stft.FftSizes.Append(options.Mel.FftSize))
+        {
+            if (!compared.ContainsKey(size))
+            {
+                compared[size] = NoiseAnalyzer.SmoothNoise(spectrograms[size], fundamentalHz);
+            }
+        }
+
+        Spectrogram melSource = compared[options.Mel.FftSize];
         MelFilterbank filterbank = MelFilterbank.Get(sampleRate, options.Mel.FftSize, options.Mel);
         float[] melPower = filterbank.Apply(melSource);
         int melBands = filterbank.BandCount;
@@ -91,6 +100,7 @@ internal sealed class ToneAnalyzer
             FundamentalHz = fundamentalHz,
             Envelope = profile,
             Spectrograms = spectrograms,
+            ComparedSpectrograms = compared,
             MelPower = melPower,
             MelFrameCount = melSource.FrameCount,
             MelBandPower = melBandPower,
