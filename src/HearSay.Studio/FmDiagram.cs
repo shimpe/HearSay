@@ -23,6 +23,7 @@ public sealed class FmDiagram : Control
     private static readonly IBrush Amber = new SolidColorBrush(Color.Parse("#F59E0B"));
     private static readonly IBrush Text = new SolidColorBrush(Color.Parse("#E2E8F0"));
     private static readonly IBrush Muted = new SolidColorBrush(Color.Parse("#94A3B8"));
+    private static readonly IBrush LabelBackground = new SolidColorBrush(Color.Parse("#0B1220"));
     private static readonly Pen BoxPen = new(new SolidColorBrush(Color.Parse("#475569")), 1.2);
     private static readonly Pen EdgePen = new(Accent, 1.5);
     private static readonly Pen FeedbackPen = new(Amber, 1.5, new DashStyle([4, 3], 0));
@@ -105,33 +106,71 @@ public sealed class FmDiagram : Control
         int widest = Math.Max(1, rows.Max(static r => r.Count));
 
         double width = Bounds.Width, height = Bounds.Height;
-        double slot = width / widest;
-        double boxW = Math.Min(96, slot * 0.7), boxH = 46;
+        // The output label needs room right of the bus.
+        double usable = width - 36;
+        double slot = usable / widest;
+
+        // Wide enough gaps between neighbours for an arrow and its amount.
+        double boxW = Math.Min(96, Math.Max(56, slot - 44)), boxH = 46;
         double busY = height - 28;
+
         // Room above the top row for self-feedback loops and their amounts.
         double rowH = top == 0 ? 0 : Math.Min(130, (busY - 40 - boxH - 44) / top);
         var centers = new Point[n];
+        var position = new int[n];
         for (int l = 0; l <= top; l++)
         {
-            List<int> row = rows[l];
-            if (l > 0)
-            {
-                // Above the operators each one modulates, so that stacks stand straight.
-                row.Sort((a, b) => Barycenter(a) != Barycenter(b) ? Barycenter(a).CompareTo(Barycenter(b)) : a.CompareTo(b));
-            }
-
+            List<int> row = Arrange(rows[l], l);
             double y = busY - 40 - (l * rowH) - (boxH / 2);
             for (int k = 0; k < row.Count; k++)
             {
-                centers[row[k]] = new Point((width / 2) + ((k - ((row.Count - 1) / 2.0)) * slot), y);
+                centers[row[k]] = new Point((usable / 2) + ((k - ((row.Count - 1) / 2.0)) * slot), y);
+                position[row[k]] = k;
             }
         }
 
-        double Barycenter(int op)
+        // The order of a row with the fewest long edges: operators modulating each other within the row next to each
+        // other, and every modulator above the operators it modulates, so that stacks stand straight. Rows hold at
+        // most six operators, so every order is tried; the first best one wins, which keeps operator order on ties.
+        List<int> Arrange(List<int> row, int l)
         {
-            var targets = edges.Where(e => e.SourceOperator == op && !e.IsSelfFeedback && level[e.DestinationOperator] < level[op]).Select(e => centers[e.DestinationOperator].X).ToList();
-            return targets.Count > 0 ? targets.Average() : double.MaxValue;
+            var within = edges.Where(e => !e.IsSelfFeedback && level[e.SourceOperator] == l && level[e.DestinationOperator] == l).ToList();
+            double Cost(List<int> order)
+            {
+                double cost = 0;
+                foreach (ModulationEdge e in within)
+                {
+                    cost += 2.0 * (Math.Abs(order.IndexOf(e.SourceOperator) - order.IndexOf(e.DestinationOperator)) - 1);
+                }
+
+                for (int k = 0; k < order.Count; k++)
+                {
+                    double x = (usable / 2) + ((k - ((order.Count - 1) / 2.0)) * slot);
+                    foreach (ModulationEdge e in edges.Where(e => e.SourceOperator == order[k] && !e.IsSelfFeedback && level[e.DestinationOperator] < l))
+                    {
+                        cost += Math.Abs(x - centers[e.DestinationOperator].X) / slot;
+                    }
+                }
+
+                return cost;
+            }
+
+            List<int> best = [.. row.Order()];
+            double bestCost = Cost(best);
+            foreach (List<int> order in Permutations(best))
+            {
+                double cost = Cost(order);
+                if (cost < bestCost - 1e-9)
+                {
+                    (best, bestCost) = (order, cost);
+                }
+            }
+
+            return best;
         }
+
+        // Amounts and levels are drawn last, over everything else, so that no edge runs through them.
+        var labels = new List<(string Text, Point At, IBrush Brush)>();
 
         // Output bus and the carriers feeding it.
         double[] carrierX = [.. shown.Where(i => carrier[i]).Select(i => centers[i].X)];
@@ -144,10 +183,9 @@ public sealed class FmDiagram : Control
             var to = new Point(centers[i].X, busY);
             context.DrawLine(OutputPen, from, to);
             DrawArrowHead(context, OutputPen.Brush!, from, to);
-            DrawText(context, patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 14), 10, Muted);
+            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted));
         }
 
-        // Edges under the boxes.
         int rightCurves = 0, leftCurves = 0, arcs = 0;
         foreach (ModulationEdge e in edges)
         {
@@ -159,22 +197,34 @@ public sealed class FmDiagram : Control
                 var start = new Point(s.X + (boxW / 2), s.Y);
                 var end = new Point(s.X + (boxW / 2) - 10, s.Y - (boxH / 2));
                 DrawArrowCurve(context, LoopPen, Amber, start, new Point(start.X + 28, start.Y), new Point(end.X + 10, end.Y - 28), end);
-                DrawText(context, amount, new Point(start.X + 16, end.Y - 26), 10, Amber);
+                labels.Add((amount, new Point(start.X + 16, end.Y - 26), Amber));
             }
             else if (level[e.SourceOperator] == level[e.DestinationOperator])
             {
-                // Within one row: an arc under the row, from the bottom of the one box to the bottom of the other, with
-                // its amount under its lowest point.
                 bool sideways = carrier[e.SourceOperator] && carrier[e.DestinationOperator];
-                // Leaving near the middle and arriving further out, so that arcs both ways between two boxes stay apart.
-                double direction = s.X < d.X ? 1 : -1;
-                var from = new Point(s.X + (direction * boxW / 8), s.Y + (boxH / 2));
-                var to = new Point(d.X - (direction * boxW / 3), d.Y + (boxH / 2));
-                double dip = from.Y + 22 + (8 * arcs++);
                 IBrush brush = sideways ? Accent : Amber;
-                DrawArrowCurve(context, sideways ? EdgePen : FeedbackPen, brush, from, new Point(from.X, dip), new Point(to.X, dip), to);
-                double lowest = from.Y + (0.75 * (dip - from.Y));
-                DrawText(context, amount, new Point(((from.X + to.X) / 2) - 10 - (direction * 24), lowest + 1), 10, brush);
+                Pen pen = sideways ? EdgePen : FeedbackPen;
+                double direction = s.X < d.X ? 1 : -1;
+                if (Math.Abs(position[e.SourceOperator] - position[e.DestinationOperator]) == 1)
+                {
+                    // Neighbours: a straight arrow across the gap, left to right above the middle, back below it.
+                    double y = s.Y - (direction * 8);
+                    var from = new Point(s.X + (direction * boxW / 2), y);
+                    var to = new Point(d.X - (direction * boxW / 2), y);
+                    context.DrawLine(pen, from, to);
+                    DrawArrowHead(context, brush, from, to);
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, direction > 0 ? y - 15 : y + 2), brush));
+                }
+                else
+                {
+                    // Further apart: an arc over the row, clear of the output lines below it.
+                    var from = new Point(s.X + (direction * boxW / 4), s.Y - (boxH / 2));
+                    var to = new Point(d.X - (direction * boxW / 4), d.Y - (boxH / 2));
+                    double peak = from.Y - 26 - (10 * arcs++);
+                    DrawArrowCurve(context, pen, brush, from, new Point(from.X, peak), new Point(to.X, peak), to);
+                    double highest = from.Y + (0.75 * (peak - from.Y));
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, highest - 15), brush));
+                }
             }
             else if (!feedback.Contains(e) && level[e.SourceOperator] == level[e.DestinationOperator] + 1)
             {
@@ -182,7 +232,7 @@ public sealed class FmDiagram : Control
                 var to = new Point(d.X, d.Y - (boxH / 2));
                 context.DrawLine(EdgePen, from, to);
                 DrawArrowHead(context, Accent, from, to);
-                DrawText(context, amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), 10, Accent);
+                labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent));
             }
             else if (!feedback.Contains(e))
             {
@@ -194,7 +244,7 @@ public sealed class FmDiagram : Control
                 int stacked = rightCurves++;
                 double bulge = Math.Clamp(Math.Max(from.X, to.X) + 14 + (18 * span) + (8 * stacked), 40, width - 40);
                 DrawArrowCurve(context, EdgePen, Accent, from, new Point(bulge, from.Y), new Point(bulge, to.Y), to);
-                DrawText(context, amount, new Point(bulge + 3, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), 10, Accent);
+                labels.Add((amount, new Point(bulge + 3, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), Accent));
             }
             else
             {
@@ -207,17 +257,44 @@ public sealed class FmDiagram : Control
                 var to = new Point(d.X + (side * boxW / 2), d.Y - offset);
                 double bulge = Math.Clamp((side > 0 ? Math.Max(from.X, to.X) : Math.Min(from.X, to.X)) + (side * (14 + (18 * (span + 1)) + (8 * stacked))), 40, width - 40);
                 DrawArrowCurve(context, FeedbackPen, Amber, from, new Point(bulge, from.Y), new Point(bulge, to.Y), to);
-                DrawText(context, amount, new Point(side > 0 ? bulge + 3 : bulge - 34, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), 10, Amber);
+                labels.Add((amount, new Point(side > 0 ? bulge + 3 : bulge - 34, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), Amber));
             }
         }
 
-        // Operator boxes on top.
+        // Operator boxes over the edges.
         foreach (int i in shown)
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
             DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 5), 12, Text, FontWeight.SemiBold);
             DrawText(context, Describe(patch.Operators[i]), new Point(rect.X + 7, rect.Y + 25), 10, Muted, maxWidth: boxW - 10);
+        }
+
+        // Labels on a patch of background, so that the lines under them do not cut through the digits.
+        foreach ((string text, Point at, IBrush brush) in labels)
+        {
+            var formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, brush);
+            context.DrawRectangle(LabelBackground, null, new Rect(at.X - 2, at.Y, formatted.Width + 4, formatted.Height), 3, 3);
+            context.DrawText(formatted, at);
+        }
+    }
+
+    /// <summary>All orders of <paramref name="items"/>, in lexicographic order of positions.</summary>
+    private static IEnumerable<List<int>> Permutations(List<int> items)
+    {
+        if (items.Count <= 1)
+        {
+            yield return [.. items];
+            yield break;
+        }
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            List<int> rest = [.. items.Take(i), .. items.Skip(i + 1)];
+            foreach (List<int> tail in Permutations(rest))
+            {
+                yield return [items[i], .. tail];
+            }
         }
     }
 
