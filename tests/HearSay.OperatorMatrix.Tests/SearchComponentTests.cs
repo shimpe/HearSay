@@ -221,6 +221,44 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void FmSpectrumModel_KnowsItsBesselFunctionsAndFoldsLinesBelowZero()
+    {
+        Assert.Equal(1.0, FmSpectrumModel.BesselJ(0, 0.0), 6);
+        Assert.Equal(0.0, FmSpectrumModel.BesselJ(0, 2.404826), 5);
+        Assert.Equal(0.4400506, FmSpectrumModel.BesselJ(1, 1.0), 6);
+        Assert.Equal(0.4860913, FmSpectrumModel.BesselJ(2, 3.0), 6);
+        Assert.Equal(-0.4400506, FmSpectrumModel.BesselJ(-1, 1.0), 6);
+
+        // Carrier 1, modulator 3 at index 1: J0 at 1, J1 at 4, and J-1 = -J1 at -2, heard at 2 with the sign turned.
+        Dictionary<double, double> lines = FmSpectrumModel.CarrierLines(1.0, [(3.0, 1.0)]);
+        Assert.Equal(0.7651977, lines[1.0], 5);
+        Assert.Equal(0.4400506, lines[4.0], 5);
+        Assert.Equal(0.4400506, lines[2.0], 5);
+    }
+
+    [Fact]
+    public void FmSpectrumModel_TellsAStackFromAnotherBasisOfItsLines()
+    {
+        // 1 <- 5 <- 2.73: the same grid of lines as 1 with 2.27 and 7.27, but other strengths.
+        OperatorMatrixPatch stack = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant())).WithOutputLevel(0, 0.7)
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(5), OperatorEnvelope.Constant()))
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(2.73), OperatorEnvelope.Constant()))
+            .WithEdge(new ModulationEdge(1, 0, true, 1.6))
+            .WithEdge(new ModulationEdge(2, 1, true, 2.5));
+        RenderedAudio audio = Renderer.Render(stack, RenderRequest.Create(220, 1.0, 0.3));
+        TargetAnalysis analysis = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 220.0)).Analysis;
+
+        var truth = FmSpectrumModel.FitStack(1, 5, 2.73, parallel: false, analysis.Partials, 220);
+        var otherStack = FmSpectrumModel.FitStack(1, 2.27, 7.27, parallel: false, analysis.Partials, 220);
+        var otherParallel = FmSpectrumModel.FitStack(1, 2.27, 7.27, parallel: true, analysis.Partials, 220);
+
+        Assert.True(truth.Error < otherStack.Error && truth.Error < otherParallel.Error, $"truth {truth.Error:F3}, stack 2.27:7.27 {otherStack.Error:F3}, parallel {otherParallel.Error:F3}");
+        Assert.InRange(truth.Index, 1.0, 2.5);
+        Assert.InRange(truth.SecondIndex, 2.0, 3.0);
+    }
+
+    [Fact]
     public void SinePriors_FindTheSecondModulatorOfAThreeStack()
     {
         // A DX7-style three-stack: 1 <- 5 <- 2.73 with feedback on the top operator. The second modulator makes the

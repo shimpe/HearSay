@@ -166,7 +166,35 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             // Only where the simpler structures leave much of the spectrum unexplained: otherwise these would take
             // survivor slots from a reading that is already right.
             double explained = new SinePhaseModulationPriorProvider { MaxHypotheses = MaxHypotheses }.Generate(analysis, capabilities).Select(static h => h.PriorScore).DefaultIfEmpty(0.0).Max();
-            return explained >= ExplainedAbove ? [] : Distinct(stacked, capabilities);
+            if (explained >= ExplainedAbove || n < 3)
+            {
+                return [];
+            }
+
+            // Ranked by how well the strengths of their lines fit, with the fitted indices as starting amounts: lines
+            // alone cannot tell apart the readings of one grid of lines that a stack produces.
+            var modelled = new List<PatchHypothesis>();
+            foreach (var s in context.ModelledStacks(pairs))
+            {
+                string shape = s.Parallel
+                    ? $"carrier {Text(s.Carrier)} with parallel modulators {Text(s.First)} and {Text(s.Second)}"
+                    : $"three-stack {Text(s.Carrier)}:{Text(s.First)}:{Text(s.Second)}";
+                foreach (double feedback in !s.Parallel && capabilities.SupportsSelfFeedback ? new[] { 0.0, 0.7 } : [0.0])
+                {
+                    modelled.Add(context.Build($"{shape} (modelled indices {s.Index:0.#} and {s.SecondIndex:0.#}){(feedback > 0 ? " with top feedback" : string.Empty)}", 1.0 - s.Error - (feedback > 0 ? 0.005 : 0.0), b =>
+                    {
+                        int c = b.Carrier(s.Carrier, 0.8);
+                        int m = b.Modulator(s.First, c, s.Index);
+                        int top = b.Modulator(s.Second, s.Parallel ? c : m, s.SecondIndex);
+                        if (feedback > 0)
+                        {
+                            b.Edge(top, top, feedback);
+                        }
+                    }));
+                }
+            }
+
+            return Distinct(modelled, capabilities);
         }
 
         hypotheses.AddRange(stacked);
@@ -703,7 +731,6 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
         public List<(Pair Pair, double Second, double Score)> SecondModulators(List<Pair> ranked)
         {
             var found = new List<(Pair Pair, double Second, double Score)>();
-            double highest = _relative.Length > 0 ? _relative.Max() * 1.1 : 0.0;
             foreach (Pair pair in ranked.Take(8))
             {
                 int count = SidebandCount(pair.Index);
@@ -714,34 +741,7 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                         continue;
                     }
 
-                    double covered = 0, spurious = 0, weights = 0;
-                    var hit = new bool[_relative.Length];
-                    for (int a = -count; a <= count; a++)
-                    {
-                        for (int b = -2; b <= 2; b++)
-                        {
-                            double line = Math.Abs(pair.Carrier + (a * pair.Modulator) + (b * second));
-                            if (line < 0.05 || line > highest)
-                            {
-                                continue;
-                            }
-
-                            double weight = 1.0 / (1.0 + Math.Abs(a) + Math.Abs(b));
-                            int partial = PartialAt(line);
-                            weights += weight;
-                            if (partial < 0)
-                            {
-                                spurious += weight;
-                            }
-                            else if (!hit[partial])
-                            {
-                                hit[partial] = true;
-                                covered += _salience[partial];
-                            }
-                        }
-                    }
-
-                    double score = (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0));
+                    double score = LineScore(pair.Carrier, pair.Modulator, second, count, _salience);
                     if (score > pair.Score + 0.03)
                     {
                         found.Add((pair, second, score));
@@ -750,6 +750,92 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             }
 
             return [.. found.OrderByDescending(static f => f.Score).DistinctBy(static f => (f.Pair.Carrier, f.Pair.Modulator)).Take(4)];
+        }
+
+        /// <summary>
+        /// Three-operator readings, as a stack <c>c &lt;- m1 &lt;- m2</c> or with both modulators on the carrier, ranked by
+        /// how well an FM spectrum model with fitted indices predicts the strengths of the partials. Candidates are
+        /// all carriers on strong partials or of the best pairs with any two candidate modulators, of which the forty
+        /// whose lines explain the target best are fitted.
+        /// </summary>
+        public List<(double Carrier, double First, double Second, bool Parallel, double Index, double SecondIndex, double Error)> ModelledStacks(List<Pair> ranked)
+        {
+            var carriers = new List<double>();
+            foreach (double c in StrongestPartials(4).Select(static p => Math.Round(p.RelativeFrequency, 3)).Concat(ranked.Take(8).Select(static p => p.Carrier)))
+            {
+                if (!carriers.Any(x => Math.Abs(1200.0 * Math.Log2(x / c)) < 2.0))
+                {
+                    carriers.Add(c);
+                }
+            }
+
+            var prefiltered = new List<(double Carrier, double First, double Second, double Score)>();
+            foreach (double c in carriers)
+            {
+                foreach (double m1 in _candidates)
+                {
+                    foreach (double m2 in _candidates)
+                    {
+                        if (m1 == m2 || Math.Abs(1200.0 * Math.Log2(m1 / c)) < MatchCents || Math.Abs(1200.0 * Math.Log2(m2 / c)) < MatchCents)
+                        {
+                            continue;
+                        }
+
+                        prefiltered.Add((c, m1, m2, LineScore(c, m1, m2, 4, _salience)));
+                    }
+                }
+            }
+
+            var fitted = new List<(double Carrier, double First, double Second, bool Parallel, double Index, double SecondIndex, double Error)>();
+            foreach (var t in prefiltered.OrderByDescending(static t => t.Score).Take(40))
+            {
+                foreach (bool parallel in new[] { false, true })
+                {
+                    if (parallel && t.First > t.Second)
+                    {
+                        continue;
+                    }
+
+                    var fit = FmSpectrumModel.FitStack(t.Carrier, t.First, t.Second, parallel, _analysis.Partials, _analysis.FundamentalHz);
+                    fitted.Add((t.Carrier, t.First, t.Second, parallel, fit.Index, fit.SecondIndex, fit.Error));
+                }
+            }
+
+            return [.. fitted.OrderBy(static f => f.Error).Take(6)];
+        }
+
+        /// <summary>Score of the lines |c + a·m1 + b·m2| (|a| up to <paramref name="count"/>, |b| up to 2) against the partials, as in the pair score.</summary>
+        private double LineScore(double carrier, double first, double second, int count, double[] salience)
+        {
+            double highest = _relative.Length > 0 ? _relative.Max() * 1.1 : 0.0;
+            double covered = 0, spurious = 0, weights = 0;
+            var hit = new bool[_relative.Length];
+            for (int a = -count; a <= count; a++)
+            {
+                for (int b = -2; b <= 2; b++)
+                {
+                    double line = Math.Abs(carrier + (a * first) + (b * second));
+                    if (line < 0.05 || line > highest)
+                    {
+                        continue;
+                    }
+
+                    double weight = 1.0 / (1.0 + Math.Abs(a) + Math.Abs(b));
+                    int partial = PartialAt(line);
+                    weights += weight;
+                    if (partial < 0)
+                    {
+                        spurious += weight;
+                    }
+                    else if (!hit[partial])
+                    {
+                        hit[partial] = true;
+                        covered += salience[partial];
+                    }
+                }
+            }
+
+            return (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0));
         }
 
         /// <summary>The strongest target partial among a carrier and its first two sidebands on each side, as a ratio.</summary>
