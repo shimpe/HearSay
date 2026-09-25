@@ -285,6 +285,38 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void ModulatorWaveforms_AreProposedAndScreened_WhereTheProfileHasThem()
+    {
+        // A sine carrier with a square modulator: its harmonics put sidebands on the same grid as a sine modulator, so
+        // the sine priors find the ratios and only the waveform of the modulator is left to find.
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var renderer = new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer();
+        OperatorMatrixPatch sineStack = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.005, 0.3, 0.6, 0.2)))
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(3.5), OperatorEnvelope.Adsr(0.005, 0.3, 0.6, 0.2)))
+            .WithOutputLevel(0, 0.8)
+            .WithEdge(new ModulationEdge(1, 0, true, 1.5));
+        OperatorMatrixPatch squareStack = sineStack.WithOperator(1, sineStack.Operators[1] with { Waveform = OperatorWaveform.Square });
+        RenderRequest request = RenderRequest.Create(220, 0.8, 0.3);
+        RenderedAudio audio = renderer.Render(squareStack, request);
+        PreparedObjectiveTarget target = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 220.0));
+
+        IReadOnlyList<PatchHypothesis> variants = new ModulatorWaveformPriorProvider(new SinePhaseModulationPriorProvider()).Generate(target.Analysis, fmx6);
+
+        Assert.NotEmpty(variants);
+        Assert.All(variants, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, fmx6).IsCompatible, h.Origin));
+        Assert.Contains(variants, static h => h.Patch.Operators.Where((o, i) => h.Patch.FindAudibleOperators()[i] && h.Patch.OutputLevels[i] == 0.0)
+            .Any(static o => o.Waveform == OperatorWaveform.Square && Math.Abs(o.Frequency.Ratio - 3.5) < 0.01));
+        Assert.All(variants, static h => Assert.All(h.Patch.Operators.Where((o, i) => h.Patch.OutputLevels[i] != 0.0), static o => Assert.Equal(OperatorWaveform.Sine, o.Waveform)));
+        Assert.Empty(new ModulatorWaveformPriorProvider(new SinePhaseModulationPriorProvider()).Generate(target.Analysis, Fm7));
+
+        // Screened mutations of the sine stack find the square modulator in one step.
+        var evaluator = new PatchEvaluator(renderer, new AudioObjective(), target, request, 1000, 0.02, null, 8);
+        IReadOnlyList<TopologyMutation> proposals = new TopologyMutator(fmx6).ProposeScreened(sineStack, target.Analysis, evaluator, new Random(1), 6);
+        Assert.Contains(proposals.Take(3), static p => p.Description == "OP2 waveform Square");
+    }
+
+    [Fact]
     public void TemporalPriors_FollowTheTarget()
     {
         TargetAnalysis analysis = StackTarget.Value.Analysis;
@@ -460,6 +492,22 @@ public sealed class SearchComponentTests
 
         Assert.Equal(evaluation.AudioLoss + (0.02 * evaluation.Complexity), evaluation.Loss, 12);
         Assert.True(0.02 * evaluation.Complexity < 0.01);
+    }
+
+    [Fact]
+    public void BasinOptimizer_TunesTheDutyCycleOfAPulseAndTheResponseOfFilteredNoise()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var optimizer = new BasinOptimizer(Evaluator(100), fmx6, new PatchMatchOptions { SynthesisProfile = SynthesisProfiles.SuperColliderFmx6 });
+        OperatorMatrixPatch patch = ParameterTests.Stack(0.8)
+            .WithOperator(0, ParameterTests.Stack(0.8).Operators[0] with { Waveform = OperatorWaveform.Pulse, Shape = 0.3 })
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtFixed(8000), OperatorEnvelope.Constant()) with { Waveform = OperatorWaveform.FilteredNoise, Shape = 1.0 })
+            .WithOutputLevel(2, 0.3);
+
+        string[] spectral = [.. optimizer.SelectSubsets(patch, ContinuousStage.Spectral, tuningMatters: false).SelectMany(static s => s.Parameters).Select(static p => p.Id)];
+
+        Assert.Contains(spectral, static id => id.EndsWith(".shape", StringComparison.Ordinal));
+        Assert.Contains(spectral, static id => id.EndsWith(".filter", StringComparison.Ordinal));
     }
 
     [Fact]

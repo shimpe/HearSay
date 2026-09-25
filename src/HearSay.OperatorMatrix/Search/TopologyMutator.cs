@@ -116,6 +116,38 @@ public sealed class TopologyMutator
             candidates.AddRange(NoiseWashes(patch, analysis, audible, free));
         }
 
+        // Other waveforms for every operator, where the profile has them, and a brighter or darker band-limited one. A
+        // modulator with harmonics keeps the sideband grid and only makes it denser, which the search would otherwise
+        // imitate with feedback; and with one waveform changed per step, a structure in which several operators are
+        // not sines is reached one operator at a time.
+        foreach (int op in used)
+        {
+            OperatorPatch current = patch.Operators[op];
+            if (current.Waveform.IsNoise())
+            {
+                continue;
+            }
+
+            foreach ((OperatorWaveform waveform, double shape) in new[] { (OperatorWaveform.Sine, 0.5), (OperatorWaveform.Triangle, 0.5), (OperatorWaveform.Saw, 0.5), (OperatorWaveform.Square, 0.5), (OperatorWaveform.Pulse, 0.25) })
+            {
+                if (waveform != current.Waveform && _capabilities.SupportedWaveforms.Contains(waveform))
+                {
+                    candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { Waveform = waveform, Shape = shape }), $"OP{op + 1} waveform {waveform}"));
+                }
+            }
+
+            if (current.Waveform is OperatorWaveform.Triangle or OperatorWaveform.Saw or OperatorWaveform.Square or OperatorWaveform.Pulse)
+            {
+                foreach (int limit in new[] { current.HarmonicLimit / 2, current.HarmonicLimit * 2 })
+                {
+                    if (limit is >= 4 and <= 128)
+                    {
+                        candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { HarmonicLimit = limit }), $"OP{op + 1} waveform harmonics {current.HarmonicLimit} -> {limit}"));
+                    }
+                }
+            }
+        }
+
         foreach (int destination in used)
         {
             foreach (int source in used)
@@ -225,17 +257,19 @@ public sealed class TopologyMutator
             var edgesFirst = new List<int>();
             var operatorsFirst = new List<int>();
             var noiseFirst = new List<int>();
+            var waveformsFirst = new List<int>();
             foreach ((double _, int index) in ranked)
             {
                 string description = candidates[index].Description;
                 (description.StartsWith("add edge", StringComparison.Ordinal) || description.Contains(" fixed at ", StringComparison.Ordinal) ? edgesFirst
                     : description.Contains(" noise", StringComparison.Ordinal) ? noiseFirst
+                    : description.Contains(" waveform ", StringComparison.Ordinal) ? waveformsFirst
                     : operatorsFirst).Add(index);
             }
 
-            List<int>[] turns = noiseFirst.Count > 0 && (operatorsFirst.Count == 0 || screened[noiseFirst[0]].Loss < screened[operatorsFirst[0]].Loss)
-                ? [edgesFirst, noiseFirst, operatorsFirst]
-                : [edgesFirst, operatorsFirst, noiseFirst];
+            List<int>[] turns = [edgesFirst, .. new[] { noiseFirst, waveformsFirst, operatorsFirst }
+                .Where(static l => l.Count > 0)
+                .OrderBy(l => screened[l[0]].Loss)];
             for (int i = 0; i < turns.Max(static t => t.Count) && result.Count < (count + 1) / 2; i++)
             {
                 foreach (List<int> list in turns)

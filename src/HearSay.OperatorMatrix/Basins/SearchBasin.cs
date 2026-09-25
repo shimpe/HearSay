@@ -484,13 +484,16 @@ public sealed class BasinOptimizer
     }
 
     /// <summary>
-    /// Parameters that shape the spectrum. Key scaling and velocity sensitivity are only included when the target set
-    /// has several pitches or velocities: on a single note they cannot be told apart from level and envelope.
+    /// Parameters that shape the spectrum, the duty cycle of a pulse and the response of filtered noise among them. Key
+    /// scaling and velocity sensitivity are only included when the target set has several pitches or velocities: on a
+    /// single note they cannot be told apart from level and envelope.
     /// </summary>
     private bool IsSpectral(string id, bool tuningMatters) =>
         id.EndsWith(".amount", StringComparison.Ordinal)
         || id.EndsWith(".output.level", StringComparison.Ordinal)
         || id.EndsWith(".frequency.fixedHz", StringComparison.Ordinal)
+        || id.EndsWith(".shape", StringComparison.Ordinal)
+        || id.EndsWith(".filter", StringComparison.Ordinal)
         || (tuningMatters && (id.EndsWith(".fineTune", StringComparison.Ordinal) || id.EndsWith(".detune", StringComparison.Ordinal)))
         || (IncludeKeyScaling && id.Contains(".keyScaling.", StringComparison.Ordinal))
         || (IncludeVelocity && id.EndsWith(".velocity", StringComparison.Ordinal));
