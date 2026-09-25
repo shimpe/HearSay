@@ -300,15 +300,24 @@
         </Border>
       </Grid>
 
-      <!-- Right column: SuperCollider code -->
+      <!-- Right column: SuperCollider code and block diagram -->
       <Border Grid.Column="1" Classes="card">
         <DockPanel>
           <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
-            <TextBlock Grid.Column="0" Classes="title" Text="SUPERCOLLIDER PATCH  ·  patch.scd" Margin="0" VerticalAlignment="Center" />
-            <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" />
+            <TextBlock Grid.Column="0" Classes="title" Text="PATCH" Margin="0" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" ToolTip.Tip="Copy the SuperCollider code" />
             <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasResult}" />
           </Grid>
-          <TextBox Classes="mono" Text="{Binding Scd}" Watermark="{Binding ScdWatermark}" />
+          <TabControl Padding="0,6,0,0">
+            <TabItem Header="SuperCollider · patch.scd" FontSize="13">
+              <TextBox Classes="mono" Text="{Binding Scd}" Watermark="{Binding ScdWatermark}" />
+            </TabItem>
+            <TabItem Header="Block diagram" FontSize="13">
+              <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                <local:FmDiagram Patch="{Binding ShownPatch}" Margin="8" />
+              </Border>
+            </TabItem>
+          </TabControl>
         </DockPanel>
       </Border>
     </Grid>

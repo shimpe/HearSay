@@ -299,6 +299,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set => Set(ref _resultSummary, value);
     }
 
+    /// <summary>The patch that is shown: the selected finalist; drawn as a block diagram.</summary>
+    public OperatorMatrixPatch? ShownPatch => _shownPatch;
+
     /// <summary>The generated SuperCollider code.</summary>
     public string Scd
     {
@@ -580,6 +583,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _result = result;
         _selectedAlternative = null;
         _shownPatch = null;
+        OnPropertyChanged(nameof(ShownPatch));
         Alternatives.Clear();
         if (result is null)
         {
@@ -632,6 +636,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         OperatorMatrixPatch patch = candidate.Patch;
         _shownPatch = patch;
+        OnPropertyChanged(nameof(ShownPatch));
         _resultGain = 0;
         bool[] audible = patch.FindAudibleOperators();
         OperatorNames.Clear();
