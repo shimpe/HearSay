@@ -20,6 +20,7 @@ public static class FmSpectrumModel
     private const double MatchCents = 35.0;
     private const double RangeDb = 40.0;
     private static readonly double[] IndexGrid = [0.3, 0.6, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0];
+    private const int RenderPeriods = 16;
 
     /// <summary>Bessel function of the first kind, J_n(x), for integer n, from its integral representation.</summary>
     /// <param name="n">Order.</param>
@@ -39,6 +40,14 @@ public static class FmSpectrumModel
         return sum / Quadrature;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(int N, long X), double> BesselCache = new();
+
+    // The fits evaluate the same few orders at the same indices many times; to 1e-4 of an index is far finer than a fit.
+    private static double CachedBesselJ(int n, double x)
+    {
+        return BesselCache.GetOrAdd((n, (long)Math.Round(x * 1e4)), static key => BesselJ(key.N, key.X * 1e-4));
+    }
+
     /// <summary>
     /// Lines of a carrier at <paramref name="carrier"/> phase-modulated by sinusoidal components, each given as a
     /// frequency and an index. Frequencies are ratios; lines below zero fold over with the opposite sign.
@@ -55,7 +64,7 @@ public static class FmSpectrumModel
             bessel[c] = new double[(2 * MaxOrder) + 1];
             for (int n = -MaxOrder; n <= MaxOrder; n++)
             {
-                bessel[c][n + MaxOrder] = BesselJ(n, components[c].Index);
+                bessel[c][n + MaxOrder] = CachedBesselJ(n, components[c].Index);
             }
         }
 
@@ -125,7 +134,12 @@ public static class FmSpectrumModel
             return 1.0;
         }
 
-        var predicted = lines.Where(l => Math.Abs(l.Value) > 0).Select(l => (Ratio: l.Key, Db: 20.0 * Math.Log10(Math.Abs(l.Value) / maxLine))).Where(static l => l.Ratio > 0.05 && l.Db > -60).ToList();
+        // Both sides sorted by frequency, so the lines within MatchCents of a partial, and the other way round, are a
+        // window found by binary search.
+        double window = Math.Pow(2.0, MatchCents / 1200.0);
+        var predicted = lines.Where(static l => l.Key > 0.05 && l.Value != 0).Select(l => (Ratio: l.Key, Db: 20.0 * Math.Log10(Math.Abs(l.Value) / maxLine))).Where(static l => l.Db > -60).OrderBy(static l => l.Ratio).ToArray();
+        double[] predictedRatios = [.. predicted.Select(static l => l.Ratio)];
+        double[] measuredRatios = [.. partials.Select(static p => p.RelativeFrequency).Order()];
         double cost = 0;
         int count = 0;
         foreach (SpectralPartial partial in partials)
@@ -137,12 +151,9 @@ public static class FmSpectrumModel
             }
 
             double best = -60;
-            foreach ((double ratio, double db) in predicted)
+            for (int i = LowerBound(predictedRatios, partial.RelativeFrequency / window); i < predicted.Length && predicted[i].Ratio < partial.RelativeFrequency * window; i++)
             {
-                if (Math.Abs(1200.0 * Math.Log2(partial.RelativeFrequency / ratio)) < MatchCents)
-                {
-                    best = Math.Max(best, db);
-                }
+                best = Math.Max(best, predicted[i].Db);
             }
 
             cost += Math.Min(30.0, Math.Abs(measured - Math.Max(best, -RangeDb))) / 20.0;
@@ -151,14 +162,140 @@ public static class FmSpectrumModel
 
         foreach ((double ratio, double db) in predicted)
         {
-            if (db > -RangeDb + 10 && !partials.Any(p => Math.Abs(1200.0 * Math.Log2(p.RelativeFrequency / ratio)) < MatchCents))
+            if (db > -RangeDb + 10)
             {
-                cost += Math.Min(30.0, db + RangeDb) / 20.0;
-                count++;
+                int i = LowerBound(measuredRatios, ratio / window);
+                if (i == measuredRatios.Length || measuredRatios[i] >= ratio * window)
+                {
+                    cost += Math.Min(30.0, db + RangeDb) / 20.0;
+                    count++;
+                }
             }
         }
 
         return count > 0 ? cost / count : 1.0;
+    }
+
+    /// <summary>
+    /// Error of a carrier modulated by a chain with the given indices, the one on the carrier first, from the lines of
+    /// the rendered chain.
+    /// </summary>
+    public static double ChainError(double carrier, IReadOnlyList<double> modulators, IReadOnlyList<double> indices, IReadOnlyList<SpectralPartial> partials)
+    {
+        double loudest = partials.Max(static p => p.LevelDb);
+        double highest = partials.Where(p => p.LevelDb > loudest - RangeDb).Max(static p => p.RelativeFrequency);
+        return Error(RenderedLines(carrier, modulators, indices, highest), partials, 0);
+    }
+
+    /// <summary>
+    /// Indices of a chain refined with the rendered model by coordinate descent from <paramref name="start"/>: each index in
+    /// turn is scaled up or down while that helps, with the step shrinking from a factor 1.5 to 1.1.
+    /// </summary>
+    public static (double[] Indices, double Error) RefineChain(double carrier, IReadOnlyList<double> modulators, IReadOnlyList<SpectralPartial> partials, IReadOnlyList<double> start)
+    {
+        double[] current = [.. start];
+        double error = ChainError(carrier, modulators, current, partials);
+        foreach (double step in new[] { 1.5, 1.22, 1.1 })
+        {
+            bool improved = true;
+            while (improved)
+            {
+                improved = false;
+                for (int i = 0; i < current.Length; i++)
+                {
+                    foreach (double factor in new[] { step, 1.0 / step })
+                    {
+                        double[] trial = [.. current];
+                        trial[i] = Math.Clamp(trial[i] * factor, 0.1, 8.0);
+                        double e = ChainError(carrier, modulators, trial, partials);
+                        if (e < error - 1e-4)
+                        {
+                            (current, error, improved) = (trial, e, true);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return (current, error);
+    }
+
+    /// <summary>
+    /// Lines of a carrier modulated by a chain, the one on the carrier first, found by rendering the chain and taking
+    /// the peaks of its spectrum: exact to every order, where the Bessel expansion of a deep chain needs many terms.
+    /// </summary>
+    /// <param name="carrier">Carrier ratio.</param>
+    /// <param name="modulators">Chain of modulators, the one on the carrier first.</param>
+    /// <param name="indices">Index of each modulator on the operator below it.</param>
+    /// <param name="highest">Highest ratio of interest; the rendering resolves lines up to one and a half times it.</param>
+    public static Dictionary<double, double> RenderedLines(double carrier, IReadOnlyList<double> modulators, IReadOnlyList<double> indices, double highest)
+    {
+        // Time in periods of ratio 1: RenderPeriods of them give a resolution of 1/RenderPeriods in ratio.
+        int size = 256;
+        while (size < 3.0 * highest * RenderPeriods)
+        {
+            size *= 2;
+        }
+
+        double step = RenderPeriods / (double)size;
+        float[] real = new float[size];
+        float[] imaginary = new float[size];
+        ReadOnlySpan<float> window = Dsp.HannWindow.Get(size).Coefficients;
+        for (int i = 0; i < size; i++)
+        {
+            double t = 2.0 * Math.PI * i * step;
+            double phase = 0;
+            for (int level = modulators.Count - 1; level >= 0; level--)
+            {
+                phase = indices[level] * Math.Sin((modulators[level] * t) + phase);
+            }
+
+            real[i] = (float)(window[i] * Math.Sin((carrier * t) + phase));
+        }
+
+        Dsp.FftPlan.Get(size).Forward(real, imaginary);
+        var magnitude = new double[(size / 2) + 1];
+        for (int k = 0; k < magnitude.Length; k++)
+        {
+            magnitude[k] = Math.Sqrt((real[k] * real[k]) + (imaginary[k] * imaginary[k]));
+        }
+
+        double floor = magnitude.Max() * 1e-3;
+        var lines = new Dictionary<double, double>();
+        for (int k = 1; k < magnitude.Length - 1; k++)
+        {
+            if (magnitude[k] > floor && magnitude[k] >= magnitude[k - 1] && magnitude[k] > magnitude[k + 1])
+            {
+                // Parabolic interpolation of the log magnitude: close to exact for the main lobe of a Hann window.
+                double a = Math.Log(magnitude[k - 1]), b = Math.Log(magnitude[k]), c = Math.Log(magnitude[k + 1]);
+                double denominator = a - (2 * b) + c;
+                double offset = denominator < 0 ? 0.5 * (a - c) / denominator : 0.0;
+                double key = Math.Round((k + offset) / RenderPeriods, 3);
+                lines[key] = lines.GetValueOrDefault(key) + Math.Exp(b - (0.25 * (a - c) * offset));
+            }
+        }
+
+        return lines;
+    }
+
+    private static int LowerBound(double[] sorted, double value)
+    {
+        int lo = 0, hi = sorted.Length;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (sorted[mid] < value)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        return lo;
     }
 
     /// <summary>

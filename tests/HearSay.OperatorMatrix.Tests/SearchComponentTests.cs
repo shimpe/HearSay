@@ -259,6 +259,34 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void FmSpectrumModel_RecoversTheIndicesOfAFourStack_AndTellsItFromAnotherOrder()
+    {
+        // 1 <- 0.5 <- 4 <- 3, a DX7-style four-operator stack.
+        OperatorMatrixPatch stack = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant())).WithOutputLevel(0, 0.7)
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(0.5), OperatorEnvelope.Constant()))
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(4), OperatorEnvelope.Constant()))
+            .WithOperator(3, OperatorPatch.Sine(OperatorFrequency.AtRatio(3), OperatorEnvelope.Constant()))
+            .WithEdge(new ModulationEdge(1, 0, true, 1.1))
+            .WithEdge(new ModulationEdge(2, 1, true, 1.9))
+            .WithEdge(new ModulationEdge(3, 2, true, 2.2));
+        RenderedAudio audio = Renderer.Render(stack, RenderRequest.Create(220, 1.0, 0.3));
+        TargetAnalysis analysis = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 220.0)).Analysis;
+
+        var four = FmSpectrumModel.RefineChain(1, [0.5, 4, 3], analysis.Partials, [1.0, 1.5, 1.5]);
+        var otherOrder = FmSpectrumModel.RefineChain(1, [0.5, 3, 4], analysis.Partials, [1.0, 1.5, 1.5]);
+
+        Assert.True(four.Error < 0.15 && four.Error < otherOrder.Error - 0.2, $"four {four.Error:F3}, other order {otherOrder.Error:F3}");
+        Assert.InRange(four.Indices[0], 0.9, 1.3);
+        Assert.InRange(four.Indices[1], 1.5, 2.3);
+        Assert.InRange(four.Indices[2], 1.8, 2.6);
+
+        // The stack group of the priors proposes it first.
+        IReadOnlyList<PatchHypothesis> stacks = new SinePhaseModulationPriorProvider { StackedModulatorsOnly = true }.Generate(analysis, Fm7);
+        Assert.StartsWith("four-stack 1:0.5:4:3", stacks.MaxBy(static h => h.PriorScore)!.Origin, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SinePriors_FindTheSecondModulatorOfAThreeStack()
     {
         // A DX7-style three-stack: 1 <- 5 <- 2.73 with feedback on the top operator. The second modulator makes the

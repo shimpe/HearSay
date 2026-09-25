@@ -174,6 +174,31 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             // Ranked by how well the strengths of their lines fit, with the fitted indices as starting amounts: lines
             // alone cannot tell apart the readings of one grid of lines that a stack produces.
             var modelled = new List<PatchHypothesis>();
+            if (n >= 4)
+            {
+                foreach (var f in context.ModelledFourStacks())
+                {
+                    string chain = string.Join(":", f.Modulators.Select(Text));
+                    string indices = string.Join(", ", f.Indices.Select(static i => i.ToString("0.#", CultureInfo.InvariantCulture)));
+                    foreach (double feedback in capabilities.SupportsSelfFeedback ? new[] { 0.0, 0.7 } : [0.0])
+                    {
+                        modelled.Add(context.Build($"four-stack {Text(f.Carrier)}:{chain} (modelled indices {indices}){(feedback > 0 ? " with top feedback" : string.Empty)}", 1.0 - f.Error - (feedback > 0 ? 0.005 : 0.0), b =>
+                        {
+                            int below = b.Carrier(f.Carrier, 0.8);
+                            for (int level = 0; level < f.Modulators.Length; level++)
+                            {
+                                below = b.Modulator(f.Modulators[level], below, f.Indices[level]);
+                            }
+
+                            if (feedback > 0)
+                            {
+                                b.Edge(below, below, feedback);
+                            }
+                        }));
+                    }
+                }
+            }
+
             foreach (var s in context.ModelledStacks(pairs))
             {
                 string shape = s.Parallel
@@ -802,6 +827,75 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             }
 
             return [.. fitted.OrderBy(static f => f.Error).Take(6)];
+        }
+
+        /// <summary>
+        /// Four-operator stacks <c>c &lt;- m1 &lt;- m2 &lt;- m3</c>, enumerated directly: every carrier on a strong partial,
+        /// with a first modulator at its distance to another strong partial (where the strongest sidebands of a stack
+        /// sit) and any two candidate modulators above it. Each is rendered at the eight index sets of 1 and 2 and
+        /// scored by how well its lines fit; the best twelve get their indices refined from their best set. Counting
+        /// lines, as for pairs, does not rank these: it favors large ratios, whose lines mostly fall above the spectrum;
+        /// and a Bessel expansion that stays affordable over so many candidates is too coarse for a chain this deep.
+        /// </summary>
+        public List<(double Carrier, double[] Modulators, double[] Indices, double Error)> ModelledFourStacks()
+        {
+            IReadOnlyList<SpectralPartial> partials = _analysis.Partials;
+            IReadOnlyList<SpectralPartial> strong = StrongestPartials(6);
+            var chains = new List<(double Carrier, double[] Modulators)>();
+            foreach (double c in DistinctRatios(StrongestPartials(4).Select(static p => Math.Round(p.RelativeFrequency, 3))))
+            {
+                foreach (double m1 in DistinctRatios(strong.Select(p => Math.Round(Math.Abs(p.RelativeFrequency - c), 3)).Where(static d => d > 0.05)))
+                {
+                    foreach (double m2 in _candidates.Where(m => m != m1))
+                    {
+                        foreach (double m3 in _candidates.Where(m => m != m2))
+                        {
+                            chains.Add((c, [m1, m2, m3]));
+                        }
+                    }
+                }
+            }
+
+            double[][] starts = [.. from a in new[] { 1.0, 2.0 } from b in new[] { 1.0, 2.0 } from d in new[] { 1.0, 2.0 } select new[] { a, b, d }];
+            var scored = new (double Error, double[] Start)[chains.Count];
+            Parallel.For(0, chains.Count, i =>
+            {
+                scored[i] = (double.MaxValue, starts[0]);
+                foreach (double[] start in starts)
+                {
+                    double error = FmSpectrumModel.ChainError(chains[i].Carrier, chains[i].Modulators, start, partials);
+                    if (error < scored[i].Error)
+                    {
+                        scored[i] = (error, start);
+                    }
+                }
+            });
+
+            int[] best = [.. Enumerable.Range(0, chains.Count).OrderBy(i => scored[i].Error).Take(12)];
+            var refined = new (double Carrier, double[] Modulators, double[] Indices, double Error)[best.Length];
+            Parallel.For(0, best.Length, k =>
+            {
+                var chain = chains[best[k]];
+                var fit = FmSpectrumModel.RefineChain(chain.Carrier, chain.Modulators, partials, scored[best[k]].Start);
+                refined[k] = (chain.Carrier, chain.Modulators, fit.Indices, fit.Error);
+            });
+
+            return [.. refined.OrderBy(static f => f.Error).Take(4)];
+        }
+
+        /// <summary>Ratios in order, without those within two cents of an earlier one.</summary>
+        private static List<double> DistinctRatios(IEnumerable<double> ratios)
+        {
+            var kept = new List<double>();
+            foreach (double r in ratios)
+            {
+                if (!kept.Any(x => Math.Abs(1200.0 * Math.Log2(x / r)) < 2.0))
+                {
+                    kept.Add(r);
+                }
+            }
+
+            return kept;
         }
 
         /// <summary>Score of the lines |c + a·m1 + b·m2| (|a| up to <paramref name="count"/>, |b| up to 2) against the partials, as in the pair score.</summary>
