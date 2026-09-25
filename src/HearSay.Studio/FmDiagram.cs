@@ -144,7 +144,7 @@ public sealed class FmDiagram : Control
             var to = new Point(centers[i].X, busY);
             context.DrawLine(OutputPen, from, to);
             DrawArrowHead(context, OutputPen.Brush!, from, to);
-            DrawText(context, patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, ((from.Y + to.Y) / 2) - 7), 10, Muted);
+            DrawText(context, patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 14), 10, Muted);
         }
 
         // Edges under the boxes.
@@ -158,38 +158,23 @@ public sealed class FmDiagram : Control
                 // A loop out of the right side and back into the top-right corner.
                 var start = new Point(s.X + (boxW / 2), s.Y);
                 var end = new Point(s.X + (boxW / 2) - 10, s.Y - (boxH / 2));
-                var geometry = new StreamGeometry();
-                using (StreamGeometryContext g = geometry.Open())
-                {
-                    g.BeginFigure(start, false);
-                    g.CubicBezierTo(new Point(start.X + 28, start.Y), new Point(end.X + 10, end.Y - 28), end);
-                    g.EndFigure(false);
-                }
-
-                context.DrawGeometry(null, LoopPen, geometry);
-                DrawArrowHead(context, Amber, new Point(end.X + 4, end.Y - 12), end);
+                DrawArrowCurve(context, LoopPen, Amber, start, new Point(start.X + 28, start.Y), new Point(end.X + 10, end.Y - 28), end);
                 DrawText(context, amount, new Point(start.X + 16, end.Y - 26), 10, Amber);
             }
             else if (level[e.SourceOperator] == level[e.DestinationOperator])
             {
-                // Within one row: an arc under the row, from the bottom of the one box to the bottom of the other.
+                // Within one row: an arc under the row, from the bottom of the one box to the bottom of the other, with
+                // its amount under its lowest point.
                 bool sideways = carrier[e.SourceOperator] && carrier[e.DestinationOperator];
-                double shift = s.X < d.X ? boxW / 4 : -boxW / 4;
-                var from = new Point(s.X + shift, s.Y + (boxH / 2));
-                var to = new Point(d.X - shift, d.Y + (boxH / 2));
-                double dip = from.Y + 12 + (10 * arcs++);
-                var geometry = new StreamGeometry();
-                using (StreamGeometryContext g = geometry.Open())
-                {
-                    g.BeginFigure(from, false);
-                    g.CubicBezierTo(new Point(from.X, dip), new Point(to.X, dip), to);
-                    g.EndFigure(false);
-                }
-
+                // Leaving near the middle and arriving further out, so that arcs both ways between two boxes stay apart.
+                double direction = s.X < d.X ? 1 : -1;
+                var from = new Point(s.X + (direction * boxW / 8), s.Y + (boxH / 2));
+                var to = new Point(d.X - (direction * boxW / 3), d.Y + (boxH / 2));
+                double dip = from.Y + 22 + (8 * arcs++);
                 IBrush brush = sideways ? Accent : Amber;
-                context.DrawGeometry(null, sideways ? EdgePen : FeedbackPen, geometry);
-                DrawArrowHead(context, brush, new Point(to.X, to.Y + 10), to);
-                DrawText(context, amount, new Point(from.X + ((to.X - from.X) * 0.3) - 10, dip - 12), 10, brush);
+                DrawArrowCurve(context, sideways ? EdgePen : FeedbackPen, brush, from, new Point(from.X, dip), new Point(to.X, dip), to);
+                double lowest = from.Y + (0.75 * (dip - from.Y));
+                DrawText(context, amount, new Point(((from.X + to.X) / 2) - 10 - (direction * 24), lowest + 1), 10, brush);
             }
             else if (!feedback.Contains(e) && level[e.SourceOperator] == level[e.DestinationOperator] + 1)
             {
@@ -207,10 +192,8 @@ public sealed class FmDiagram : Control
                 var from = new Point(s.X + (boxW / 2), s.Y + offset);
                 var to = new Point(d.X + (boxW / 2), d.Y - offset);
                 int stacked = rightCurves++;
-                double bulge = Math.Max(from.X, to.X) + 14 + (18 * span) + (8 * stacked);
-                bulge = Math.Clamp(bulge, 40, width - 40);
-                DrawCurve(context, EdgePen, from, to, bulge);
-                DrawArrowHead(context, Accent, new Point(to.X + 12, to.Y), to);
+                double bulge = Math.Clamp(Math.Max(from.X, to.X) + 14 + (18 * span) + (8 * stacked), 40, width - 40);
+                DrawArrowCurve(context, EdgePen, Accent, from, new Point(bulge, from.Y), new Point(bulge, to.Y), to);
                 DrawText(context, amount, new Point(bulge + 3, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), 10, Accent);
             }
             else
@@ -222,10 +205,8 @@ public sealed class FmDiagram : Control
                 int stacked = side > 0 ? rightCurves++ : leftCurves++;
                 var from = new Point(s.X + (side * boxW / 2), s.Y + offset);
                 var to = new Point(d.X + (side * boxW / 2), d.Y - offset);
-                double bulge = (side > 0 ? Math.Max(from.X, to.X) : Math.Min(from.X, to.X)) + (side * (14 + (18 * (span + 1)) + (8 * stacked)));
-                bulge = Math.Clamp(bulge, 40, width - 40);
-                DrawCurve(context, FeedbackPen, from, to, bulge);
-                DrawArrowHead(context, Amber, new Point(to.X + (side * 12), to.Y), to);
+                double bulge = Math.Clamp((side > 0 ? Math.Max(from.X, to.X) : Math.Min(from.X, to.X)) + (side * (14 + (18 * (span + 1)) + (8 * stacked))), 40, width - 40);
+                DrawArrowCurve(context, FeedbackPen, Amber, from, new Point(bulge, from.Y), new Point(bulge, to.Y), to);
                 DrawText(context, amount, new Point(side > 0 ? bulge + 3 : bulge - 34, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), 10, Amber);
             }
         }
@@ -246,26 +227,47 @@ public sealed class FmDiagram : Control
         string frequency = op.Frequency.Mode == OperatorFrequencyMode.Fixed
             ? op.Frequency.FixedFrequencyHz.ToString("0.#", CultureInfo.InvariantCulture) + " Hz"
             : "×" + op.Frequency.Ratio.ToString("0.###", CultureInfo.InvariantCulture);
-        if (op.FineTuneCents != 0)
+        double cents = Math.Round(op.FineTuneCents);
+        if (cents != 0)
         {
-            frequency += (op.FineTuneCents > 0 ? " +" : " ") + op.FineTuneCents.ToString("0", CultureInfo.InvariantCulture) + "c";
+            frequency += (cents > 0 ? " +" : " ") + cents.ToString("0", CultureInfo.InvariantCulture) + "c";
         }
 
         return op.Waveform == OperatorWaveform.Sine ? frequency : frequency + " " + op.Waveform.ToString().ToLowerInvariant();
     }
 
-    /// <summary>A curve from <paramref name="from"/> to <paramref name="to"/> that swings out to <paramref name="bulgeX"/>.</summary>
-    private static void DrawCurve(DrawingContext context, Pen pen, Point from, Point to, double bulgeX)
+    /// <summary>
+    /// A cubic Bézier curve with an arrowhead at its end, pointing along the curve: the head is aimed from the point
+    /// a head's length back along the curve, not along the last control point, which a strongly bent curve leaves far
+    /// behind.
+    /// </summary>
+    private static void DrawArrowCurve(DrawingContext context, Pen pen, IBrush brush, Point from, Point control1, Point control2, Point to)
     {
         var geometry = new StreamGeometry();
         using (StreamGeometryContext g = geometry.Open())
         {
             g.BeginFigure(from, false);
-            g.CubicBezierTo(new Point(bulgeX, from.Y), new Point(bulgeX, to.Y), to);
+            g.CubicBezierTo(control1, control2, to);
             g.EndFigure(false);
         }
 
         context.DrawGeometry(null, pen, geometry);
+
+        // Walk back along the curve until a head's length away from its end.
+        Point back = from;
+        for (double t = 0.98; t > 0; t -= 0.02)
+        {
+            double u = 1 - t;
+            back = new Point(
+                (u * u * u * from.X) + (3 * u * u * t * control1.X) + (3 * u * t * t * control2.X) + (t * t * t * to.X),
+                (u * u * u * from.Y) + (3 * u * u * t * control1.Y) + (3 * u * t * t * control2.Y) + (t * t * t * to.Y));
+            if (Math.Sqrt(((to.X - back.X) * (to.X - back.X)) + ((to.Y - back.Y) * (to.Y - back.Y))) >= 8)
+            {
+                break;
+            }
+        }
+
+        DrawArrowHead(context, brush, back, to);
     }
 
     private static void DrawArrowHead(DrawingContext context, IBrush brush, Point from, Point to)
