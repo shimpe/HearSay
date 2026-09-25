@@ -405,8 +405,9 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             RunCycle(optimizer, basins[b], (int)(share * 0.6), tuningMatters, NextSeed, 0.7, includeDetail: true);
 
             // A structure that has been optimized this far shows clearly what it lacks. Its variants start out sounding
-            // like it, so each of them only has to show that its extra freedom helps.
-            IReadOnlyList<TopologyMutation> variants = mutator.ProposeScreened(basins[b].Best.Patch, analysis, evaluator, random, 4);
+            // like it, so each of them only has to show that its extra freedom helps. Screening them stays within a
+            // quarter of the share of the finalist: on a small budget it would otherwise eat what local refinement has left.
+            IReadOnlyList<TopologyMutation> variants = mutator.ProposeScreened(basins[b].Best.Patch, analysis, evaluator, random, 4, maxScreened: Math.Clamp(share / 4, 0, 160));
             SearchBasin? bestChild = null;
             foreach (TopologyMutation variant in variants)
             {
