@@ -22,6 +22,9 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
 {
     private const double MatchCents = 35.0;
 
+    /// <summary>How many times longer a sideband has to ring than the carrier to take its place.</summary>
+    private const double PersistenceMargin = 1.5;
+
     /// <inheritdoc />
     public string Name => "sine-phase-modulation";
 
@@ -276,6 +279,7 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
         private readonly double[] _relative;
         private readonly double[] _salience;
         private readonly double[] _amplitude;
+        private readonly double[] _persistence;
         private readonly double _salienceSum;
         private readonly OperatorEnvelope _outputEnvelope;
         private readonly OperatorEnvelope _brightnessEnvelope;
@@ -290,6 +294,13 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             _relative = [.. partials.Select(static p => p.RelativeFrequency)];
             _salience = [.. partials.Select(p => Math.Max(0.0, 1.0 - ((max - p.LevelDb) / 50.0)))];
             _amplitude = [.. partials.Select(p => Math.Pow(10.0, (p.LevelDb - max) / 20.0))];
+
+            // How long each partial rings: the lifetime of the partial track on it, if any.
+            _persistence = [.. partials.Select(p => analysis.PartialTracks
+                .Where(t => Math.Abs(1200.0 * Math.Log2(t.FrequencyHz / p.FrequencyHz)) < MatchCents)
+                .Select(static t => t.DeathSeconds - t.BirthSeconds)
+                .DefaultIfEmpty(0.0)
+                .Max())];
             _salienceSum = _salience.Sum();
             _outputEnvelope = TemporalPriors.OutputEnvelope(analysis);
             _brightnessEnvelope = TemporalPriors.BrightnessEnvelope(analysis);
@@ -423,11 +434,15 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                     Pair pair = ScorePair(carrier, modulator, _salience);
                     if (pair.Score > 0.05)
                     {
-                        pairs.Add(pair);
+                        pairs.Add(Canonical(pair));
                     }
                 }
             }
 
+            // Canonical forms of different readings coincide; keep the best of each.
+            pairs = [.. pairs
+                .GroupBy(static p => (Math.Round(p.Carrier, 3), Math.Round(p.Modulator, 3)))
+                .Select(static g => g.MaxBy(static p => p.Score))];
             pairs.Sort(static (a, b) =>
             {
                 int result = b.Score.CompareTo(a.Score);
@@ -439,6 +454,56 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                 return result != 0 ? result : a.Modulator.CompareTo(b.Modulator);
             });
             return pairs;
+        }
+
+        /// <summary>
+        /// The reading of a pair whose carrier is the line that rings longest. A carrier at <c>c</c> and one at the
+        /// sideband <c>|c + k·m|</c> predict much the same lines, but when the modulation dies away, as in struck and
+        /// plucked sounds, only the carrier keeps sounding: the sidebands of a six-operator cymbal decay four to ten
+        /// times faster than its carriers. A line only takes over when it outlasts the carrier clearly.
+        /// </summary>
+        private Pair Canonical(Pair pair)
+        {
+            int own = PartialAt(pair.Carrier);
+            double ownPersistence = own >= 0 ? _persistence[own] : 0.0;
+            int best = -1;
+            double bestPersistence = ownPersistence * PersistenceMargin;
+            for (int k = -2; k <= 2; k++)
+            {
+                if (k == 0)
+                {
+                    continue;
+                }
+
+                int line = PartialAt(Math.Abs(pair.Carrier + (k * pair.Modulator)));
+                if (line >= 0 && _persistence[line] > bestPersistence)
+                {
+                    best = line;
+                    bestPersistence = _persistence[line];
+                }
+            }
+
+            // One step can land on another sideband that the carrier outlasts in turn: follow the lines until none
+            // rings clearly longer. Every step multiplies the persistence by at least the margin, so this ends quickly.
+            return best < 0 ? pair : Canonical(ScorePair(Math.Round(_relative[best], 3), pair.Modulator, _salience));
+        }
+
+        /// <summary>Index of the target partial within the match tolerance of a relative frequency; -1 if none.</summary>
+        private int PartialAt(double ratio)
+        {
+            int found = -1;
+            double closest = MatchCents;
+            for (int i = 0; i < _relative.Length; i++)
+            {
+                double cents = ratio > 0.05 ? Math.Abs(1200.0 * Math.Log2(_relative[i] / ratio)) : double.MaxValue;
+                if (cents < closest)
+                {
+                    closest = cents;
+                    found = i;
+                }
+            }
+
+            return found;
         }
 
         public double CoverScore(List<Pair> cover)
@@ -557,20 +622,9 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                 }
             }
 
-            // Coverage is measured against the whole cloud so that scores of residual stacks stay comparable.
-            // The same lines follow from a carrier at an outer sideband, but the carrier is where the energy stays:
-            // a carrier on a strong partial is the likelier reading. Only a tie-breaker: a weak carrier that explains
-            // the lines better, such as a low thump, has to win.
-            double carrierAmplitude = 0;
-            for (int i = 0; i < _relative.Length; i++)
-            {
-                if (Math.Abs(1200.0 * Math.Log2(_relative[i] / carrier)) < MatchCents)
-                {
-                    carrierAmplitude = Math.Max(carrierAmplitude, _amplitude[i]);
-                }
-            }
-
-            double score = (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0) * (total / _salienceSum)) + (0.035 * carrierAmplitude);
+            // Coverage is measured against the whole cloud so that scores of residual stacks stay comparable. Which
+            // line of a family is the carrier is decided by Canonical, from how long the lines ring.
+            double score = (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0) * (total / _salienceSum));
             return new Pair(carrier, modulator, index, score);
         }
 
