@@ -26,10 +26,23 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
     private const double PersistenceMargin = 1.5;
 
     /// <inheritdoc />
-    public string Name => "sine-phase-modulation";
+    public string Name => StackedModulatorsOnly ? "sine-phase-modulation stacks" : "sine-phase-modulation";
 
     /// <summary>Largest number of hypotheses returned.</summary>
     public int MaxHypotheses { get; init; } = 128;
+
+    /// <summary>
+    /// Only the structures with a second modulator read from the lines it adds: registered next to the full provider,
+    /// they form a group of their own, so that a DX7 stack, which sounds right only once its amounts are found, keeps
+    /// a basin next to readings that sound closer before any tuning.
+    /// </summary>
+    public bool StackedModulatorsOnly { get; init; }
+
+    /// <summary>
+    /// With <see cref="StackedModulatorsOnly"/>: the prior score of the best full hypothesis above which the spectrum
+    /// counts as explained and nothing is proposed.
+    /// </summary>
+    public double ExplainedAbove { get; init; } = 0.9;
 
     /// <inheritdoc />
     public IReadOnlyList<PatchHypothesis> Generate(TargetAnalysis analysis, SynthesisCapabilities capabilities)
@@ -111,6 +124,52 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                 }));
             }
         }
+
+        // Second modulators read from the lines they add, as a modulator of the modulator (a DX7 stack, also with
+        // feedback on its top operator) and next to it on the carrier.
+        var stacked = new List<PatchHypothesis>();
+        if (n >= 3)
+        {
+            foreach ((Pair pair, double second, double score) in context.SecondModulators(pairs))
+            {
+                // The carrier and its first sidebands predict the same lines; when a sideband line is the strongest
+                // partial, such as the fundamental of a stack with a high first modulator, it is offered as carrier too.
+                foreach (double carrier in new[] { pair.Carrier, context.StrongestLine(pair.Carrier, pair.Modulator) }.Distinct())
+                {
+                    foreach (double feedback in capabilities.SupportsSelfFeedback ? new[] { 0.0, 0.7 } : [0.0])
+                    {
+                        string name = $"three-stack {Text(carrier)}:{Text(pair.Modulator)}:{Text(second)}" + (feedback > 0 ? " with top feedback" : string.Empty);
+                        stacked.Add(context.Build(name, score - (carrier == pair.Carrier ? 0.02 : 0.015) - (feedback > 0 ? 0.005 : 0.0), b =>
+                        {
+                            int c = b.Carrier(carrier, 0.8);
+                            int m = b.Modulator(pair.Modulator, c, Math.Max(1.0, pair.Index * 0.8));
+                            int top = b.Modulator(second, m, 2.0);
+                            if (feedback > 0)
+                            {
+                                b.Edge(top, top, feedback);
+                            }
+                        }));
+                    }
+                }
+
+                stacked.Add(context.Build($"carrier {Text(pair.Carrier)} with parallel modulators {Text(pair.Modulator)} and {Text(second)}", score - 0.03, b =>
+                {
+                    int c = b.Carrier(pair.Carrier, 0.8);
+                    b.Modulator(pair.Modulator, c, pair.Index * 0.8);
+                    b.Modulator(second, c, 1.0);
+                }));
+            }
+        }
+
+        if (StackedModulatorsOnly)
+        {
+            // Only where the simpler structures leave much of the spectrum unexplained: otherwise these would take
+            // survivor slots from a reading that is already right.
+            double explained = new SinePhaseModulationPriorProvider { MaxHypotheses = MaxHypotheses }.Generate(analysis, capabilities).Select(static h => h.PriorScore).DefaultIfEmpty(0.0).Max();
+            return explained >= ExplainedAbove ? [] : Distinct(stacked, capabilities);
+        }
+
+        hypotheses.AddRange(stacked);
 
         // Deeper stacks with a second modulator at a small ratio: the modulator itself becomes bright, which fills the
         // spectrum much more densely than a single sine modulator can.
@@ -244,7 +303,12 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             }));
         }
 
-        // Relabelled twins and anything the profile cannot represent are dropped; the best-scored twin stays.
+        return Distinct(hypotheses, capabilities);
+    }
+
+    /// <summary>Relabelled twins and anything the profile cannot represent are dropped; the best-scored twin stays.</summary>
+    private List<PatchHypothesis> Distinct(List<PatchHypothesis> hypotheses, SynthesisCapabilities capabilities)
+    {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<PatchHypothesis>();
         foreach (PatchHypothesis hypothesis in hypotheses.OrderByDescending(static h => h.PriorScore))
@@ -280,6 +344,7 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
         private readonly double[] _salience;
         private readonly double[] _amplitude;
         private readonly double[] _persistence;
+        private List<double> _candidates = [];
         private readonly double _salienceSum;
         private readonly OperatorEnvelope _outputEnvelope;
         private readonly OperatorEnvelope _brightnessEnvelope;
@@ -421,6 +486,7 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
                 }
             }
 
+            _candidates = ratios;
             var pairs = new List<Pair>();
             foreach (double carrier in ratios)
             {
@@ -626,6 +692,81 @@ public sealed class SinePhaseModulationPriorProvider : ISynthesisPriorProvider
             // line of a family is the carrier is decided by Canonical, from how long the lines ring.
             double score = (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0) * (total / _salienceSum));
             return new Pair(carrier, modulator, index, score);
+        }
+
+        /// <summary>
+        /// Second modulators for the best pairs: <c>m2</c> modulating <c>m1</c>, or next to it on the carrier, puts lines at
+        /// <c>|c + a·m1 + b·m2|</c>. A second modulator is only proposed when its lines explain the target clearly better
+        /// than the pair alone; the score counts its missing lines as the pair score does, so three free ratios cannot
+        /// fit the partials by coincidence without paying for the lines they predict in vain.
+        /// </summary>
+        public List<(Pair Pair, double Second, double Score)> SecondModulators(List<Pair> ranked)
+        {
+            var found = new List<(Pair Pair, double Second, double Score)>();
+            double highest = _relative.Length > 0 ? _relative.Max() * 1.1 : 0.0;
+            foreach (Pair pair in ranked.Take(8))
+            {
+                int count = SidebandCount(pair.Index);
+                foreach (double second in _candidates)
+                {
+                    if (Math.Abs(1200.0 * Math.Log2(second / pair.Modulator)) < MatchCents || Math.Abs(1200.0 * Math.Log2(second / pair.Carrier)) < MatchCents)
+                    {
+                        continue;
+                    }
+
+                    double covered = 0, spurious = 0, weights = 0;
+                    var hit = new bool[_relative.Length];
+                    for (int a = -count; a <= count; a++)
+                    {
+                        for (int b = -2; b <= 2; b++)
+                        {
+                            double line = Math.Abs(pair.Carrier + (a * pair.Modulator) + (b * second));
+                            if (line < 0.05 || line > highest)
+                            {
+                                continue;
+                            }
+
+                            double weight = 1.0 / (1.0 + Math.Abs(a) + Math.Abs(b));
+                            int partial = PartialAt(line);
+                            weights += weight;
+                            if (partial < 0)
+                            {
+                                spurious += weight;
+                            }
+                            else if (!hit[partial])
+                            {
+                                hit[partial] = true;
+                                covered += _salience[partial];
+                            }
+                        }
+                    }
+
+                    double score = (covered / _salienceSum) - (0.6 * (weights > 0 ? spurious / weights : 0.0));
+                    if (score > pair.Score + 0.03)
+                    {
+                        found.Add((pair, second, score));
+                    }
+                }
+            }
+
+            return [.. found.OrderByDescending(static f => f.Score).DistinctBy(static f => (f.Pair.Carrier, f.Pair.Modulator)).Take(4)];
+        }
+
+        /// <summary>The strongest target partial among a carrier and its first two sidebands on each side, as a ratio.</summary>
+        public double StrongestLine(double carrier, double modulator)
+        {
+            double best = carrier, loudest = -1.0;
+            for (int k = -2; k <= 2; k++)
+            {
+                int partial = PartialAt(Math.Abs(carrier + (k * modulator)));
+                if (partial >= 0 && _amplitude[partial] > loudest)
+                {
+                    loudest = _amplitude[partial];
+                    best = k == 0 ? carrier : Math.Round(_relative[partial], 3);
+                }
+            }
+
+            return best;
         }
 
         private static int SidebandCount(double index) => Math.Clamp((int)Math.Round(index) + 2, 2, 10);

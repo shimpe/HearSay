@@ -221,6 +221,26 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void SinePriors_FindTheSecondModulatorOfAThreeStack()
+    {
+        // A DX7-style three-stack: 1 <- 5 <- 2.73 with feedback on the top operator. The second modulator makes the
+        // first one rich, so the carrier gets lines at |1 + a*5 + b*2.73|.
+        OperatorMatrixPatch stack = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.005, 0.8, 0.5, 0.2))).WithOutputLevel(0, 0.7)
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(5), OperatorEnvelope.Adsr(0.002, 0.4, 0.4, 0.2)))
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(2.73), OperatorEnvelope.Adsr(0.002, 0.3, 0.3, 0.2)))
+            .WithEdge(new ModulationEdge(1, 0, true, 1.6))
+            .WithEdge(new ModulationEdge(2, 1, true, 2.5))
+            .WithEdge(new ModulationEdge(2, 2, true, 0.7));
+        RenderedAudio audio = Renderer.Render(stack, RenderRequest.Create(220, 1.0, 0.3));
+        TargetAnalysis analysis = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 220.0)).Analysis;
+
+        IReadOnlyList<PatchHypothesis> hypotheses = new SinePhaseModulationPriorProvider().Generate(analysis, Fm7);
+
+        Assert.Contains(hypotheses, static h => h.Origin.StartsWith("three-stack 1:5:2.73", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SinePriors_PutACarrierOnAWeakLowThump_RatherThanExplainingItAsASideband()
     {
         // The keyed electric piano has a fixed 60 Hz thump under a 262 Hz note. As a carrier of its own it can become a
