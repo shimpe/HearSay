@@ -39,13 +39,15 @@ results, Studio, the CLI, the API, hand-editing, troubleshooting) see the [exper
 - [Results](#results)
 - [Performance](#performance)
 - [Limitations of this version](#limitations-of-this-version)
-- [How a future custom UGen plugs in](#how-a-future-custom-ugen-plugs-in)
+- [How a custom UGen plugs in: FMX6](#how-a-custom-ugen-plugs-in-fmx6)
 
 ## Quick start
 
 Desktop app (Avalonia, Windows/macOS/Linux): `dotnet run -c Release --project src/HearSay.Studio`. Load WAV files, set budget
 and seeds, run, play the result on a piano keyboard at any pitch (OpenAL Soft, one voice, velocity from where the key is
-hit), then copy the SuperCollider patch or save the result folder. Command line:
+hit), then copy the SuperCollider patch, look at its block diagram in the second tab of the patch card, or save the
+result folder. The Target selector picks FM7, FMX6 or both one after the other; the last result of each target is kept,
+so switching the selector compares them. Command line:
 
 ```bash
 dotnet run -c Release --project src/HearSay.Cli -- match target.wav \
@@ -156,7 +158,7 @@ public sealed record OperatorMatrixPatch(
 public sealed record OperatorPatch(
     bool Enabled,
     OperatorMode Mode,                  // PhaseModulation; ring modulation, wavefolder, filter… are reserved
-    OperatorWaveform Waveform,          // Sine, Triangle, Saw, Square, Pulse, Noise, Additive, Wavetable
+    OperatorWaveform Waveform,          // Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise, FilteredNoise, Additive, Wavetable
     OperatorFrequency Frequency,        // Ratio or Fixed
     double FineTuneCents,
     double DetuneHz,
@@ -211,7 +213,7 @@ public sealed record SynthesisCapabilities(
 | Profile | Operators | Modes | Waveforms | Status |
 | --- | --- | --- | --- | --- |
 | `SynthesisProfiles.SuperColliderFm7` (`supercollider-fm7`) | exactly 6 | PhaseModulation | Sine | searchable, exportable; full matrix, self and circular feedback, ratio and fixed, independent outputs, dynamic matrix, backend-exact rendering |
-| `SynthesisProfiles.SuperColliderFmx6` (`supercollider-fmx6`) | exactly 6 | PhaseModulation | Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise | searchable, exportable; everything FM7 has, plus band-limited waveforms with a harmonic limit, a pulse duty cycle (`Shape`) and two noise sources; needs the [FMX6 plugin](https://github.com/shimpe/fmx6) |
+| `SynthesisProfiles.SuperColliderFmx6` (`supercollider-fmx6`) | exactly 6 | PhaseModulation | Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise, FilteredNoise | searchable, exportable; everything FM7 has, plus band-limited waveforms with a harmonic limit, a pulse duty cycle (`Shape`) and three noise sources, one of them filtered (`Shape` then selects low-, band- or high-pass); needs the [FMX6 plugin](https://github.com/shimpe/fmx6) |
 | `SynthesisProfiles.ExperimentalSineTriangle` | 6 | PhaseModulation | Sine, Triangle | searchable with the extended renderer; no export backend, because that renderer is not backend-exact (FMX6 could play its patches, but not with the same anti-aliasing); exists to prove the architecture |
 | `SynthesisProfiles.HearSayExtended` | 6 | PhaseModulation | all | reserved for a future engine; no renderer yet, so the matcher refuses it |
 
@@ -266,7 +268,8 @@ Two exporters share one base, `SuperColliderOperatorMatrixExporter`: `SuperColli
 the sc3-plugins and `SuperColliderFmx6Exporter` for the [FMX6 UGen](https://github.com/shimpe/fmx6). Both are
 `IPatchExporter`s and `ISynthDefExporter`s; the profile of a search decides which one `SynthesisBackends.ExporterFor`
 hands out. The SynthDefs differ in one statement only: FMX6 takes three extra arrays, `waves:` (0 sine, 1 triangle,
-2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise), `shapes:` (pulse duty cycle) and
+2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise, 7 filtered noise), `shapes:` (pulse duty cycle or
+filter response) and
 `harmonicLimits:`, one entry per operator. FMX6 plays every FM7 patch; FM7 refuses a patch with any other waveform.
 
 `SuperColliderFm7Exporter` writes a self-contained SynthDef. It uses the full matrix interface
@@ -391,6 +394,10 @@ The tests are skipped on machines without SuperCollider (`HEARSAY_SCLANG` overri
 | `F0(t)`: attack offset, pitch decay, vibrato rate and depth, drift | `PitchTrajectory` | pitch model, pitch loss |
 | slow amplitude beating | `BeatAnalysis` | detuned-pair hypotheses |
 | long-term average spectrum in third-octave bands | `LongTermAverageSpectrum` | coarse screening; robust to oscillator, beat and vibrato phase |
+| noise: the share of the energy between the partials (running median across frequency) and its centroid | `NoiseProfile` | noise priors and mutations |
+
+A stereo file is mixed down to mono, but a channel that is a delayed copy of the first (cross-correlation of at least
+0.9 within 2 ms) is aligned before averaging; averaging it as it was would comb-filter the note.
 
 `PartialSetDistance` compares two partial clouds by assignment (a monotone alignment over log-frequency and level with
 penalties for unmatched partials), which separates "right frequencies, wrong amplitudes" from "wrong spectral
@@ -437,15 +444,23 @@ Two questions, two tools:
 
   ```text
   audioLoss = wStft·MultiResolutionStft + wMel·LogMel + wPartial·PartialSet + wTrajectory·Trajectories
-            + wEnvelope·Envelope + wPitch·PitchTrajectory + wLtas·Ltas
+            + wEnvelope·Envelope + wPitch·PitchTrajectory + wLtas·Ltas + wBody·BodyPartial
   totalLoss = audioLoss + complexityWeight · patchComplexity
   ```
+
+  `PartialSet` compares the partials of the average spectrum of the whole note, which weighs short-lived attack
+  partials as much as those that ring on. `BodyPartial` (weight 0.3) compares the partials of the body only: the
+  average spectrum from 0.1 s after the peak, or 15 % of the note if later, to the note-off, in the same window for
+  target and candidate; notes whose body would be shorter than 0.2 s have none. On an FM cymbal, 26 sideband peaks of
+  the attack otherwise outweighed the 7 bell partials the ear follows.
 
   The complexity term (operators, edges, tiny edges and outputs, extra envelope points, extreme detuning) is a
   tie-breaker with a default weight of 0.02; the audio loss dominates.
 - **How does this patch differ?** The existing HearSay feature vector and `ToneComparisonResult`. Local refinement
   proposes steps from the Jacobian of that vector and lets the audio objective decide whether to accept them. A
-  feature can steer the local model without being a term of the objective, and the other way round.
+  feature can steer the local model without being a term of the objective, and the other way round. The comparer
+  smooths the noise of the spectrograms it compares (partial bins keep their magnitude, the others get the local noise
+  floor), so another realization of the same noise scores a similarity of 0.90 instead of 0.73.
 
 Evaluation is progressive: `Coarse` (long-term spectrum, rough spectrum and envelope) sorts out hypotheses, `Normal`
 (everything except pitch, unless the target pitch moves) drives the optimization, `Detailed` adds the pitch trajectory
@@ -506,18 +521,21 @@ Patch
 | --- | --- | --- | --- |
 | A. Target analysis | everything in the table above; render request from fundamental, note-off and tail | — | 0 |
 | B. Structural hypotheses | prior providers propose structures; at least 128 are kept, more when the screening share of the budget can afford three modulation scales for them (all of them from about 8000 evaluations on), taking each provider's best in turn since prior scores compare only within a provider; each is screened at three modulation scales | Coarse | 5 % |
-| Survivors | the best 32 get a short continuous optimization; duplicates by canonical regime, frequency structure and loss terms are dropped; 6 distinct basins remain, the best of every structural family first, because early losses are deceptive: an additive structure sounds roughly right at once, a deep stack only after its amounts have been found | Normal | 15 % |
+| Survivors | 32 get a short continuous optimization, half of them the best of every provider group in turn and the rest by rank, so that one group whose untuned hypotheses screen well (noise carriers, say) cannot take every slot; duplicates by canonical regime, frequency structure and loss terms are dropped; 6 distinct basins remain, the best of every structural family first, because early losses are deceptive: an additive structure sounds roughly right at once, a deep stack only after its amounts have been found | Normal | 15 % |
 | C–E. Deep optimization | three rounds of successive halving (6 → 4 → 3 basins). Per basin: CMA-ES over everything smooth at once for small patches, otherwise one connected operator group at a time. A basin keeps its run between rounds, so the adapted covariance is never thrown away; only a stagnated run is replaced, by one with twice the population that starts alternately from the best patch and from where the basin began. A basin that stagnates also tries three topology mutations; a better child replaces its parent | Normal | 35 % |
-| Finalists | one long run each, the best finalist getting the longest; then a round of structural variants per finalist: every possible new edge and new modulator is screened at a few amounts (about a hundred renders), the most promising variants are optimized, and a variant that beats its parent takes its place | Normal | 75 % of the rest |
+| Finalists | one long run each, the best finalist getting the longest; then a round of structural variants per finalist: every possible new edge and new modulator is screened at a few amounts (at most 160 renders and at most a quarter of the finalist's share, so a small budget still leaves local refinement its part), the most promising variants are optimized, and a variant that beats its parent takes its place | Normal | 75 % of the rest |
 | F. Local refinement | probe each smooth parameter, regime-specific Jacobian of the HearSay feature vector, trust-region guidance steps accepted only when the objective agrees; then a narrow final polish | Detailed | the rest |
 
 - **Sine-FM knowledge is a plug-in.** `SinePhaseModulationPriorProvider` is the only place with sideband arithmetic:
   it ranks carrier and modulator ratios by how well `|c ± k·m|` covers the partial cloud, estimates a starting index
-  from Carson's rule `BW ≈ 2(I + 1)·fm`, and builds stacks, three-stacks, parallel modulators, greedy multi-stack
-  covers, additive sets, feedback operators and detuned pairs for beating targets. These formulas only rank guesses;
-  nothing treats them as an inverse of a six-operator network. Envelope and pitch starting values come from
-  `TemporalPriors`, which knows nothing about synthesis. `WaveformVariantPriorProvider` adds waveform variants for
-  profiles with a choice.
+  from Carson's rule `BW ≈ 2(I + 1)·fm`, and builds stacks, three- and four-operator stacks, parallel modulators,
+  greedy multi-stack covers, additive sets, feedback operators and detuned pairs for beating targets (see
+  [Reading stacks](#reading-stacks) below). These formulas only rank guesses; nothing treats them as an inverse of a
+  six-operator network. Envelope and pitch starting values come from `TemporalPriors`, which knows nothing about
+  synthesis. The other providers: `PartialTrackPriorProvider` (operators exactly on the stable partial tracks, each
+  with the decay of its own partial, for sounds that sideband arithmetic does not explain), `WaveformVariantPriorProvider`
+  and `ModulatorWaveformPriorProvider` (the best sine structures with an output or a modulator in another waveform, for
+  profiles with a choice), `HarmonicWaveformPriorProvider` and `NoisePriorProvider` (see [FMX6](#how-a-custom-ugen-plugs-in-fmx6)).
 - **Structure is never searched by gradients.** Structures come from hypotheses and from `TopologyMutator`, whose new
   elements start almost silent so that a variant begins as good as its parent (add or
   remove an edge, add an operator as modulator or into the mix, remove an operator, move a coarse ratio to its
@@ -531,6 +549,48 @@ Patch
   the seed, so a search is reproducible and independent of the degree of parallelism.
 - **Identifiability**: many patches sound alike. The search optimizes audio similarity plus a small simplicity bias,
   never parameter equality, and canonicalization keeps relabelled twins from taking two basin slots.
+
+### Reading stacks
+
+Sideband arithmetic tells which lines a structure produces. That is enough for a pair, but a grid of lines has
+several readings once more operators are involved: a DX7-style stack `1 ← 5 ← 2.73` puts its lines on the same grid as
+a carrier with parallel modulators at 2.27 and 7.27. The sine prior provider therefore works in steps:
+
+1. **Candidate ratios.** Differences between strong partials, snapped to simple values and as measured, plus the
+   *sum* of a carrier and a partial: a modulator above its carrier folds the lower sideband over zero, so a
+   1321 Hz carrier with a 2089 Hz modulator is heard at 768 Hz. A sideband that lands exactly counts slightly more
+   than one at the edge of the tolerance.
+2. **Canonical carrier.** A carrier at `c` and one at a sideband `|c + k·m|` predict much the same lines, and neither
+   frequencies nor levels tell them apart. Decay does: when the modulation dies away, only the carrier rings on. So
+   among the lines of a reading, a line on a partial whose track rings at least 1.5 times longer becomes the carrier,
+   repeated until none does, and readings that coincide are merged.
+3. **Second modulators** (driving the first, or beside it on the carrier) put lines at `|c + a·m1 + b·m2|` and are
+   chosen from all candidate ratios, but proposed only when they explain the target clearly better than the pair
+   alone. These stacked readings form a provider group of their own, so that a stack, which sounds right only once
+   its amounts are found, keeps a basin; the group stays empty when the plain hypotheses already explain 90 % of the
+   spectrum.
+4. **Line strengths.** Which reading is right shows in how strong the lines are. `FmSpectrumModel` predicts the line
+   levels and fits the modulation indices to the measured partials; the error is the level mismatch in dB of the
+   partials within 40 dB of the strongest, matched within 35 cents. Three-operator readings (every carrier on a strong
+   partial with any two candidate modulators, the forty best by line coverage) use a Bessel expansion, fitted on a 9 × 9
+   index grid; lines below zero fold over with the opposite sign. Four-operator stacks `c ← m1 ← m2 ← m3` are
+   enumerated directly (carriers on the four strongest partials, `m1` at the distance to another strong partial, any
+   two candidates above it) and *rendered*: the chain of sines is synthesized over 16 periods, windowed, transformed
+   and peak-picked, which is exact to every order and a fraction of a millisecond per evaluation. Every chain is scored
+   at the eight index sets of 1 and 2, the best twelve get their indices refined by coordinate descent, and the best
+   four are proposed at the fitted indices, with and without feedback on the top operator.
+
+On the DX7-style stack above, the fit error is 0.27 for the truth and 0.48 to 0.59 for the other readings, and the
+search goes from 0.297 to 0.077. An affordable Bessel expansion of a four-deep chain misranks it (0.459 at the true
+indices of a test stack against 0.039 rendered), and counting lines favours large ratios whose lines fall above the
+spectrum. Rendering the three-operator fits as well, with fixed or with decaying indices, was tried and was not better
+within the noise of the benchmark: the Bessel model's truncation happens to resemble the time-averaged spectrum of
+indices that follow envelopes.
+
+| Random targets, mean audio loss of the best patch | pairs only | + second modulators | + line strengths | + four-stacks |
+| --- | --- | --- | --- | --- |
+| DX7-style stacks | 0.175 | 0.168 | 0.141 | 0.127 |
+| random FM7 patches | 0.190 | 0.183 | 0.176 | 0.172 |
 
 ## Target sets: several notes, one patch
 
@@ -716,6 +776,11 @@ family, and a family includes the waveforms in use. Noise never matches sample b
 noise sequence of the target, so the correct structure with another sequence scores about 0.08 on the white-noise
 burst, and the objective judges it by spectrum and envelope.
 
+On 20 random FMX6 patches (two seeds each) the tuned duty cycle and filter response, the modulator-waveform prior and
+the per-operator waveform mutations bring the loss from 0.221 to 0.204, on the sparse ones from 0.220 to 0.172; a
+pulse at duty 0.34 that used to end at 0.30 with an extra sine (0.109) is now found exactly (0.003). On a cymbal of
+inharmonic FM with a noise wash (`fm_cymbal`), filtered noise takes FMX6 from 0.44 to 0.34, where FM7 ends at 0.45.
+
 ## Performance
 
 BenchmarkDotNet (`benchmarks/HearSay.Benchmarks`, classes `RenderBenchmarks` and `EvaluationBenchmarks`, short-run
@@ -778,15 +843,23 @@ These are constraints of the synthesis profile, not of the architecture. Further
 The [FMX6 UGen](https://github.com/shimpe/fmx6) is FM7 with a waveform, a shape and a harmonic limit per operator:
 band-limited triangle, saw, square and pulse as additive Fourier series whose harmonic count follows the instantaneous
 frequency (including the phase modulation) so that nothing lands above 45 % of the sample rate, plus white noise and
-sample-and-hold noise from a deterministic xorshift generator seeded by operator slot. It plugged in as described
+sample-and-hold noise from a deterministic xorshift generator seeded by operator slot, and filtered noise (white
+noise through a TPT state-variable filter whose cutoff is the operator frequency). It plugged in as described
 below: a profile (`supercollider-fmx6`), the `Fmx6CompatibleOperatorMatrixRenderer` (a port of the UGen's inner loop,
 without FM7's warm-up sample), the `SuperColliderFmx6Exporter`, and a `.shape` parameter in the schema that is active
-for pulse operators. Two prior providers seed the waveforms: the waveform-variant provider re-colours the output
-operators of the sine hypotheses, and `HarmonicWaveformPriorProvider` reads the partial cloud (all harmonics falling
-as 1/n: saw; odd ones only: square or triangle; the notches of a duty cycle: pulse) and proposes the matching
-waveform alone at the fundamental with several harmonic limits, then with a light sine modulator, plus noise
-hypotheses (a noise modulator and a parallel noise burst, at several burst lengths and levels). The topology mutator
-swaps waveforms and halves or doubles the harmonic limit of a band-limited operator during the search. The random-patch equivalence test runs against the real UGen: patches
+for pulse operators (and a `.filter` parameter for filtered noise); both are tuned by the optimizer like any other
+spectral parameter. Several prior providers seed the waveforms: the waveform-variant provider re-colours the output
+operators of the sine hypotheses (never into noise, which would turn every structure into the same noise);
+`ModulatorWaveformPriorProvider` gives one modulator at a time of the best sine structures another waveform, since a
+modulator with harmonics puts its sidebands on the same grid as a sine at the same ratio; and
+`HarmonicWaveformPriorProvider` reads the partial cloud (all harmonics falling as 1/n: saw; odd ones only: square or
+triangle; the notches of a duty cycle: pulse) and proposes the matching waveform alone at the fundamental with several
+harmonic limits, then with a light sine modulator, plus noise hypotheses (a noise modulator and a parallel noise burst,
+at several burst lengths and levels). For targets with at least 10 % noise, `NoisePriorProvider` adds to the best sine
+structures one filtered-noise operator at the measured colour (band-pass at the centroid, plus high-pass below a high
+one or low-pass above a low one), or white noise, at up to three times the loudest operator. The topology mutator
+swaps waveforms, halves or doubles the harmonic limit of a band-limited operator and can add a noise wash in one step
+during the search. The random-patch equivalence test runs against the real UGen: patches
 without feedback loops are sample-exact; looped ones part ways a little sooner than with sine operators, because a
 one-ulp difference in a control signal can change the harmonic count of a sample, but stay the same sound. Search it
 from the CLI with `--profile supercollider-fmx6` or pick **FMX6** as the target in HearSay Studio.
