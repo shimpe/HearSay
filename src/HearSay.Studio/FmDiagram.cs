@@ -186,6 +186,19 @@ public sealed class FmDiagram : Control
             labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted));
         }
 
+        // Straight lines the curves should stay off: edges to the row below and the output lines.
+        Rect BoxAt(int op) => new(centers[op].X - (boxW / 2), centers[op].Y - (boxH / 2), boxW, boxH);
+        var straight = new List<(Point From, Point To)>();
+        foreach (ModulationEdge e in edges.Where(e => !e.IsSelfFeedback && !feedback.Contains(e) && level[e.SourceOperator] == level[e.DestinationOperator] + 1))
+        {
+            straight.Add((new Point(centers[e.SourceOperator].X, centers[e.SourceOperator].Y + (boxH / 2)), new Point(centers[e.DestinationOperator].X, centers[e.DestinationOperator].Y - (boxH / 2))));
+        }
+
+        foreach (int i in shown.Where(i => carrier[i]))
+        {
+            straight.Add((new Point(centers[i].X, centers[i].Y + (boxH / 2)), new Point(centers[i].X, busY)));
+        }
+
         int rightCurves = 0, leftCurves = 0, arcs = 0;
         foreach (ModulationEdge e in edges)
         {
@@ -234,30 +247,51 @@ public sealed class FmDiagram : Control
                 DrawArrowHead(context, Accent, from, to);
                 labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent));
             }
-            else if (!feedback.Contains(e))
-            {
-                // Down past other rows: a curve around the right side, wider the more rows it skips.
-                int span = level[e.SourceOperator] - level[e.DestinationOperator];
-                double offset = Math.Min(18, 4 + (5 * span));
-                var from = new Point(s.X + (boxW / 2), s.Y + offset);
-                var to = new Point(d.X + (boxW / 2), d.Y - offset);
-                int stacked = rightCurves++;
-                double bulge = Math.Clamp(Math.Max(from.X, to.X) + 14 + (18 * span) + (8 * stacked), 40, width - 40);
-                DrawArrowCurve(context, EdgePen, Accent, from, new Point(bulge, from.Y), new Point(bulge, to.Y), to);
-                labels.Add((amount, new Point(bulge + 3, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), Accent));
-            }
             else
             {
-                // Feedback up through other operators: a dashed curve around the side the source is on.
+                // Past other rows, down (solid) or back up as feedback (dashed): a curve around whichever side it
+                // disturbs least, wider the more rows it spans.
+                bool back = feedback.Contains(e);
                 int span = Math.Abs(level[e.SourceOperator] - level[e.DestinationOperator]);
                 double offset = Math.Min(18, 4 + (5 * span));
-                double side = s.X > d.X + 1 ? 1 : -1;
-                int stacked = side > 0 ? rightCurves++ : leftCurves++;
-                var from = new Point(s.X + (side * boxW / 2), s.Y + offset);
-                var to = new Point(d.X + (side * boxW / 2), d.Y - offset);
-                double bulge = Math.Clamp((side > 0 ? Math.Max(from.X, to.X) : Math.Min(from.X, to.X)) + (side * (14 + (18 * (span + 1)) + (8 * stacked))), 40, width - 40);
-                DrawArrowCurve(context, FeedbackPen, Amber, from, new Point(bulge, from.Y), new Point(bulge, to.Y), to);
-                labels.Add((amount, new Point(side > 0 ? bulge + 3 : bulge - 34, ((from.Y + to.Y) / 2) - 7 + (12 * (stacked % 3))), Amber));
+                double reach = 14 + (18 * (back ? span + 1 : span));
+                (Point From, Point To, double Bulge) Route(double side, int stacked)
+                {
+                    var from = new Point(s.X + (side * boxW / 2), s.Y + offset);
+                    var to = new Point(d.X + (side * boxW / 2), d.Y - offset);
+                    double edge = side > 0 ? Math.Max(from.X, to.X) : Math.Min(from.X, to.X);
+                    return (from, to, Math.Clamp(edge + (side * (reach + (8 * stacked))), 40, width - 40));
+                }
+
+                double Disturbance(double side)
+                {
+                    (Point from, Point to, double bulge) = Route(side, side > 0 ? rightCurves : leftCurves);
+                    var c1 = new Point(bulge, from.Y);
+                    var c2 = new Point(bulge, to.Y);
+                    double cost = 0;
+                    Point previous = from;
+                    for (int k = 1; k <= 24; k++)
+                    {
+                        Point p = Bezier(from, c1, c2, to, k / 24.0);
+                        cost += shown.Count(i => i != e.SourceOperator && i != e.DestinationOperator && BoxAt(i).Inflate(4).Contains(p));
+                        cost += straight.Count(line => Cross(previous, p, line.From, line.To));
+                        previous = p;
+                    }
+
+                    return cost;
+                }
+
+                double toward = s.X < d.X - 1 ? -1 : 1;
+                // Least disturbance first, then the side with fewer curves, then the side the source is on.
+                double Cost(double side) => (10 * Disturbance(side)) + (side > 0 ? rightCurves : leftCurves);
+                double chosen = Cost(toward) <= Cost(-toward) ? toward : -toward;
+                int stacked = chosen > 0 ? rightCurves++ : leftCurves++;
+                (Point start, Point end, double apex) = Route(chosen, stacked);
+                IBrush brush = back ? Amber : Accent;
+                DrawArrowCurve(context, back ? FeedbackPen : EdgePen, brush, start, new Point(apex, start.Y), new Point(apex, end.Y), end);
+                // Beside the middle of the curve, on its outer side.
+                Point middle = Bezier(start, new Point(apex, start.Y), new Point(apex, end.Y), end, 0.5);
+                labels.Add((amount, new Point(chosen > 0 ? middle.X + 4 : middle.X - 30, middle.Y - 7 + (12 * (stacked % 3))), brush));
             }
         }
 
@@ -277,6 +311,22 @@ public sealed class FmDiagram : Control
             context.DrawRectangle(LabelBackground, null, new Rect(at.X - 2, at.Y, formatted.Width + 4, formatted.Height), 3, 3);
             context.DrawText(formatted, at);
         }
+    }
+
+    /// <summary>Point at <paramref name="t"/> on a cubic Bézier curve.</summary>
+    private static Point Bezier(Point from, Point control1, Point control2, Point to, double t)
+    {
+        double u = 1 - t;
+        return new Point(
+            (u * u * u * from.X) + (3 * u * u * t * control1.X) + (3 * u * t * t * control2.X) + (t * t * t * to.X),
+            (u * u * u * from.Y) + (3 * u * u * t * control1.Y) + (3 * u * t * t * control2.Y) + (t * t * t * to.Y));
+    }
+
+    /// <summary>Whether segments <c>a–b</c> and <c>c–d</c> cross.</summary>
+    private static bool Cross(Point a, Point b, Point c, Point d)
+    {
+        static double Turn(Point p, Point q, Point r) => ((q.X - p.X) * (r.Y - p.Y)) - ((q.Y - p.Y) * (r.X - p.X));
+        return Turn(a, b, c) * Turn(a, b, d) < 0 && Turn(c, d, a) * Turn(c, d, b) < 0;
     }
 
     /// <summary>All orders of <paramref name="items"/>, in lexicographic order of positions.</summary>
@@ -334,10 +384,7 @@ public sealed class FmDiagram : Control
         Point back = from;
         for (double t = 0.98; t > 0; t -= 0.02)
         {
-            double u = 1 - t;
-            back = new Point(
-                (u * u * u * from.X) + (3 * u * u * t * control1.X) + (3 * u * t * t * control2.X) + (t * t * t * to.X),
-                (u * u * u * from.Y) + (3 * u * u * t * control1.Y) + (3 * u * t * t * control2.Y) + (t * t * t * to.Y));
+            back = Bezier(from, control1, control2, to, t);
             if (Math.Sqrt(((to.X - back.X) * (to.X - back.X)) + ((to.Y - back.Y) * (to.Y - back.Y))) >= 8)
             {
                 break;
