@@ -300,8 +300,18 @@ public sealed class FmDiagram : Control
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
-            DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 5), 12, Text, FontWeight.SemiBold);
-            DrawText(context, Describe(patch.Operators[i]), new Point(rect.X + 7, rect.Y + 25), 10, Muted, maxWidth: boxW - 10);
+            string tuning = DescribeTuning(patch.Operators[i]);
+            if (tuning.Length == 0)
+            {
+                DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 5), 12, Text, FontWeight.SemiBold);
+                DrawText(context, Describe(patch.Operators[i]), new Point(rect.X + 7, rect.Y + 25), 10, Muted, maxWidth: boxW - 10);
+            }
+            else
+            {
+                DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 2), 12, Text, FontWeight.SemiBold);
+                DrawText(context, Describe(patch.Operators[i]), new Point(rect.X + 7, rect.Y + 18), 10, Muted, maxWidth: boxW - 10);
+                DrawText(context, tuning, new Point(rect.X + 7, rect.Y + 31), 10, Muted, maxWidth: boxW - 10);
+            }
         }
 
         // Labels on a patch of background, so that the lines under them do not cut through the digits.
@@ -354,13 +364,29 @@ public sealed class FmDiagram : Control
         string frequency = op.Frequency.Mode == OperatorFrequencyMode.Fixed
             ? op.Frequency.FixedFrequencyHz.ToString("0.#", CultureInfo.InvariantCulture) + " Hz"
             : "×" + op.Frequency.Ratio.ToString("0.###", CultureInfo.InvariantCulture);
-        double cents = Math.Round(op.FineTuneCents);
+        return op.Waveform == OperatorWaveform.Sine ? frequency : frequency + " " + op.Waveform.ToString().ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Fine tune and detune, empty when both are zero, at the precision of the patch description: 0.1 cent and
+    /// 0.01 Hz.
+    /// </summary>
+    private static string DescribeTuning(OperatorPatch op)
+    {
+        var parts = new List<string>(2);
+        double cents = Math.Round(op.FineTuneCents, 1);
         if (cents != 0)
         {
-            frequency += (cents > 0 ? " +" : " ") + cents.ToString("0", CultureInfo.InvariantCulture) + "c";
+            parts.Add((cents > 0 ? "+" : string.Empty) + cents.ToString("F1", CultureInfo.InvariantCulture) + " ct");
         }
 
-        return op.Waveform == OperatorWaveform.Sine ? frequency : frequency + " " + op.Waveform.ToString().ToLowerInvariant();
+        double detune = Math.Round(op.DetuneHz, 2);
+        if (detune != 0)
+        {
+            parts.Add((detune > 0 ? "+" : string.Empty) + detune.ToString("F2", CultureInfo.InvariantCulture) + " Hz");
+        }
+
+        return string.Join(" ", parts);
     }
 
     /// <summary>
