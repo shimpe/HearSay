@@ -23,7 +23,7 @@ public sealed partial class MainWindow : Window
         base.OnDataContextChanged(e);
         if (DataContext is MainViewModel viewModel)
         {
-            // A new result puts the keyboard back on middle C.
+            // A new result puts the keyboard back on its target notes.
             viewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(MainViewModel.HasResult))
@@ -43,7 +43,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>Scrolls the keyboard so that C4 sits in the middle of the view.</summary>
+    /// <summary>
+    /// Scrolls the keyboard so that the target notes sit in the middle of the view: halfway between the lowest and
+    /// the highest of them, or C4 when there are none.
+    /// </summary>
     private void CentreKeyboard()
     {
         double viewport = KeyboardScroll.Viewport.Width;
@@ -52,7 +55,10 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        KeyboardScroll.Offset = new Vector(Math.Max(0, Keyboard.CentreOf(60) - (viewport / 2)), 0);
+        double centre = DataContext is MainViewModel { TargetNotes.Count: > 0 } viewModel
+            ? (Keyboard.CentreOf(viewModel.TargetNotes.Min()) + Keyboard.CentreOf(viewModel.TargetNotes.Max())) / 2
+            : Keyboard.CentreOf(60);
+        KeyboardScroll.Offset = new Vector(Math.Max(0, centre - (viewport / 2)), 0);
         _keyboardCentred = true;
     }
 
