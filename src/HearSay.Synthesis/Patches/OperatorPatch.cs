@@ -45,6 +45,13 @@ public enum OperatorWaveform
     /// </summary>
     FilteredNoise,
 
+    /// <summary>
+    /// Jacobi elliptic oscillator, as in the Nome6 UGen: a band-limited odd-harmonic series whose
+    /// <see cref="OperatorPatch.Shape"/> is the elliptic parameter m (0 is a sine, towards 0.999999 ever more odd
+    /// harmonics) and whose <see cref="OperatorPatch.Morph"/> crossfades from sn (0) to the peak-normalized sd (1).
+    /// </summary>
+    Elliptic,
+
     /// <summary>Sum of harmonics with individual levels.</summary>
     Additive,
 
@@ -152,10 +159,61 @@ public sealed record OperatorPatch(
 {
     /// <summary>
     /// Waveform shape parameter. For <see cref="OperatorWaveform.Pulse"/> it is the duty cycle, 0.01..0.99; for
-    /// <see cref="OperatorWaveform.FilteredNoise"/> the filter response, 0 (low-pass) to 1 (high-pass); other waveforms
-    /// ignore it and keep it within 0.01..0.99.
+    /// <see cref="OperatorWaveform.FilteredNoise"/> the filter response, 0 (low-pass) to 1 (high-pass); for
+    /// <see cref="OperatorWaveform.Elliptic"/> the elliptic parameter m, 0..<see cref="MaxEllipticM"/>; other
+    /// waveforms ignore it and keep it within 0.01..0.99.
     /// </summary>
     public double Shape { get; init; } = 0.5;
+
+    /// <summary>
+    /// Second waveform parameter, 0..1. For <see cref="OperatorWaveform.Elliptic"/> the crossfade from the
+    /// frequency-normalized sn (0) to the peak-normalized sd (1); other waveforms ignore it.
+    /// </summary>
+    public double Morph { get; init; }
+
+    /// <summary>
+    /// Phase roughness: radians of phase deviation per unit of the shared noise of the patch, for backends with a
+    /// shared noise source (<see cref="Profiles.SynthesisCapabilities.SupportsSharedNoise"/>); zero elsewhere.
+    /// </summary>
+    public double NoisePhase { get; init; }
+
+    /// <summary>
+    /// Spectral roughness of an elliptic operator: the shared noise moves its elliptic parameter by up to this much
+    /// around <see cref="Shape"/>, -1..1, the sign giving the direction; for backends with a shared noise source only.
+    /// </summary>
+    public double NoiseM { get; init; }
+
+    /// <summary>Largest elliptic parameter m: m = 1 has an infinite period and is no oscillator.</summary>
+    public const double MaxEllipticM = 0.999999;
+
+    /// <summary>
+    /// Elliptic parameter an operator gets when it becomes elliptic: m = 0.99, nome 0.26, so that every odd harmonic is
+    /// some 12 to 14 dB below the one before; clearly not a sine, still mellower than a square.
+    /// </summary>
+    public const double DefaultEllipticM = 0.99;
+
+    /// <summary>
+    /// This operator with another waveform and a shape that is valid for it: becoming elliptic sets m to
+    /// <see cref="DefaultEllipticM"/>, leaving elliptic sets the shape back to 0.5, and otherwise the shape is kept
+    /// within the range of the new waveform.
+    /// </summary>
+    /// <param name="waveform">New waveform.</param>
+    public OperatorPatch WithWaveform(OperatorWaveform waveform)
+    {
+        if (waveform == Waveform)
+        {
+            return this;
+        }
+
+        double shape = (Waveform, waveform) switch
+        {
+            (_, OperatorWaveform.Elliptic) => DefaultEllipticM,
+            (OperatorWaveform.Elliptic, _) => 0.5,
+            (_, OperatorWaveform.FilteredNoise) => Shape,
+            _ => Math.Clamp(Shape, 0.01, 0.99),
+        };
+        return this with { Waveform = waveform, Shape = shape };
+    }
 
     /// <summary>Largest number of harmonics a band-limited non-sine waveform is built from, 1..128; sine and noise ignore it.</summary>
     public int HarmonicLimit { get; init; } = 32;

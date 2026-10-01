@@ -63,7 +63,7 @@ public sealed class WaveformVariantPriorProvider : ISynthesisPriorProvider
                     OperatorPatch op = patch.Operators[i];
                     if (op.Enabled && patch.OutputLevels[i] != 0.0 && op.Waveform != waveform)
                     {
-                        patch = patch.WithOperator(i, op with { Waveform = waveform });
+                        patch = patch.WithOperator(i, op.WithWaveform(waveform));
                         changed = true;
                     }
                 }

@@ -1,3 +1,5 @@
+using HearSay.Synthesis.Oscillators;
+
 namespace HearSay.OperatorMatrix.Parameters;
 
 /// <summary>How a parameter takes part in a search.</summary>
@@ -47,6 +49,12 @@ public static class ParameterTransforms
     /// <param name="knee">Native value around which the axis changes from linear to logarithmic.</param>
     public static IParameterTransform SoftLogarithmic(double knee) => new SoftLogTransform(knee);
 
+    /// <summary>
+    /// The Jacobi nome of an elliptic parameter m: equal steps change the fall-off of the odd harmonics equally, where m
+    /// itself crowds all of the audible change into its last few thousandths.
+    /// </summary>
+    public static IParameterTransform EllipticNome { get; } = new NomeTransform();
+
     private sealed class LinearTransform : IParameterTransform
     {
         public double ToSearchSpace(double nativeValue) => nativeValue;
@@ -59,6 +67,13 @@ public static class ParameterTransforms
         public double ToSearchSpace(double nativeValue) => Math.Log(Math.Max(nativeValue, 1e-12));
 
         public double ToNativeSpace(double searchValue) => Math.Exp(searchValue);
+    }
+
+    private sealed class NomeTransform : IParameterTransform
+    {
+        public double ToSearchSpace(double nativeValue) => JacobiNome.FromParameter(nativeValue);
+
+        public double ToNativeSpace(double searchValue) => JacobiNome.ToParameter(searchValue);
     }
 
     private sealed class SoftLogTransform(double knee) : IParameterTransform

@@ -31,10 +31,11 @@ loop that finds synth parameters, backed by a runnable sample. This README is th
 phase-modulation patch that approximates it, renders a preview offline and exports a SuperCollider `FM7` SynthDef:
 `target.wav → patch.json + preview.wav + patch.scd`. The architecture is a generic *operator-matrix synth* solver;
 FM7 is its first synthesis profile, and the [FMX6 UGen](https://github.com/shimpe/fmx6) with band-limited
-triangle, saw, square, pulse and noise operators is the second (`--profile supercollider-fmx6`, or the target
-selector in HearSay Studio). See [Patch matching](#patch-matching) and the full
+triangle, saw, square, pulse and noise operators is the second (`--profile supercollider-fmx6`), and the Nome6 UGen
+with Jacobi elliptic operators and a shared noise source the third (`--profile supercollider-nome6`); the target
+selector in HearSay Studio picks one or all of them. See [Patch matching](#patch-matching) and the full
 [patch-matching documentation](docs/patch-matching.md). The [expert manual](docs/expert-manual.md) is the
-practical guide: preparing targets, target sets, choosing FM7 or FMX6, budget and seeds, reading results, Studio,
+practical guide: preparing targets, target sets, choosing FM7, FMX6 or Nome6, budget and seeds, reading results, Studio,
 the command line, the API, every search option, hand-editing patches and troubleshooting.
 
 ## Contents

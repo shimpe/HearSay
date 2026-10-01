@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using HearSay.Synthesis.Oscillators;
 using HearSay.Synthesis.Patches;
 
 namespace HearSay.Studio;
@@ -358,13 +359,27 @@ public sealed class FmDiagram : Control
         }
     }
 
-    /// <summary>Frequency, and waveform when it is not a sine, in a few characters.</summary>
+    /// <summary>Frequency, and waveform when it is not a sine, in a few characters; a tilde marks noise roughness.</summary>
     private static string Describe(OperatorPatch op)
     {
         string frequency = op.Frequency.Mode == OperatorFrequencyMode.Fixed
             ? op.Frequency.FixedFrequencyHz.ToString("0.#", CultureInfo.InvariantCulture) + " Hz"
             : "×" + op.Frequency.Ratio.ToString("0.###", CultureInfo.InvariantCulture);
-        return op.Waveform == OperatorWaveform.Sine ? frequency : frequency + " " + op.Waveform.ToString().ToLowerInvariant();
+        if (op.Waveform == OperatorWaveform.Elliptic)
+        {
+            // The nome is the brightness; the morph shows how far towards sd, when it is not plain sn.
+            string q = JacobiNome.FromParameter(op.Shape).ToString("0.##", CultureInfo.InvariantCulture);
+            string sd = op.Morph >= 0.005 ? " sd" + op.Morph.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+            frequency = $"{frequency} ell q{q}{sd}";
+        }
+        else if (op.Waveform != OperatorWaveform.Sine)
+        {
+            frequency += " " + op.Waveform.ToString().ToLowerInvariant();
+        }
+
+        // Roughened by the shared noise, in phase or in m.
+        bool rough = (op.NoisePhase != 0.0 && op.Waveform != OperatorWaveform.Noise) || (op.NoiseM != 0.0 && op.Waveform == OperatorWaveform.Elliptic);
+        return rough ? frequency + " ~" : frequency;
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using HearSay.Analysis;
 using HearSay.OperatorMatrix.Parameters;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.Synthesis.Patches;
+using HearSay.Synthesis.Oscillators;
 using HearSay.Partials;
 using HearSay.Synthesis.Profiles;
 
@@ -128,7 +129,7 @@ public sealed class TopologyMutator
                 continue;
             }
 
-            foreach ((OperatorWaveform waveform, double shape) in new[] { (OperatorWaveform.Sine, 0.5), (OperatorWaveform.Triangle, 0.5), (OperatorWaveform.Saw, 0.5), (OperatorWaveform.Square, 0.5), (OperatorWaveform.Pulse, 0.25) })
+            foreach ((OperatorWaveform waveform, double shape) in new[] { (OperatorWaveform.Sine, 0.5), (OperatorWaveform.Triangle, 0.5), (OperatorWaveform.Saw, 0.5), (OperatorWaveform.Square, 0.5), (OperatorWaveform.Pulse, 0.25), (OperatorWaveform.Elliptic, OperatorPatch.DefaultEllipticM) })
             {
                 if (waveform != current.Waveform && _capabilities.SupportedWaveforms.Contains(waveform))
                 {
@@ -144,6 +145,27 @@ public sealed class TopologyMutator
                     {
                         candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { HarmonicLimit = limit }), $"OP{op + 1} waveform harmonics {current.HarmonicLimit} -> {limit}"));
                     }
+                }
+            }
+
+            // Roughness from the shared noise, once per operator: a jittering phase, or for an elliptic operator a
+            // flickering m, for targets with some noise; the search tunes the amount from there.
+            bool rough = _capabilities.SupportsSharedNoise && analysis.Noise.Fraction >= 0.05;
+            if (rough && current.NoisePhase == 0.0)
+            {
+                candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { NoisePhase = 0.3 }), $"OP{op + 1} phase roughness"));
+            }
+
+            if (rough && current.Waveform == OperatorWaveform.Elliptic && current.NoiseM == 0.0)
+            {
+                candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { NoiseM = 0.1 }), $"OP{op + 1} elliptic roughness"));
+            }
+
+            if (current.Waveform == OperatorWaveform.Elliptic)
+            {
+                foreach (bool brighter in new[] { true, false })
+                {
+                    candidates.Add(new TopologyMutation(patch.WithOperator(op, current with { Shape = EllipticStep(current.Shape, brighter) }), $"OP{op + 1} elliptic {(brighter ? "brighter" : "darker")}"));
                 }
             }
         }
@@ -519,11 +541,18 @@ public sealed class TopologyMutator
                     }
                 }
 
+                if (present == OperatorWaveform.Elliptic && random.Next(2) == 0)
+                {
+                    // The nome of an elliptic operator is its brightness, as the harmonic limit is for the others.
+                    bool brighter = random.Next(2) == 0;
+                    return new TopologyMutation(patch.WithOperator(op, patch.Operators[op] with { Shape = EllipticStep(patch.Operators[op].Shape, brighter) }), $"OP{op + 1} elliptic {(brighter ? "brighter" : "darker")}");
+                }
+
                 if (_capabilities.SupportedWaveforms.Count > 1)
                 {
                     OperatorWaveform[] others = [.. _capabilities.SupportedWaveforms.Where(w => w != patch.Operators[op].Waveform).Order()];
                     OperatorWaveform waveform = others[random.Next(others.Length)];
-                    return new TopologyMutation(patch.WithOperator(op, patch.Operators[op] with { Waveform = waveform }), $"OP{op + 1} waveform {waveform}");
+                    return new TopologyMutation(patch.WithOperator(op, patch.Operators[op].WithWaveform(waveform)), $"OP{op + 1} waveform {waveform}");
                 }
 
                 if (_capabilities.SupportedModes.Count > 1)
@@ -627,6 +656,16 @@ public sealed class TopologyMutator
             result.Add(new TopologyMutation(patch.WithOperator(free, Noise(decaying)).WithOutputLevel(free, level * loudest), $"add OP{free + 1} white noise to the output"));
         }
 
+        // A shared noise source is coloured for the whole patch: the wash with the colour measured in the target.
+        if (_capabilities.SupportsSharedNoise && analysis.Noise.CentroidHz > 0)
+        {
+            SharedNoise colour = NoisePriorProvider.SharedColour(analysis.Noise.CentroidHz);
+            foreach (double level in new[] { 0.15, 0.4 })
+            {
+                result.Add(new TopologyMutation(patch.WithOperator(free, Noise(decaying)).WithOutputLevel(free, level * loudest) with { Noise = colour }, FormattableString.Invariant($"add OP{free + 1} shared noise towards {analysis.Noise.CentroidHz:0} Hz to the output")));
+            }
+        }
+
         result.Add(new TopologyMutation(patch.WithOperator(free, Noise(burst)).WithOutputLevel(free, 0.3 * loudest), $"add OP{free + 1} noise burst to the output"));
 
         int source = Array.FindIndex(audible, free + 1, static a => !a);
@@ -677,4 +716,15 @@ public sealed class TopologyMutator
     }
 
     private static string Text(double ratio) => ratio.ToString("0.##", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// An elliptic parameter one step brighter or darker: the nome, which every odd harmonic falls by, times or divided
+    /// by 1.6, between a near-sine and the largest m.
+    /// </summary>
+    private static double EllipticStep(double m, bool brighter)
+    {
+        double q = Math.Max(JacobiNome.FromParameter(m), 0.01);
+        double stepped = Math.Clamp(brighter ? q * 1.6 : q / 1.6, 0.005, JacobiNome.FromParameter(OperatorPatch.MaxEllipticM));
+        return Math.Min(JacobiNome.ToParameter(stepped), OperatorPatch.MaxEllipticM);
+    }
 }

@@ -6,7 +6,7 @@ namespace HearSay.OperatorMatrix.Priors;
 
 /// <summary>
 /// For profiles with band-limited waveforms: the best hypotheses of another provider with one modulator at a time
-/// turned into a triangle, saw, square or narrow pulse. A modulator with harmonics puts its sidebands on the same grid
+/// turned into a triangle, saw, square, narrow pulse or elliptic waveform. A modulator with harmonics puts its sidebands on the same grid
 /// as a sine modulator at the same ratio, so sideband arithmetic finds the ratios of such a structure and misses only
 /// the waveform; without this the search imitates the richer modulator with feedback on a sine.
 /// </summary>
@@ -18,6 +18,8 @@ public sealed class ModulatorWaveformPriorProvider : ISynthesisPriorProvider
         (OperatorWaveform.Saw, 0.5),
         (OperatorWaveform.Square, 0.5),
         (OperatorWaveform.Pulse, 0.25),
+        (OperatorWaveform.Elliptic, OperatorPatch.DefaultEllipticM),
+        (OperatorWaveform.Elliptic, 0.99999),
     ];
 
     private readonly ISynthesisPriorProvider _inner;

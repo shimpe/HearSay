@@ -6,9 +6,11 @@ using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.SuperCollider.FM7;
 using HearSay.SuperCollider.FMX6;
+using HearSay.SuperCollider.Nome6;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Fm7Compatible.Rendering;
 using HearSay.Synthesis.Fmx6Compatible.Rendering;
+using HearSay.Synthesis.Nome6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -35,6 +37,11 @@ public static class SynthesisBackends
         if (profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderFmx6.Capabilities))
         {
             return new Fmx6CompatibleOperatorMatrixRenderer(profile);
+        }
+
+        if (profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderNome6.Capabilities))
+        {
+            return new Nome6CompatibleOperatorMatrixRenderer(profile);
         }
 
         if (profile.RenderProfile == RenderProfile.ExperimentalHighQuality
@@ -82,7 +89,12 @@ public static class SynthesisBackends
             return new SuperColliderFm7Exporter();
         }
 
-        return profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderFmx6.Capabilities) ? new SuperColliderFmx6Exporter() : null;
+        if (profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderFmx6.Capabilities))
+        {
+            return new SuperColliderFmx6Exporter();
+        }
+
+        return profile.Capabilities.IsSubsetOf(SynthesisProfiles.SuperColliderNome6.Capabilities) ? new SuperColliderNome6Exporter() : null;
     }
 }
 

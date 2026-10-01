@@ -99,6 +99,11 @@ that fits none of them.
 | --- | --- | --- | --- |
 | `supercollider-fm7` (default) | 6 sine, full matrix, self and circular feedback, ratio or fixed frequency, independent outputs, dynamic matrix | – | sc3-plugins (`FM7`) |
 | `supercollider-fmx6` | the same, plus triangle, saw, square, pulse, white noise and sample-and-hold noise | harmonic limit 1..128 (brightness of a band-limited wave), pulse duty cycle (`Shape`) | the [FMX6 plugin](https://github.com/shimpe/fmx6) |
+| `supercollider-nome6` | the FM7 matrix with Jacobi elliptic operators, 2x oversampled, plus noise operators on one shared noise source | elliptic parameter m (`Shape`, 0 = sine), sn-to-sd morph (`Morph`), phase and m roughness by the noise (`NoisePhase`, `NoiseM`); per patch the noise colour and cutoff (`Noise`) | the Nome6 plugin with noise |
+
+When to pick Nome6: odd harmonics that fall geometrically (a reed, a clarinet-like or hollow tone), where one elliptic
+operator replaces a stack, or a tone with noisy roughness rather than a separate noise wash. Its noise is seeded per
+synth in SuperCollider, so a noisy Nome6 export sounds alike, not sample-identical, to the preview.
 
 When to pick FMX6: the target has a dense harmonic series that falls slowly (saw-like), odd harmonics only
 (square or triangle-like), a pulse-like spectrum with notches, or a noisy attack. The harmonic-waveform prior reads
@@ -201,13 +206,13 @@ one-shot envelopes only frees itself after the longest one, so it can be played 
 
 Studio is the library with a window around it. Everything it does is available in the API.
 
-**Header.** Target (FM7, FMX6, or FM7 & FMX6), Budget, Seed, Seeds, Run, Stop. Stop returns the best patch found so
+**Header.** Target (FM7, FMX6, Nome6, or All), Budget, Seed, Seeds, Run, Stop. Stop returns the best patch found so
 far; the progress bar shows the run within the seeds and the stage within the run.
 
 Every target keeps its last result for the current target set: search under FM7, switch the Target selector to
 FMX6, search again, and switch back and forth to compare the two by ear on the keyboard, in the matrix and in the
-code. "FM7 & FMX6" runs both searches one after the other with the full budget and seeds each, keeps both results
-and shows the one with the lower loss; the status line has both losses and similarities, and selecting a single
+code. "All" runs the three searches one after the other with the full budget and seeds each, keeps every result
+and shows the one with the lowest loss; the status line has all losses and similarities, and selecting a single
 target shows that one. The result header says which results are kept; adding a target file discards them all.
 
 **Target notes.** Add one or more WAV files; each is analysed at once and shows its fundamental, length, note-off,
@@ -381,9 +386,10 @@ File.WriteAllText("patch.scd", new SuperColliderFmx6Exporter().Export(patch));
 Per operator: `Enabled`, `Mode`, `Waveform`, `Frequency` (`AtRatio(r)` or `AtFixed(hz)`), `FineTuneCents`,
 `DetuneHz`, `InitialPhase`, `AmplitudeEnvelope` (points with level, time, curve and an optional sustain point;
 `Adsr`, `TwoStageDecay` and `Constant` build common ones), `VelocitySensitivity`, `KeyScaling` (level dB per octave,
-rate per octave, reference note), and for FMX6 `Shape` (pulse duty) and `HarmonicLimit`. Per patch: `OutputLevels`,
-`ModulationMatrix` (edges `SourceOperator`, `DestinationOperator`, `Enabled`, `Amount` in radians, optional
-`AmountEnvelope`), `Pitch` (envelope and vibrato).
+rate per octave, reference note), for FMX6 `Shape` (pulse duty) and `HarmonicLimit`, and for Nome6 `Shape`
+(elliptic m), `Morph`, `NoisePhase` and `NoiseM`. Per patch: `OutputLevels`, `ModulationMatrix` (edges
+`SourceOperator`, `DestinationOperator`, `Enabled`, `Amount` in radians, optional `AmountEnvelope`), `Pitch`
+(envelope and vibrato) and, for Nome6, `Noise` (colour and cutoff of the shared noise).
 
 Validation refuses what no backend can play (amounts beyond the profile's radians per destination, shapes outside
 0.01..0.99, harmonic limits outside 1..128); the exporter of a profile refuses what that UGen lacks (a saw operator

@@ -23,6 +23,11 @@ public sealed class CompiledOperatorMatrixPatch
         float[][] amplitudes,
         float[] phases,
         float[] shapes,
+        float[] morphs,
+        float[] noisePhases,
+        float[] noiseMs,
+        float noiseColor,
+        float noiseCutoffHz,
         int[] harmonicLimits,
         float[] outputGains,
         int[] edgeSources,
@@ -39,6 +44,11 @@ public sealed class CompiledOperatorMatrixPatch
         Amplitudes = amplitudes;
         Phases = phases;
         Shapes = shapes;
+        Morphs = morphs;
+        NoisePhases = noisePhases;
+        NoiseMs = noiseMs;
+        NoiseColor = noiseColor;
+        NoiseCutoffHz = noiseCutoffHz;
         HarmonicLimits = harmonicLimits;
         OutputGains = outputGains;
         EdgeSources = edgeSources;
@@ -79,8 +89,23 @@ public sealed class CompiledOperatorMatrixPatch
     /// <summary>Phase offset in radians per audible operator.</summary>
     public float[] Phases { get; }
 
-    /// <summary>Waveform shape per audible operator (pulse duty cycle).</summary>
+    /// <summary>Waveform shape per audible operator (pulse duty cycle, filter response, elliptic parameter m).</summary>
     public float[] Shapes { get; }
+
+    /// <summary>Second waveform parameter per audible operator (elliptic sn-to-sd morph).</summary>
+    public float[] Morphs { get; }
+
+    /// <summary>Phase roughness per audible operator, radians per unit of shared noise.</summary>
+    public float[] NoisePhases { get; }
+
+    /// <summary>Elliptic-parameter roughness per audible operator.</summary>
+    public float[] NoiseMs { get; }
+
+    /// <summary>Colour of the shared noise, -1..1.</summary>
+    public float NoiseColor { get; }
+
+    /// <summary>Crossover of the shared noise filter in hertz.</summary>
+    public float NoiseCutoffHz { get; }
 
     /// <summary>Harmonic limit per audible operator.</summary>
     public int[] HarmonicLimits { get; }
@@ -148,6 +173,9 @@ public static class PatchCompiler
         var amplitudes = new float[n][];
         var phases = new float[n];
         var shapes = new float[n];
+        var morphs = new float[n];
+        var noisePhases = new float[n];
+        var noiseMs = new float[n];
         var harmonicLimits = new int[n];
         var gains = new float[n];
         for (int k = 0; k < n; k++)
@@ -156,6 +184,9 @@ public static class PatchCompiler
             waveforms[k] = op.Waveform;
             phases[k] = (float)op.InitialPhase;
             shapes[k] = (float)op.Shape;
+            morphs[k] = (float)op.Morph;
+            noisePhases[k] = (float)op.NoisePhase;
+            noiseMs[k] = (float)op.NoiseM;
             harmonicLimits[k] = op.HarmonicLimit;
             gains[k] = (float)patch.OutputLevels[indices[k]];
 
@@ -211,6 +242,11 @@ public static class PatchCompiler
             amplitudes,
             phases,
             shapes,
+            morphs,
+            noisePhases,
+            noiseMs,
+            (float)patch.Noise.Color,
+            (float)patch.Noise.CutoffHz,
             harmonicLimits,
             gains,
             [.. sources],

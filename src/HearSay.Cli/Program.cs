@@ -23,7 +23,7 @@ internal static class Cli
                                                    --seconds 1.0 --release 0.3 --output dir
 
         Options for match:
-          --profile <name>     synthesis profile: supercollider-fm7 (default) or supercollider-fmx6
+          --profile <name>     synthesis profile: supercollider-fm7 (default), supercollider-fmx6 or supercollider-nome6
           --budget <n>         number of candidate evaluations; one evaluation renders every target note (default 20000)
           --seed <n>           random seed (default 1234)
           --seeds <n>          run n consecutive seeds with the full budget each; the best wins, the finalists of all seeds become alternatives (default 1)

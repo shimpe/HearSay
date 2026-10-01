@@ -43,12 +43,13 @@ public sealed class ProfileNameConverter : IValueConverter
 {
     public static ProfileNameConverter Instance { get; } = new();
 
-    /// <summary>Short label of a profile name: the part after the last dash, upper case.</summary>
+    /// <summary>Short label of a profile name: the part after the last dash, upper case, except Nome6, which is a name.</summary>
     /// <param name="name">Profile name, for example <c>supercollider-fmx6</c>.</param>
     public static string Short(string name)
     {
         int dash = name.LastIndexOf('-');
-        return (dash >= 0 ? name[(dash + 1)..] : name).ToUpperInvariant();
+        string last = dash >= 0 ? name[(dash + 1)..] : name;
+        return string.Equals(last, "nome6", StringComparison.OrdinalIgnoreCase) ? "Nome6" : last.ToUpperInvariant();
     }
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Short(value as string ?? string.Empty);

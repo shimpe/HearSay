@@ -30,6 +30,18 @@ public sealed record PitchModel(OperatorEnvelope? PitchEnvelope = null, LfoSetti
 }
 
 /// <summary>
+/// The noise source that all operators of a patch share in backends that have one: white noise through a one-pole
+/// crossover, low-passed towards <paramref name="Color"/> -1, high-passed towards +1.
+/// </summary>
+/// <param name="Color">-1 (low-passed) through 0 (white) to 1 (high-passed).</param>
+/// <param name="CutoffHz">Crossover frequency of the one-pole filter, 5..20000 Hz.</param>
+public sealed record SharedNoise(double Color = 0.0, double CutoffHz = 8000.0)
+{
+    /// <summary>White noise; the cutoff is the UGen default.</summary>
+    public static SharedNoise White { get; } = new();
+}
+
+/// <summary>
 /// Canonical description of an operator-matrix synthesizer patch and the single source of truth for the search, the
 /// reference renderer, the JSON format and every backend exporter. Which operator counts, waveforms, modes and
 /// routings are allowed is decided by a <see cref="Profiles.SynthesisProfile"/>, never by this model.
@@ -47,6 +59,12 @@ public sealed record OperatorMatrixPatch(
     /// <summary>Number of operators.</summary>
     [JsonIgnore]
     public int OperatorCount => Operators.Count;
+
+    /// <summary>
+    /// Colour of the noise source that all operators share, for backends that have one
+    /// (<see cref="Profiles.SynthesisCapabilities.SupportsSharedNoise"/>); other backends ignore it.
+    /// </summary>
+    public SharedNoise Noise { get; init; } = SharedNoise.White;
 
     /// <summary>Creates a patch of disabled sine operators without routing.</summary>
     /// <param name="operatorCount">Number of operators.</param>
@@ -143,6 +161,11 @@ public sealed record OperatorMatrixPatch(
             }
         }
 
+        if (Noise is not { Color: >= -1.0 and <= 1.0, CutoffHz: >= 5.0 and <= 20000.0 })
+        {
+            problems.Add("The shared noise needs a colour between -1 and 1 and a cutoff between 5 and 20000 Hz.");
+        }
+
         if (ModulationMatrix is null || ModulationMatrix.OperatorCount != Operators.Count)
         {
             problems.Add("The modulation matrix must have one row and one column per operator.");
@@ -190,13 +213,29 @@ public sealed record OperatorMatrixPatch(
                 problems.Add($"OP{i + 1} needs a fixed frequency of zero or more.");
             }
 
-            if (op.Waveform == OperatorWaveform.FilteredNoise
-                ? op.Shape is < 0.0 or > 1.0 || !double.IsFinite(op.Shape)
-                : op.Shape is < 0.01 or > 0.99 || !double.IsFinite(op.Shape))
+            if (op.Waveform switch
+                {
+                    OperatorWaveform.FilteredNoise => op.Shape is < 0.0 or > 1.0 || !double.IsFinite(op.Shape),
+                    OperatorWaveform.Elliptic => op.Shape is < 0.0 or > OperatorPatch.MaxEllipticM || !double.IsFinite(op.Shape),
+                    _ => op.Shape is < 0.01 or > 0.99 || !double.IsFinite(op.Shape),
+                })
             {
-                problems.Add(op.Waveform == OperatorWaveform.FilteredNoise
-                    ? $"OP{i + 1} filter shape must be between 0 and 1."
-                    : $"OP{i + 1} shape must be between 0.01 and 0.99.");
+                problems.Add(op.Waveform switch
+                {
+                    OperatorWaveform.FilteredNoise => $"OP{i + 1} filter shape must be between 0 and 1.",
+                    OperatorWaveform.Elliptic => $"OP{i + 1} elliptic parameter m must be between 0 and {OperatorPatch.MaxEllipticM}.",
+                    _ => $"OP{i + 1} shape must be between 0.01 and 0.99.",
+                });
+            }
+
+            if (op.Morph is < 0.0 or > 1.0 || !double.IsFinite(op.Morph))
+            {
+                problems.Add($"OP{i + 1} morph must be between 0 and 1.");
+            }
+
+            if (op.NoiseM is < -1.0 or > 1.0 || !double.IsFinite(op.NoiseM) || !double.IsFinite(op.NoisePhase))
+            {
+                problems.Add($"OP{i + 1} needs a finite phase noise and an m noise between -1 and 1.");
             }
 
             if (op.HarmonicLimit is < 1 or > 128)

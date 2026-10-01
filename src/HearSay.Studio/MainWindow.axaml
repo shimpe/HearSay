@@ -102,7 +102,7 @@
           <local:HearSayLogo Width="44" Height="44" />
           <StackPanel>
             <TextBlock Text="HearSay Studio" FontSize="20" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" />
-            <TextBlock Text="audio → six-operator patch → SuperCollider FM7 or FMX6" Classes="muted" FontSize="12" />
+            <TextBlock Text="audio → six-operator patch → SuperCollider FM7, FMX6 or Nome6" Classes="muted" FontSize="12" />
           </StackPanel>
         </StackPanel>
         <!-- Options and run -->
@@ -118,7 +118,7 @@
           </WrapPanel.Styles>
           <!-- Each label stays with its control when the row wraps. -->
           <StackPanel Orientation="Horizontal" Spacing="10">
-            <TextBlock Classes="label" Text="Target" ToolTip.Tip="SuperCollider UGen the patch is searched for and exported to. FM7 (sc3-plugins): sine operators. FMX6 (github.com/shimpe/fmx6): sine, triangle, saw, square, pulse and noise operators. FM7 &amp; FMX6: both, one after the other with the full budget each; every target keeps its result." />
+            <TextBlock Classes="label" Text="Target" ToolTip.Tip="SuperCollider UGen the patch is searched for and exported to. FM7 (sc3-plugins): sine operators. FMX6 (github.com/shimpe/fmx6): sine, triangle, saw, square, pulse and noise operators. Nome6: Jacobi elliptic operators, from a sine to strong odd harmonics, morphing from sn to sd. All: the three, one after the other with the full budget each; every target keeps its result." />
             <ComboBox Width="130" ItemsSource="{Binding SynthesisTargets}" SelectedItem="{Binding SelectedSynthesisTarget}" IsEnabled="{Binding !IsRunning}">
               <ComboBox.ItemTemplate>
                 <DataTemplate x:DataType="local:SynthesisTargetChoice">

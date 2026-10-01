@@ -30,6 +30,11 @@ public enum RenderProfile
 /// Largest total phase deviation, the sum of the absolute amounts that arrive at one operator, the backend handles
 /// without numerical trouble.
 /// </param>
+/// <param name="SupportsSharedNoise">
+/// One noise source shared by all operators, coloured by <see cref="OperatorMatrixPatch.Noise"/>, that noise operators
+/// play and that roughens the phase (<see cref="OperatorPatch.NoisePhase"/>) and the elliptic parameter
+/// (<see cref="OperatorPatch.NoiseM"/>) of the others.
+/// </param>
 public sealed record SynthesisCapabilities(
     int OperatorCount,
     IReadOnlySet<OperatorMode> SupportedModes,
@@ -41,7 +46,8 @@ public sealed record SynthesisCapabilities(
     bool SupportsRatioFrequency,
     bool SupportsFixedFrequency,
     bool SupportsIndependentOperatorOutputs,
-    double MaxModulationRadiansPerDestination = 24.0)
+    double MaxModulationRadiansPerDestination = 24.0,
+    bool SupportsSharedNoise = false)
 {
     /// <summary>True when everything this set allows is also allowed by <paramref name="other"/>.</summary>
     /// <param name="other">Capabilities of, for example, a renderer.</param>
@@ -58,7 +64,8 @@ public sealed record SynthesisCapabilities(
             && (!SupportsRatioFrequency || other.SupportsRatioFrequency)
             && (!SupportsFixedFrequency || other.SupportsFixedFrequency)
             && (!SupportsIndependentOperatorOutputs || other.SupportsIndependentOperatorOutputs)
-            && MaxModulationRadiansPerDestination <= other.MaxModulationRadiansPerDestination;
+            && MaxModulationRadiansPerDestination <= other.MaxModulationRadiansPerDestination
+            && (!SupportsSharedNoise || other.SupportsSharedNoise);
     }
 }
 
@@ -126,6 +133,23 @@ public static class SynthesisProfiles
         "Six operators with sine, triangle, saw, square, pulse, noise and filtered-noise waveforms, full 6x6 matrix, SuperCollider FMX6 UGen.");
 
     /// <summary>
+    /// Six phase-modulation operators that are Jacobi elliptic oscillators, as played by the <c>Nome6</c> UGen: a
+    /// sine (m = 0) or an odd-harmonic elliptic waveform per operator, morphing from sn to the peak-normalized sd, over
+    /// the same full matrix as FM7, rendered at twice the sample rate, and one filtered noise source that noise operators
+    /// play and that roughens the phase and the elliptic parameter of the others. Needs the Nome6 plugin with noise.
+    /// </summary>
+    public static SynthesisProfile SuperColliderNome6 { get; } = new(
+        "supercollider-nome6",
+        SuperColliderFm7.Capabilities with
+        {
+            SupportedWaveforms = new HashSet<OperatorWaveform> { OperatorWaveform.Sine, OperatorWaveform.Elliptic, OperatorWaveform.Noise },
+            SupportsSharedNoise = true,
+        },
+        RenderProfile.BackendExact,
+        ControlBlockSize: 64,
+        "Six Jacobi elliptic phase-modulation operators (sine at m = 0) and a shared filtered noise source, full 6x6 matrix, 2x oversampled, SuperCollider Nome6 UGen.");
+
+    /// <summary>
     /// Experimental profile that adds triangle operators. It exists to prove that waveform is a structural search
     /// dimension and that backends reject what they cannot play; it has no export backend yet.
     /// </summary>
@@ -154,7 +178,7 @@ public static class SynthesisProfiles
         "Reserved: six operators with arbitrary waveforms for a future custom UGen.");
 
     /// <summary>All built-in profiles.</summary>
-    public static IReadOnlyList<SynthesisProfile> All { get; } = [SuperColliderFm7, SuperColliderFmx6, ExperimentalSineTriangle, HearSayExtended];
+    public static IReadOnlyList<SynthesisProfile> All { get; } = [SuperColliderFm7, SuperColliderFmx6, SuperColliderNome6, ExperimentalSineTriangle, HearSayExtended];
 
     /// <summary>Finds a built-in profile by name, ignoring case; null when unknown.</summary>
     /// <param name="name">Profile name.</param>

@@ -117,9 +117,25 @@ public sealed class NoisePriorProvider : ISynthesisPriorProvider
 
                 OperatorMatrixPatch parallel = patch.WithOperator(free[^1], whiteNoise).WithOutputLevel(free[^1], level);
                 result.Add(new PatchHypothesis(parallel, hypothesis.PriorScore - 0.01, $"{hypothesis.Origin} + white noise ({label})"));
+                if (capabilities.SupportsSharedNoise)
+                {
+                    // One shared noise for the whole patch, coloured towards the measured centroid.
+                    result.Add(new PatchHypothesis(parallel with { Noise = SharedColour(centroid) }, hypothesis.PriorScore, $"{hypothesis.Origin} + shared noise towards {colour} ({label})"));
+                }
             }
         }
 
         return result;
     }
+
+    /// <summary>
+    /// A colour of the shared one-pole noise whose centroid lies near <paramref name="centroidHz"/>. White noise at
+    /// 48 kHz has its centroid near 11 kHz; the gentle slope of a one-pole low-pass leaves the centroid of fully
+    /// low-passed noise at about three times its cutoff, and a high-pass lifts it a little above that of white noise.
+    /// </summary>
+    /// <param name="centroidHz">Centroid of the noise of the target.</param>
+    public static SharedNoise SharedColour(double centroidHz) =>
+        centroidHz < 10000.0
+            ? new SharedNoise(-1.0, Math.Clamp(Math.Round(centroidHz / 3.0), 20.0, 20000.0))
+            : new SharedNoise(0.8, 2000.0);
 }

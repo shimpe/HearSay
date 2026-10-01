@@ -78,7 +78,7 @@ public sealed class PatchParameterSchema
 
             list.Add(Structural(id + ".enabled", group, [0, 1], p => p.Operators[op].Enabled ? 1 : 0, (p, v) => p.WithOperator(op, p.Operators[op] with { Enabled = v >= 0.5 }), static _ => true));
             list.Add(Structural(id + ".mode", group, modes, p => (int)p.Operators[op].Mode, (p, v) => p.WithOperator(op, p.Operators[op] with { Mode = (OperatorMode)(int)v }), Enabled));
-            list.Add(Structural(id + ".waveform", group, waveforms, p => (int)p.Operators[op].Waveform, (p, v) => p.WithOperator(op, p.Operators[op] with { Waveform = (OperatorWaveform)(int)v }), Enabled));
+            list.Add(Structural(id + ".waveform", group, waveforms, p => (int)p.Operators[op].Waveform, (p, v) => p.WithOperator(op, p.Operators[op].WithWaveform((OperatorWaveform)(int)v)), Enabled));
             if (capabilities.SupportedWaveforms.Contains(OperatorWaveform.Pulse))
             {
                 // The duty cycle only shapes a pulse; the other waveforms ignore it.
@@ -89,6 +89,21 @@ public sealed class PatchParameterSchema
             {
                 // The response of filtered noise, from low-pass through band-pass to high-pass; its cutoff is the frequency.
                 list.Add(Smooth(id + ".filter", group, 0.0, 1.0, ParameterTransforms.Linear, p => p.Operators[op].Shape, (p, v) => p.WithOperator(op, p.Operators[op] with { Shape = v }), p => Audible(p) && p.Operators[op].Waveform == OperatorWaveform.FilteredNoise));
+            }
+
+            if (capabilities.SupportedWaveforms.Contains(OperatorWaveform.Elliptic))
+            {
+                // The elliptic parameter m, searched along its nome, and the morph from sn to the peak-normalized sd.
+                list.Add(Smooth(id + ".elliptic", group, 0.0, OperatorPatch.MaxEllipticM, ParameterTransforms.EllipticNome, p => p.Operators[op].Shape, (p, v) => p.WithOperator(op, p.Operators[op] with { Shape = Math.Clamp(v, 0.0, OperatorPatch.MaxEllipticM) }), p => Audible(p) && p.Operators[op].Waveform == OperatorWaveform.Elliptic));
+                list.Add(Smooth(id + ".morph", group, 0.0, 1.0, ParameterTransforms.Linear, p => p.Operators[op].Morph, (p, v) => p.WithOperator(op, p.Operators[op] with { Morph = Math.Clamp(v, 0.0, 1.0) }), p => Audible(p) && p.Operators[op].Waveform == OperatorWaveform.Elliptic));
+            }
+
+            if (capabilities.SupportsSharedNoise)
+            {
+                // Roughness by the shared noise exists once a mutation or a prior has given an operator some; the
+                // search then tunes it, and leaves the many clean operators out of its space.
+                list.Add(Smooth(id + ".noisePhase", group, 0.0, 4.0, ParameterTransforms.SoftLogarithmic(0.1), p => p.Operators[op].NoisePhase, (p, v) => p.WithOperator(op, p.Operators[op] with { NoisePhase = Math.Max(v, 1e-4) }), p => Audible(p) && p.Operators[op].NoisePhase != 0.0 && p.Operators[op].Waveform != OperatorWaveform.Noise));
+                list.Add(Smooth(id + ".noiseM", group, -1.0, 1.0, ParameterTransforms.SoftLogarithmic(0.05), p => p.Operators[op].NoiseM, (p, v) => p.WithOperator(op, p.Operators[op] with { NoiseM = Math.Clamp(v, -1.0, 1.0) is var m && m != 0.0 ? m : 1e-4 }), p => Audible(p) && p.Operators[op].NoiseM != 0.0 && p.Operators[op].Waveform == OperatorWaveform.Elliptic));
             }
 
             string frequency = group + "/Frequency";
@@ -202,7 +217,33 @@ public sealed class PatchParameterSchema
             list.Add(Smooth("pitch.vibrato.fadeIn", vibrato, 0.0, 2.0, ParameterTransforms.SoftLogarithmic(0.05), static p => p.Pitch.Vibrato?.FadeInSeconds ?? 0.0, static (p, v) => p with { Pitch = p.Pitch with { Vibrato = p.Pitch.Vibrato! with { FadeInSeconds = v } } }, HasVibrato));
         }
 
+        if (capabilities.SupportsSharedNoise)
+        {
+            // The colour of the shared noise matters once an operator plays it or is roughened by it.
+            const string noiseGroup = "Patch/Shared Noise";
+            list.Add(Smooth("noise.color", noiseGroup, -1.0, 1.0, ParameterTransforms.Linear, static p => p.Noise.Color, static (p, v) => p with { Noise = p.Noise with { Color = Math.Clamp(v, -1.0, 1.0) } }, UsesSharedNoise));
+            list.Add(Smooth("noise.cutoff", noiseGroup, 20.0, 20000.0, ParameterTransforms.Logarithmic, static p => p.Noise.CutoffHz, static (p, v) => p with { Noise = p.Noise with { CutoffHz = Math.Clamp(v, 20.0, 20000.0) } }, UsesSharedNoise));
+        }
+
         return new PatchParameterSchema(list);
+    }
+
+    /// <summary>True when an audible operator plays the shared noise or is roughened by it.</summary>
+    /// <param name="patch">Patch.</param>
+    public static bool UsesSharedNoise(OperatorMatrixPatch patch)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        bool[] audible = patch.FindAudibleOperators();
+        for (int i = 0; i < patch.OperatorCount; i++)
+        {
+            OperatorPatch op = patch.Operators[i];
+            if (audible[i] && (op.Waveform == OperatorWaveform.Noise || op.NoisePhase != 0.0 || (op.Waveform == OperatorWaveform.Elliptic && op.NoiseM != 0.0)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void AddEnvelope(

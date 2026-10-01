@@ -1,6 +1,7 @@
 using HearSay.Analysis;
 using HearSay.Partials;
 using HearSay.Synthesis.Patches;
+using HearSay.Synthesis.Oscillators;
 using HearSay.Synthesis.Profiles;
 
 namespace HearSay.OperatorMatrix.Priors;
@@ -21,6 +22,7 @@ public sealed class HarmonicWaveformPriorProvider : ISynthesisPriorProvider
     private const int Harmonics = 24;
     private static readonly int[] HarmonicLimits = [16, 32, 64, 128];
     private static readonly double[] PulseDuties = [0.1, 0.2, 0.3];
+    private static readonly double[] EllipticNomes = [0.03, 0.06, 0.1, 0.15, 0.21, 0.3, 0.4, 0.5];
 
     /// <inheritdoc />
     public string Name => "harmonic-waveforms";
@@ -56,6 +58,14 @@ public sealed class HarmonicWaveformPriorProvider : ISynthesisPriorProvider
                     }
 
                     break;
+                case OperatorWaveform.Elliptic when harmonic:
+                    // The best of a ladder of nomes: odd harmonics falling by q per step.
+                    (double M, double Match) best = EllipticNomes
+                        .Select(q => JacobiNome.ToParameter(q))
+                        .Select(m => (m, Match(target, Ideal(waveform, m))))
+                        .MaxBy(static c => c.Item2);
+                    ranked.Add((waveform, best.M, best.Match));
+                    break;
             }
         }
 
@@ -72,8 +82,27 @@ public sealed class HarmonicWaveformPriorProvider : ISynthesisPriorProvider
 
             proposed++;
             double score = 0.45 + (0.3 * match);
-            string name = waveform == OperatorWaveform.Pulse ? FormattableString.Invariant($"pulse {shape:0.##}") : waveform.ToString().ToLowerInvariant();
-            foreach (int limit in HarmonicLimits)
+            string name = waveform switch
+            {
+                OperatorWaveform.Pulse => FormattableString.Invariant($"pulse {shape:0.##}"),
+                OperatorWaveform.Elliptic => FormattableString.Invariant($"elliptic q {JacobiNome.FromParameter(shape):0.###}"),
+                _ => waveform.ToString().ToLowerInvariant(),
+            };
+            if (waveform == OperatorWaveform.Elliptic)
+            {
+                // The harmonic limit means nothing to an elliptic operator; its brightness is the nome, so the best
+                // nome and its neighbours, in sn and in sd.
+                double q = JacobiNome.FromParameter(shape);
+                foreach ((double factor, double morph, int rank) in new[] { (1.0, 0.0, 0), (1.0, 1.0, 1), (1.0 / 1.4, 0.0, 2), (1.4, 0.0, 3) })
+                {
+                    double m = Math.Min(JacobiNome.ToParameter(q * factor), OperatorPatch.MaxEllipticM);
+                    OperatorPatch op = Carrier(waveform, m, 32, output) with { Morph = morph };
+                    OperatorMatrixPatch single = OperatorMatrixPatch.Silent(capabilities.OperatorCount).WithOperator(0, op).WithOutputLevel(0, 0.8);
+                    hypotheses.Add(new PatchHypothesis(single, score - (0.005 * rank), FormattableString.Invariant($"single elliptic q {q * factor:0.###} {(morph > 0 ? "sd" : "sn")}")));
+                }
+            }
+
+            foreach (int limit in waveform == OperatorWaveform.Elliptic ? [] : HarmonicLimits)
             {
                 OperatorPatch op = Carrier(waveform, shape, limit, output);
                 OperatorMatrixPatch single = OperatorMatrixPatch.Silent(capabilities.OperatorCount).WithOperator(0, op).WithOutputLevel(0, 0.8);
@@ -185,6 +214,7 @@ public sealed class HarmonicWaveformPriorProvider : ISynthesisPriorProvider
                 OperatorWaveform.Square => (n & 1) != 0 ? 1.0 / n : 0.0,
                 OperatorWaveform.Triangle => (n & 1) != 0 ? 1.0 / (n * (double)n) : 0.0,
                 OperatorWaveform.Pulse => Math.Abs(Math.Sin(Math.PI * n * shape)) / n,
+                OperatorWaveform.Elliptic => (n & 1) != 0 ? EllipticHarmonic(JacobiNome.FromParameter(shape), (n - 1) / 2) : 0.0,
                 _ => n == 1 ? 1.0 : 0.0,
             };
         }
@@ -212,6 +242,18 @@ public sealed class HarmonicWaveformPriorProvider : ISynthesisPriorProvider
         return na > 0 && nb > 0 ? dot / Math.Sqrt(na * nb) : 0.0;
     }
 
+
+    /// <summary>Level of odd harmonic 2i + 1 of an elliptic sn waveform with nome q, relative to the fundamental.</summary>
+    private static double EllipticHarmonic(double q, int i)
+    {
+        if (q <= 0.0)
+        {
+            return i == 0 ? 1.0 : 0.0;
+        }
+
+        double first = Math.Sqrt(q) / (1.0 - q);
+        return Math.Pow(q, i + 0.5) / (1.0 - Math.Pow(q, (2 * i) + 1)) / first;
+    }
     private static OperatorPatch Carrier(OperatorWaveform waveform, double shape, int harmonicLimit, OperatorEnvelope envelope) =>
         OperatorPatch.Sine(OperatorFrequency.AtRatio(1), envelope) with { Waveform = waveform, Shape = shape, HarmonicLimit = harmonicLimit };
 }

@@ -3,8 +3,10 @@ using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.SuperCollider.FM7;
 using HearSay.SuperCollider.FMX6;
+using HearSay.SuperCollider.Nome6;
 using HearSay.Synthesis.Fm7Compatible.Rendering;
 using HearSay.Synthesis.Fmx6Compatible.Rendering;
+using HearSay.Synthesis.Nome6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -178,6 +180,34 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
         // Every FM7 patch is an FMX6 patch: the sine-only search of the same target exports to both.
         PatchMatchResult fm7 = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { EvaluationBudget = 1500 });
         Assert.Contains("waves: [0, 0, 0, 0, 0, 0]", new SuperColliderFmx6Exporter().Export(fm7.BestPatch));
+    }
+
+    [Fact]
+    public void Nome6Profile_FindsAnEllipticOperatorThatFm7CannotPlay()
+    {
+        // Target made with one bright elliptic operator under a little modulation, rendered by the Nome6-compatible renderer.
+        SynthesisProfile profile = SynthesisProfiles.SuperColliderNome6;
+        var nome6 = new Nome6CompatibleOperatorMatrixRenderer();
+        OperatorMatrixPatch hidden = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.005, 0.3, 0.7, 0.2)) with { Waveform = OperatorWaveform.Elliptic, Shape = 0.999 })
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2), OperatorEnvelope.Adsr(0.005, 0.4, 0.5, 0.2)))
+            .WithOutputLevel(0, 0.8)
+            .WithEdge(new ModulationEdge(1, 0, true, 0.3));
+        RenderedAudio audio = nome6.Render(hidden, RenderRequest.Create(196, 0.7, 0.25));
+        var target = new AudioTarget(audio.Samples, audio.SampleRate, 196.0);
+
+        Assert.IsType<Nome6CompatibleOperatorMatrixRenderer>(SynthesisBackends.RendererFor(profile));
+        PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { SynthesisProfile = profile, EvaluationBudget = 3000 });
+
+        output.WriteLine($"best: {result.AlternativePatches[0].Regime} ({result.AlternativePatches[0].AudioLoss:F4})");
+        Assert.Same(profile, result.Profile);
+        Assert.Contains(result.BestPatch.Operators, static o => o.Enabled && o.Waveform == OperatorWaveform.Elliptic);
+        Assert.True(result.AlternativePatches[0].AudioLoss < 0.1, $"audio loss {result.AlternativePatches[0].AudioLoss:F4}");
+
+        // Nome6 exports it, FM7 refuses it; the Nome6 exporter is what the facade hands out for this profile.
+        Assert.IsType<SuperColliderNome6Exporter>(SynthesisBackends.ExporterFor(profile));
+        Assert.Contains("operators = Nome6.ar(", SynthesisBackends.ExporterFor(profile)!.Export(result.BestPatch));
+        Assert.Throws<PatchNotSupportedException>(() => new SuperColliderFm7Exporter().Export(result.BestPatch));
     }
 
     [Fact]

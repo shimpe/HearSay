@@ -40,14 +40,15 @@ results, Studio, the CLI, the API, hand-editing, troubleshooting) see the [exper
 - [Performance](#performance)
 - [Limitations of this version](#limitations-of-this-version)
 - [How a custom UGen plugs in: FMX6](#how-a-custom-ugen-plugs-in-fmx6)
+- [A second custom UGen: Nome6](#a-second-custom-ugen-nome6)
 
 ## Quick start
 
 Desktop app (Avalonia, Windows/macOS/Linux): `dotnet run -c Release --project src/HearSay.Studio`. Load WAV files, set budget
 and seeds, run, play the result on a piano keyboard at any pitch (OpenAL Soft, one voice, velocity from where the key is
 hit), then copy the SuperCollider patch, look at its block diagram in the second tab of the patch card, or save the
-result folder. The Target selector picks FM7, FMX6 or both one after the other; the last result of each target is kept,
-so switching the selector compares them. Command line:
+result folder. The Target selector picks FM7, FMX6, Nome6 or All (the three one after the other); the last result of
+each target is kept, so switching the selector compares them. Command line:
 
 ```bash
 dotnet run -c Release --project src/HearSay.Cli -- match target.wav \
@@ -119,7 +120,8 @@ src/
       Compilation/ Envelopes/ Oscillators/ Export/
   HearSay.Synthesis.Fm7Compatible/   reference renderer with FM7 semantics
   HearSay.Synthesis.Fmx6Compatible/  reference renderer with FMX6 semantics (band-limited waveforms, noise)
-  HearSay.SuperCollider/         FM7 and FMX6 exporters, SuperCollider NRT renderer, backend-equivalence validation
+  HearSay.Synthesis.Nome6Compatible/ reference renderer with Nome6 semantics (Jacobi elliptic operators, shared noise)
+  HearSay.SuperCollider/         FM7, FMX6 and Nome6 exporters, SuperCollider NRT renderer, backend-equivalence validation
   HearSay.OperatorMatrix/        which synthesis structure and parameters should be explored?
       Parameters/                schema, hierarchy, conditional activity, transforms, ties, active sets
       Canonicalization/          regime keys, canonical operator order, complexity
@@ -207,13 +209,15 @@ public sealed record SynthesisCapabilities(
     bool SupportsRatioFrequency,
     bool SupportsFixedFrequency,
     bool SupportsIndependentOperatorOutputs,
-    double MaxModulationRadiansPerDestination = 24.0);
+    double MaxModulationRadiansPerDestination = 24.0,
+    bool SupportsSharedNoise = false);
 ```
 
 | Profile | Operators | Modes | Waveforms | Status |
 | --- | --- | --- | --- | --- |
 | `SynthesisProfiles.SuperColliderFm7` (`supercollider-fm7`) | exactly 6 | PhaseModulation | Sine | searchable, exportable; full matrix, self and circular feedback, ratio and fixed, independent outputs, dynamic matrix, backend-exact rendering |
 | `SynthesisProfiles.SuperColliderFmx6` (`supercollider-fmx6`) | exactly 6 | PhaseModulation | Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise, FilteredNoise | searchable, exportable; everything FM7 has, plus band-limited waveforms with a harmonic limit, a pulse duty cycle (`Shape`) and three noise sources, one of them filtered (`Shape` then selects low-, band- or high-pass); needs the [FMX6 plugin](https://github.com/shimpe/fmx6) |
+| `SynthesisProfiles.SuperColliderNome6` (`supercollider-nome6`) | exactly 6 | PhaseModulation | Sine, Elliptic, Noise | searchable, exportable; the FM7 matrix with Jacobi elliptic operators (`Shape` is the elliptic parameter m, `Morph` the sn-to-sd crossfade), rendered at twice the sample rate, and one shared noise source (`SupportsSharedNoise`): noise operators play it, and it roughens the phase (`NoisePhase`) or the m (`NoiseM`) of the others, with one colour per patch (`OperatorMatrixPatch.Noise`); needs the Nome6 plugin with noise |
 | `SynthesisProfiles.ExperimentalSineTriangle` | 6 | PhaseModulation | Sine, Triangle | searchable with the extended renderer; no export backend, because that renderer is not backend-exact (FMX6 could play its patches, but not with the same anti-aliasing); exists to prove the architecture |
 | `SynthesisProfiles.HearSayExtended` | 6 | PhaseModulation | all | reserved for a future engine; no renderer yet, so the matcher refuses it |
 
@@ -271,6 +275,8 @@ hands out. The SynthDefs differ in one statement only: FMX6 takes three extra ar
 2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise, 7 filtered noise), `shapes:` (pulse duty cycle or
 filter response) and
 `harmonicLimits:`, one entry per operator. FMX6 plays every FM7 patch; FM7 refuses a patch with any other waveform.
+A third, `SuperColliderNome6Exporter`, extends every operator row to the nine fields of the
+[Nome6](#a-second-custom-ugen-nome6) UGen and passes the colour of the shared noise.
 
 `SuperColliderFm7Exporter` writes a self-contained SynthDef. It uses the full matrix interface
 `FM7.ar(ctlMatrix, modMatrix)`, never `FM7.arAlgo`. What was verified on the installed UGen before writing it:
@@ -882,3 +888,62 @@ history and local modelling, the result model, the writer and the CLI. This is n
 the experimental sine-and-triangle profile runs through the unchanged coordinator, its basins separate by waveform,
 its best patch for a triangle target contains a triangle operator, and the FM7 validator, renderer and exporter all
 reject that patch (`FutureWaveformProof_…` in the integration tests).
+
+## A second custom UGen: Nome6
+
+The Nome6 UGen keeps the FM7 matrix and makes every operator a Jacobi elliptic oscillator: an odd-harmonic Fourier
+series in the nome q of the elliptic parameter m, at most 24 terms, cut below 47.5 % of the internal sample rate and
+renormalized to a peak of one. m = 0 is a sine; towards m = 0.999999 the harmonics get stronger (harmonic 2n + 1 of sn
+has the level q^(n + 1/2) / (1 − q^(2n + 1)), so q is about 0.04 at m = 0.5, 0.26 at m = 0.99 and 0.55 at the top),
+and a family control crossfades from sn to the peak-normalized sd, whose harmonics alternate in sign. The whole matrix
+runs at twice the host rate (one internal sample of delay per edge) and is decimated by a 31-tap half-band filter. A
+noise source shared by all operators (xorshift white noise through a one-pole crossover, coloured from low-passed
+through white to high-passed) can be added to an operator output, jitter its phase, or move its m around the set value.
+
+It plugged in along the five steps above, with these choices:
+
+- **Patch model.** One new waveform, `Elliptic`, whose `Shape` is m (0..`OperatorPatch.MaxEllipticM`) and whose new
+  `Morph` is the sn-to-sd family. A sine operator is exported with m = 0, so every FM7 patch is also a Nome6 patch
+  (it sounds a little different: 2x oversampling, controls held per block instead of ramped). The shared noise is a
+  patch-level `SharedNoise` (`Color` −1..1, `CutoffHz`); a `Noise` operator plays it with its amplitude envelope (the
+  exporter moves the amplitude into the row's noiseAmp field), and two new operator fields roughen the others:
+  `NoisePhase` (radians per unit of noise) and `NoiseM` (m excursion, −1..1, elliptic operators only). A capability,
+  `SupportsSharedNoise`, keeps those fields away from FM7 and FMX6 (`shared-noise` compatibility issue).
+- **Profile, renderer, exporter.** `supercollider-nome6` (Sine, Elliptic, Noise, shared noise);
+  `Nome6CompatibleOperatorMatrixRenderer`, a port of `Nome6DSP.hpp` (the eleventh-order sine polynomial, the
+  coefficient tables, the recurrence, the m interpolation of the noise, the decimator); `SuperColliderNome6Exporter`,
+  which writes the nine-field rows (`bandwidth` is always 0, the anti-alias ceiling of the UGen) and `noiseColor:` and
+  `noiseCutoff:`.
+- **Search.** `.elliptic` is searched along the nome (`ParameterTransforms.EllipticNome`): equal steps change the
+  fall-off of the harmonics equally, where m crowds all audible change into its last thousandths. `.morph` is linear.
+  `noise.color` and `noise.cutoff` are active once an audible operator uses the noise; `.noisePhase` and `.noiseM` only
+  on an operator that a mutation or a prior has roughened, so clean operators do not widen the search space. The
+  topology mutator turns operators elliptic, steps an elliptic one brighter or darker by a factor 1.6 in q, adds a
+  wash of shared noise at the measured colour, and roughens an operator of a noisy target.
+- **Priors.** `HarmonicWaveformPriorProvider` fits a ladder of nomes to an odd-only partial cloud and proposes the best
+  one alone, in sn and sd, and with its neighbours; `ModulatorWaveformPriorProvider` tries elliptic modulators;
+  `NoisePriorProvider` adds the shared noise coloured towards the centroid of the noise of the target (a fully
+  low-passed one-pole noise has its centroid near three times the cutoff; white noise at 48 kHz near 11 kHz).
+
+Against the real UGen (`Nome6Tests`): tonal patches are sample-exact (sine, sn, sd and a modulated pair with feedback
+to within 1e-17; 24 of 25 random patches to within 1e-3 of their peak, the 25th has a chaotic feedback loop and stays
+the same sound). Noise cannot match sample by sample: the plugin seeds its generator from the address of the unit,
+so every synth plays another sequence, and the renderer uses the default seed of the engine. Pure noise agrees in level
+and centroid within a few percent over five colours (the test allows 8 %: the centroid of a dark noise wanders most
+from one sequence to the next), and tones with a noise burst, a noise modulator, or phase or m roughness come out at
+an overall distance of 0.004 to 0.025. Search it from the CLI with `--profile supercollider-nome6` or pick
+**Nome6** (or **All**) as the target in HearSay Studio.
+
+On 30 random Nome6 patches as hidden targets (budget 4000, two seeds, each searched under Nome6 and under FM7),
+Nome6 ends at a mean audio loss of 0.129 (median 0.107) against 0.177 (median 0.169) for FM7, better on 25, worse on 3:
+
+| Family | Nome6 | FM7 | Nome6 better / worse / equal |
+| --- | --- | --- | --- |
+| default: all waveforms, 30 % of patches roughened | 0.106 | 0.161 | 9 / 0 / 1 |
+| sparse: at most three operators | 0.085 | 0.157 | 10 / 0 / 0 |
+| tonal: sine and elliptic only | 0.194 | 0.212 | 6 / 3 / 1 |
+
+Noise and a single elliptic operator are found reliably (a noise operator plus a sine at 0.004, an elliptic carrier
+with a sine modulator at 0.028). The weak spot is dense tonal patches of four or five operators with several elliptic
+ones: both profiles end between 0.25 and 0.35 there, and on three of them FM7 is a little better, because the larger
+Nome6 space spreads the same budget over more structures.

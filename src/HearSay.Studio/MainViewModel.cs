@@ -139,7 +139,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private AlternativeItem? _selectedAlternative;
     private OperatorMatrixPatch? _shownPatch;
 
-    /// <summary>The last result of every synthesis target, by profile name, so that FM7 and FMX6 can be compared by ear.</summary>
+    /// <summary>The last result of every synthesis target, by profile name, so that the targets can be compared by ear.</summary>
     private readonly Dictionary<string, PatchMatchResult> _results = new(StringComparer.Ordinal);
 
     public MainViewModel()
@@ -202,20 +202,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => Set(ref _seeds, Math.Clamp(value, 1, 16));
     }
 
-    /// <summary>Synthesis targets that can be searched and exported: the SuperCollider FM7 and FMX6 UGens.</summary>
-    public IReadOnlyList<SynthesisProfile> Profiles { get; } = [SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderFmx6];
+    /// <summary>Synthesis targets that can be searched and exported: the SuperCollider FM7, FMX6 and Nome6 UGens.</summary>
+    public IReadOnlyList<SynthesisProfile> Profiles { get; } = [SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderFmx6, SynthesisProfiles.SuperColliderNome6];
 
-    /// <summary>Choices of the Target selector: each profile alone, and both one after the other.</summary>
+    /// <summary>Choices of the Target selector: each profile alone, and all of them one after the other.</summary>
     public IReadOnlyList<SynthesisTargetChoice> SynthesisTargets { get; } =
     [
         new("FM7", [SynthesisProfiles.SuperColliderFm7]),
         new("FMX6", [SynthesisProfiles.SuperColliderFmx6]),
-        new("FM7 & FMX6", [SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderFmx6]),
+        new("Nome6", [SynthesisProfiles.SuperColliderNome6]),
+        new("All", [SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderFmx6, SynthesisProfiles.SuperColliderNome6]),
     ];
 
     /// <summary>
-    /// Target of the next search: FM7 (sine operators only), FMX6 (band-limited waveforms and noise as well), or both,
-    /// searched one after the other with the full budget each. Selecting a target shows its kept result.
+    /// Target of the next search: FM7 (sine operators only), FMX6 (band-limited waveforms and noise as well), Nome6
+    /// (Jacobi elliptic operators), or all three, searched one after the other with the full budget each. Selecting a
+    /// target shows its kept result.
     /// </summary>
     public SynthesisTargetChoice SelectedSynthesisTarget
     {
@@ -242,10 +244,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>What the code box says before there is code: which plugin the export of the selected target needs.</summary>
     public string ScdWatermark =>
         "The generated SynthDef appears here. It needs SuperCollider with "
-        + string.Join(" or ", SelectedSynthesisTarget.Profiles.Select(static p => ReferenceEquals(p, SynthesisProfiles.SuperColliderFmx6) ? "the FMX6 plugin (github.com/shimpe/fmx6)" : "sc3-plugins (FM7)"))
+        + string.Join(" or ", SelectedSynthesisTarget.Profiles.Select(static p => p.Name switch
+        {
+            "supercollider-fmx6" => "the FMX6 plugin (github.com/shimpe/fmx6)",
+            "supercollider-nome6" => "the Nome6 plugin",
+            _ => "sc3-plugins (FM7)",
+        }))
         + " and nothing of HearSay.";
 
-    /// <summary>Shows the kept result of the selected target: with both targets selected, the better of the two.</summary>
+    /// <summary>Shows the kept result of the selected target: with all targets selected, the best of them.</summary>
     private void ShowKeptResult()
     {
         var kept = SelectedSynthesisTarget.Profiles
@@ -257,7 +264,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (kept.Count > 0)
         {
             Status = "Showing " + string.Join("; ", kept.Select(static r => FormattableString.Invariant($"{ProfileNameConverter.Short(r!.Profile.Name)}: audio loss {r.AlternativePatches[0].AudioLoss:F4}, similarity {r.Comparison.Scores.Similarity:F3}")))
-                + (kept.Count > 1 ? $". The {ProfileNameConverter.Short(kept[0]!.Profile.Name)} result is shown; select one target to see the other." : ".");
+                + (kept.Count > 1 ? $". The {ProfileNameConverter.Short(kept[0]!.Profile.Name)} result is shown; select one target to see another." : ".");
         }
         else if (_results.Count > 0)
         {
@@ -424,7 +431,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Progress = 1;
             if (done.Count > 1)
             {
-                // Both targets: the better one is shown, the status line has both.
+                // All targets: the best one is shown, the status line has every one.
                 ShowKeptResult();
                 Status = (token.IsCancellationRequested ? "Stopped. " : "Done. ") + Status;
             }

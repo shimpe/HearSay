@@ -20,6 +20,9 @@ public static class PatchCompatibilityCodes
     /// <summary>An operator uses a frequency mode the backend does not implement.</summary>
     public const string UnsupportedFrequencyMode = "unsupported-frequency-mode";
 
+    /// <summary>An operator uses the shared noise source of a backend that has none.</summary>
+    public const string SharedNoise = "shared-noise";
+
     /// <summary>An operator modulates itself and the backend has no self-feedback.</summary>
     public const string SelfFeedback = "self-feedback";
 
@@ -114,6 +117,11 @@ public sealed class PatchCompatibilityValidator : IPatchCompatibilityValidator
             if (!capabilities.SupportedWaveforms.Contains(op.Waveform))
             {
                 issues.Add(new PatchCompatibilityIssue(PatchCompatibilityCodes.UnsupportedWaveform, $"OP{i + 1} uses waveform {op.Waveform}, which the backend does not implement.", i));
+            }
+
+            if (!capabilities.SupportsSharedNoise && (op.NoisePhase != 0.0 || op.NoiseM != 0.0))
+            {
+                issues.Add(new PatchCompatibilityIssue(PatchCompatibilityCodes.SharedNoise, $"OP{i + 1} is roughened by shared noise, which the backend does not have.", i));
             }
 
             bool ratio = op.Frequency.Mode == OperatorFrequencyMode.Ratio;

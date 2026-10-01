@@ -431,6 +431,13 @@ public sealed class BasinOptimizer
                 continue;
             }
 
+            // The colour of the shared noise belongs to no operator; like the pitch it joins the first group.
+            if (p.Id.StartsWith("noise.", StringComparison.Ordinal))
+            {
+                pitch.Add(p);
+                continue;
+            }
+
             if (!IsSpectral(p.Id, tuningMatters) && !IsEnvelopeShape(p.Id))
             {
                 continue;
@@ -494,6 +501,11 @@ public sealed class BasinOptimizer
         || id.EndsWith(".frequency.fixedHz", StringComparison.Ordinal)
         || id.EndsWith(".shape", StringComparison.Ordinal)
         || id.EndsWith(".filter", StringComparison.Ordinal)
+        || id.EndsWith(".elliptic", StringComparison.Ordinal)
+        || id.EndsWith(".morph", StringComparison.Ordinal)
+        || id.EndsWith(".noisePhase", StringComparison.Ordinal)
+        || id.EndsWith(".noiseM", StringComparison.Ordinal)
+        || id.StartsWith("noise.", StringComparison.Ordinal)
         || (tuningMatters && (id.EndsWith(".fineTune", StringComparison.Ordinal) || id.EndsWith(".detune", StringComparison.Ordinal)))
         || (IncludeKeyScaling && id.Contains(".keyScaling.", StringComparison.Ordinal))
         || (IncludeVelocity && id.EndsWith(".velocity", StringComparison.Ordinal));

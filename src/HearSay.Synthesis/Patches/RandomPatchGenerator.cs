@@ -29,6 +29,9 @@ public sealed record RandomPatchOptions
     /// <summary>Probability that an edge has an amount envelope.</summary>
     public double EdgeEnvelopeProbability { get; init; } = 0.3;
 
+    /// <summary>Probability that an operator is roughened by the shared noise, for profiles that have one.</summary>
+    public double RoughnessProbability { get; init; }
+
     /// <summary>Probability that the patch has a pitch envelope or a vibrato.</summary>
     public double PitchModulationProbability { get; init; } = 0.2;
 
@@ -97,6 +100,12 @@ public sealed class RandomPatchGenerator
             {
                 operators[i] = operators[i] with { Shape = Math.Round(random.NextDouble(), 2) };
             }
+            else if (operators[i].Waveform == OperatorWaveform.Elliptic)
+            {
+                // m from a near-sine to the brightest, evenly in its nome; the morph anywhere from sn to sd.
+                double m = Math.Round(Oscillators.JacobiNome.ToParameter(0.02 + (random.NextDouble() * 0.5)), 6);
+                operators[i] = operators[i] with { Shape = Math.Min(m, OperatorPatch.MaxEllipticM), Morph = Math.Round(random.NextDouble(), 2) };
+            }
 
             if (operators[i].Waveform is OperatorWaveform.Triangle or OperatorWaveform.Saw or OperatorWaveform.Square or OperatorWaveform.Pulse)
             {
@@ -159,7 +168,18 @@ public sealed class RandomPatchGenerator
                 : new PitchModel(null, new LfoSettings(Round(3 + (random.NextDouble() * 4)), Round(5 + (random.NextDouble() * 25)), Round(random.NextDouble() * 0.2), Round(random.NextDouble() * 0.3)));
         }
 
-        return new OperatorMatrixPatch(operators, new PhaseModulationMatrix(n, edges), levels, pitch);
+        SharedNoise noise = SharedNoise.White;
+        if (_capabilities.SupportsSharedNoise && random.NextDouble() < _options.RoughnessProbability)
+        {
+            // A coloured shared noise that roughens one operator, in phase or, for an elliptic one, in m.
+            noise = new SharedNoise(Math.Round((random.NextDouble() * 2) - 1, 2), Math.Round(200 * Math.Pow(50, random.NextDouble()), 1));
+            int op = random.Next(enabledCount);
+            operators[op] = operators[op].Waveform == OperatorWaveform.Elliptic && random.Next(2) == 0
+                ? operators[op] with { NoiseM = Math.Round((random.NextDouble() * 0.6) - 0.3, 3) }
+                : operators[op] with { NoisePhase = Math.Round(random.NextDouble() * 0.8, 3) };
+        }
+
+        return new OperatorMatrixPatch(operators, new PhaseModulationMatrix(n, edges), levels, pitch) { Noise = noise };
     }
 
     private static OperatorEnvelope RandomEnvelope(Random random) =>
