@@ -944,6 +944,17 @@ Nome6 ends at a mean audio loss of 0.129 (median 0.107) against 0.177 (median 0.
 | tonal: sine and elliptic only | 0.194 | 0.212 | 6 / 3 / 1 |
 
 Noise and a single elliptic operator are found reliably (a noise operator plus a sine at 0.004, an elliptic carrier
-with a sine modulator at 0.028). The weak spot is dense tonal patches of four or five operators with several elliptic
-ones: both profiles end between 0.25 and 0.35 there, and on three of them FM7 is a little better, because the larger
-Nome6 space spreads the same budget over more structures.
+with a sine modulator at 0.028). Dense tonal patches of four to six operators are the hard case, for both profiles:
+
+- The random generator makes many of them chaotic (feedback loops through two operators at several radians, fixed
+  operators at 35 Hz or 4 kHz, carriers at half the note). Both profiles end between 0.25 and 0.37 there, and five
+  times the budget only takes four of them from about 0.35 to 0.30: the search settles on another structure, it does
+  not run out of evaluations.
+- On 20 dense patches as a musician would make them (four to six operators, sine and elliptic, no loops, no fixed
+  operators, every heard operator at or above the note, a carrier on it, modulation up to 2 radians) Nome6 ends at
+  0.202 and FM7 at 0.195; paired per target the difference is +0.007 ± 0.006, so the two are level. Searching these
+  with the Nome6 renderer and sine operators only gives 0.191, with the FM7 priors 0.191, without the shared noise
+  0.198. The waveform priors cost at most about 0.01 here, but they are what finds an elliptic carrier on a sparse
+  tonal patch (0.035 against 0.085 without them, 0.041 against 0.070), so they stay. Screening 256 instead of 128
+  hypotheses, merging the waveform providers into one group, and a prior for an odd series on any base (an elliptic
+  operator at ratio b puts its partials on b, 3b, 5b, …) changed nothing beyond the noise of the benchmark.
