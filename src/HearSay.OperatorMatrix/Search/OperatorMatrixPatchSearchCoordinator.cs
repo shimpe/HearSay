@@ -319,7 +319,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         var retired = new List<SearchBasin>();
         int deepBudget = Math.Min(evaluator.Remaining, (int)(options.EvaluationBudget * options.DeepShare));
         const int rounds = 3;
-        int mutations = 0, adopted = 0;
+        int mutations = 0, adopted = 0, screeningEvaluations = 0;
         for (int round = 0; round < rounds && !cancellationToken.IsCancellationRequested; round++)
         {
             int keep = round == rounds - 1
@@ -340,7 +340,9 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                 {
                     basin.Restarts++;
                     int mutationBudget = Math.Max(0, perBasin - cycleBudget) + (improved ? 0 : perBasin / 4);
+                    int beforeScreening = evaluator.Used;
                     IReadOnlyList<TopologyMutation> variants = mutator.ProposeScreened(basin.Best.Patch, analysis, evaluator, random, 3, maxScreened: 80);
+                    screeningEvaluations += evaluator.Used - beforeScreening;
                     SearchBasin? bestChild = null;
                     foreach (TopologyMutation variant in variants)
                     {
@@ -386,7 +388,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         }
 
         Retire(basins, retired, options.FinalistCount);
-        stages.Add(new SearchStageSummary("deep optimization", evaluator.Used - usedBefore, basins[0].Best.Loss, EvaluationLevel.Normal, $"{rounds} rounds, {mutations} topology mutations tried, {adopted} adopted"));
+        stages.Add(new SearchStageSummary("deep optimization", evaluator.Used - usedBefore, basins[0].Best.Loss, EvaluationLevel.Normal, $"{rounds} rounds, {mutations} topology mutations tried, {adopted} adopted, {screeningEvaluations} evaluations screening variants"));
 
         // Finalists: one long, uninterrupted run each. A covariance that has adapted to a basin is worth more than
         // several fresh starts, so the better a finalist ranks, the longer its run; unused budget flows on.
