@@ -787,6 +787,34 @@ the per-operator waveform mutations bring the loss from 0.221 to 0.204, on the s
 pulse at duty 0.34 that used to end at 0.30 with an extra sine (0.109) is now found exactly (0.003). On a cymbal of
 inharmonic FM with a noise wash (`fm_cymbal`), filtered noise takes FMX6 from 0.44 to 0.34, where FM7 ends at 0.45.
 
+### What limits dense patches
+
+Twenty dense FM7 patches as a musician would make them (four to six operators, a carrier on the note, every heard
+operator at or above it, no loops, no fixed operators, modulation up to 2 radians) end at a mean audio loss of 0.196
+(budget 4000, two seeds). Oracle hypotheses added to the normal ones show where that comes from:
+
+| Added hypothesis | Loss |
+| --- | --- |
+| the hidden patch itself | 0.008 |
+| its structure (ratios and edges) with default amounts, levels and envelopes | 0.168 |
+| that structure alone, one basin, no mutations, the whole budget | 0.097 |
+| that structure without its last modulator | 0.182 |
+| only its carriers | 0.193 |
+
+The objective recognises the right patch, and the right structure halves the loss once it is tuned, but the priors
+find the carriers and miss the modulator structure, and the mutations do not recover even one missing modulator.
+Untuned, the right structure scores worse than wrong ones (0.52 against 0.30 on one target), and among the variants
+of a tuned parent the true missing modulator, added back, beats the parent in seven of ten targets but loses the
+screening to edges that help a little more at once. Changes that measured as no better than the noise of the
+benchmark (paired, ± one standard error of about 0.004 to 0.009): capping the renders spent screening variants in the
+deep stage (they take 30 to 65 % of it), interleaving the kinds of variant under the cap so that new modulators are
+screened at all, trying new modulators at the spacings between strong partials, screening at three modulation
+scales, 16 survivors instead of 32, six or ten mutation rounds instead of three. Worse: two basins and one finalist
+(+0.019), no mutations (+0.034), and making the short deep-stage cycles effective (a group of 20 parameters gets two
+CMA-ES generations there and does not move; the low-dimensional stages do move it, but then the basins no longer
+stagnate and fewer mutations are tried: +0.010). Five times the budget takes the losses down only a little. Dense
+patches need a structure search that judges a variant after tuning it, not a retuning of this one.
+
 ## Performance
 
 BenchmarkDotNet (`benchmarks/HearSay.Benchmarks`, classes `RenderBenchmarks` and `EvaluationBenchmarks`, short-run
