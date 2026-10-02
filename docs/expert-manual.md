@@ -206,8 +206,11 @@ one-shot envelopes only frees itself after the longest one, so it can be played 
 
 Studio is the library with a window around it. Everything it does is available in the API.
 
-**Header.** Target (FM7, FMX6, Nome6, or All), Budget, Seed, Seeds, Run, Stop. Stop returns the best patch found so
-far; the progress bar shows the run within the seeds and the stage within the run.
+**Header.** Target (FM7, FMX6, Nome6, or All), Budget, Seed, Seeds, Library, Run, Stop. Stop returns the best patch
+found so far; the progress bar shows the run within the seeds and the stage within the run. Library (on by default)
+adds the nearest patches of the structure library as extra starting points (`StructureLibrarySize`, section 12); the
+first search of a target builds its library once, which the status line says. Off, the whole budget goes to the
+structures read from the target.
 
 Every target keeps its last result for the current target set: search under FM7, switch the Target selector to
 FMX6, search again, and switch back and forth to compare the two by ear on the keyboard, in the matrix and in the
@@ -245,7 +248,7 @@ exits, for packaging.
 ## 10. The command line
 
 ```
-hearsay match <target.wav>... [--profile p] [--budget n] [--seed n] [--seeds n] [--output dir]
+hearsay match <target.wav>... [--profile p] [--budget n] [--seed n] [--seeds n] [--library n] [--output dir]
               [--note midi | --f0 hz] [--sample-rate hz] [--max-seconds s] [--parallel n] [--quiet]
 hearsay analyze <target.wav>
 hearsay profiles

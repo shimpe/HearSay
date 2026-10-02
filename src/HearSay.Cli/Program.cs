@@ -27,6 +27,7 @@ internal static class Cli
           --budget <n>         number of candidate evaluations; one evaluation renders every target note (default 20000)
           --seed <n>           random seed (default 1234)
           --seeds <n>          run n consecutive seeds with the full budget each; the best wins, the finalists of all seeds become alternatives (default 1)
+          --library <n>        patches in the structure library whose nearest neighbours by sound become extra hypotheses; 0 = off (default 300000, built once per profile)
           --output <dir>       result folder (default result)
           --note <midi>        MIDI note of targets without a pitch of their own, when known
           --f0 <hz>            fundamental of targets without a pitch of their own, when known
@@ -167,6 +168,7 @@ internal static class Cli
             SampleRate = (int)(Number(options, "sample-rate") ?? 48000),
             MaxSeconds = Number(options, "max-seconds") ?? 4.0,
             MaxParallelEvaluations = (int)(Number(options, "parallel") ?? Environment.ProcessorCount),
+            StructureLibrarySize = (int)(Number(options, "library") ?? 300_000),
         };
         string output = options.GetValueOrDefault("output", "result");
         bool quiet = options.ContainsKey("quiet");

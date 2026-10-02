@@ -126,6 +126,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int _budget = 20000;
     private int _seed = 1234;
     private int _seeds = 1;
+    private bool _useStructureLibrary = true;
     private SynthesisTargetChoice? _selectedSynthesisTarget;
     private bool _isRunning;
     private double _progress;
@@ -200,6 +201,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _seeds;
         set => Set(ref _seeds, Math.Clamp(value, 1, 16));
+    }
+
+    /// <summary>
+    /// Whether the structure library adds its nearest neighbours as hypotheses. Off, a search spends its whole budget
+    /// on the structures read from the target, as before the library existed.
+    /// </summary>
+    public bool UseStructureLibrary
+    {
+        get => _useStructureLibrary;
+        set => Set(ref _useStructureLibrary, value);
     }
 
     /// <summary>Synthesis targets that can be searched and exported: the SuperCollider FM7, FMX6 and Nome6 UGens.</summary>
@@ -413,7 +424,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 SynthesisProfile profile = profiles[i];
                 int index = i;
                 string prefix = profiles.Count > 1 ? ProfileNameConverter.Short(profile.Name) + " · " : string.Empty;
-                var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = profile };
+                var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = profile, StructureLibrarySize = UseStructureLibrary ? new PatchMatchOptions().StructureLibrarySize : 0 };
                 var progress = new Progress<SearchProgress>(p =>
                 {
                     Progress = (index + p.Fraction) / profiles.Count;

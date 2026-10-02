@@ -60,7 +60,8 @@ dotnet run -c Release --project src/HearSay.Cli -- profiles             # list s
 
 `--note <midi>` or `--f0 <hz>` supply the pitch when it is known; otherwise it is estimated. `--seeds <n>` runs n seeds
 and keeps the best, which is the simplest remedy against an unlucky run; the finalists of every seed are kept as
-alternatives, one per structure, each marked with its seed. `--sample-rate` should be
+alternatives, one per structure, each marked with its seed. `--library <n>` sets the size of the
+[structure library](#structure-library) (0 turns it off). `--sample-rate` should be
 the rate the exported patch will run at, because the aliasing of the backend is part of its sound.
 
 ```text

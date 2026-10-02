@@ -139,6 +139,8 @@
             <TextBlock Classes="label" Text="Seeds" ToolTip.Tip="Run this many seeds with the full budget each; the best wins, and the finalists of every seed are saved as alternatives" />
             <NumericUpDown Width="100" Minimum="1" Maximum="16" Increment="1" FormatString="0" Value="{Binding Seeds}" IsEnabled="{Binding !IsRunning}" />
           </StackPanel>
+          <CheckBox Content="Library" IsChecked="{Binding UseStructureLibrary}" IsEnabled="{Binding !IsRunning}" VerticalAlignment="Center"
+                    ToolTip.Tip="Also start from the patches of the structure library that sound most like the target: 300 000 random patches per synthesis target, built once (a few minutes) and kept on disk. They come on top of the structures read from the target and take about a quarter of the budget; give a third more budget to keep the same depth for the rest. Off: the whole budget goes to the structures read from the target." />
           <StackPanel Orientation="Horizontal" Spacing="10">
             <Button Content="▶  Run search" Classes="primary" Command="{Binding RunCommand}" />
             <Button Content="Stop" Command="{Binding CancelCommand}" />
