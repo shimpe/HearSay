@@ -541,7 +541,9 @@ Patch
   synthesis. The other providers: `PartialTrackPriorProvider` (operators exactly on the stable partial tracks, each
   with the decay of its own partial, for sounds that sideband arithmetic does not explain), `WaveformVariantPriorProvider`
   and `ModulatorWaveformPriorProvider` (the best sine structures with an output or a modulator in another waveform, for
-  profiles with a choice), `HarmonicWaveformPriorProvider` and `NoisePriorProvider` (see [FMX6](#how-a-custom-ugen-plugs-in-fmx6)).
+  profiles with a choice), `HarmonicWaveformPriorProvider` and `NoisePriorProvider` (see [FMX6](#how-a-custom-ugen-plugs-in-fmx6)),
+  and `NearestStructurePriorProvider`, which does not read the target but looks it up (see
+  [Structure library](#structure-library)).
 - **Structure is never searched by gradients.** Structures come from hypotheses and from `TopologyMutator`, whose new
   elements start almost silent so that a variant begins as good as its parent (add or
   remove an edge, add an operator as modulator or into the mix, remove an operator, move a coarse ratio to its
@@ -813,7 +815,58 @@ scales, 16 survivors instead of 32, six or ten mutation rounds instead of three.
 (+0.019), no mutations (+0.034), and making the short deep-stage cycles effective (a group of 20 parameters gets two
 CMA-ES generations there and does not move; the low-dimensional stages do move it, but then the basins no longer
 stagnate and fewer mutations are tried: +0.010). Five times the budget takes the losses down only a little. Dense
-patches need a structure search that judges a variant after tuning it, not a retuning of this one.
+patches need a structure search that judges a variant after tuning it, not a retuning of this one, or starting points
+that come with fitting amounts, which is what the structure library below provides.
+
+### Structure library
+
+Instead of reading a structure from the partials, look it up: `StructureLibrary` holds many random patches of a profile
+with the `SpectralFingerprint` of their sound, and `NearestStructurePriorProvider` proposes the eight whose fingerprints
+are closest to the target, each as it is and with the envelopes of the target, in a hypothesis group of its own.
+
+- **Fingerprint.** Band powers on relative frequency, a quarter of the note to 64 times it in semitone bands, averaged
+  over three slices (attack to 0.1 s, body to 0.4 s, decay to 1 s), in dB under the loudest band, floored at -60 dB and
+  stored at a quarter of a decibel per byte: 288 bytes, independent of the note, with sideband spacings as fixed
+  patterns and the movement of the brightness in the slices. Nearest is squared Euclidean distance.
+- **Patches.** Musical random patches of the profile: a carrier on the note, every heard operator at or above it, no
+  loops through several operators, no fixed operators, modulation up to 2 radians, in three densities (two or three,
+  three or four, four to six operators). Only the seeds are stored; a patch is regenerated from its seed when needed.
+- **Building.** `PatchMatchOptions.StructureLibrarySize` (300 000 by default, 0 turns it off) patches are rendered once
+  per profile and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` (86 MB): about 90 s for FM7 and 340 s for
+  Nome6 on 24 threads. The first search of a profile reports the build as its first progress stage.
+
+Results, budget 4000, two seeds, against the same targets without the library:
+
+| Targets | Without | With | Paired difference | Better / worse |
+| --- | --- | --- | --- | --- |
+| 20 dense musical FM7 patches | 0.196 | 0.163 | −0.033 ± 0.010 | 13 / 3 |
+| 20 sparse musical FM7 patches | 0.100 | 0.079 | −0.021 ± 0.007 | 13 / 2 |
+| 14 dense musical Nome6 patches | 0.235 | 0.207 | −0.028 ± 0.011 | 9 / 1 |
+
+A library of only dense patches gives 0.174, 0.170 and 0.149 at 20 000, 100 000 and 300 000 patches on the dense FM7
+targets: larger libraries give closer neighbours. The neighbours are almost never the hidden structure itself (none
+of the 20 dense targets had it among its eight), yet the best patch descends from one of them in 15 of 20: a patch
+that sounds alike, with amounts that fit it, is a better start than the right structure with default amounts (0.168).
+The targets above are random patches of the same kind as the library, so these numbers are the favourable case. On
+the 13 hand-made reference patches, competing freely, the neighbours cost a little (+0.005 ± 0.003, worse on 5,
+better on 3; at a budget of 9000 brass-like ended at 0.038 instead of 0.016 and bell at 0.094 instead of 0.043):
+they screen better than read structures with default amounts, take the survivor and basin slots that go to the best
+of the rest, and leave out a read structure that would have won once tuned.
+
+So the default is a hybrid, `LibraryBasinMode.Extra`: survivors and basins are chosen as if there were no library,
+and the best neighbours come on top, four extra survivors and up to `LibraryBasinCount` (2) extra basins.
+`Capped` lets the neighbours compete for at most two basins; `Free` lets them compete for all.
+
+| Mode, budget 4000 | Dense | Sparse | Reference |
+| --- | --- | --- | --- |
+| Free, eight neighbours | −0.033 ± 0.010 | −0.021 ± 0.007 | +0.005 ± 0.003 |
+| Capped at two basins | −0.029 ± 0.009 | −0.019 ± 0.007 | +0.005 ± 0.005 |
+| Extra two basins | −0.019 ± 0.008 | −0.016 ± 0.006 | +0.005 ± 0.003 |
+
+Two extra basins on top of six take a quarter of the budget of the others. At an equal budget of 5333 for both,
+on the reference patches, Extra is level with searching without the library (−0.002 ± 0.003, better on 4, worse on
+1) and Capped still loses (+0.004 ± 0.003, worse on 7). The library is worth its cost where a target has neighbours,
+and costs only budget where it has none.
 
 ## Performance
 

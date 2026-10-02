@@ -73,6 +73,43 @@ public sealed record PatchMatchOptions
 
     /// <summary>Share of what is left after deep optimization that goes into one long continuous run per finalist. The rest goes to local refinement.</summary>
     public double FinalistShare { get; init; } = 0.75;
+
+    /// <summary>
+    /// Number of random patches in the structure library whose nearest neighbours by sound become hypotheses; 0 turns
+    /// the lookup off. A library is built once per profile and size (about 100 s for 300 000 FM7 patches) and kept on
+    /// disk; larger libraries give closer neighbours.
+    /// </summary>
+    public int StructureLibrarySize { get; init; } = 300_000;
+
+    /// <summary>
+    /// How the neighbours from the structure library share the basins with the structures read from the target. The
+    /// default, <see cref="LibraryBasinMode.Extra"/>, leaves the read structures their survivors and basins and adds
+    /// the neighbours on top: at an equal budget it is level on hand-made reference patches, where free competition
+    /// loses, and keeps most of the gain on dense and sparse patches.
+    /// </summary>
+    public LibraryBasinMode LibraryBasinMode { get; init; } = LibraryBasinMode.Extra;
+
+    /// <summary>
+    /// Basins the library may take: the most it may hold with <see cref="LibraryBasinMode.Capped"/>, the number it adds
+    /// with <see cref="LibraryBasinMode.Extra"/>.
+    /// </summary>
+    public int LibraryBasinCount { get; init; } = 2;
+}
+
+/// <summary>How library neighbours and read structures share the basins of a search.</summary>
+public enum LibraryBasinMode
+{
+    /// <summary>Neighbours compete with everything else for survivors and basins.</summary>
+    Free,
+
+    /// <summary>At most <see cref="PatchMatchOptions.LibraryBasinCount"/> basins come from the library; the others are chosen as usual.</summary>
+    Capped,
+
+    /// <summary>
+    /// Survivors and basins are chosen as if there were no library, and the best neighbours are added on top: a few
+    /// extra survivors, and up to <see cref="PatchMatchOptions.LibraryBasinCount"/> extra basins.
+    /// </summary>
+    Extra,
 }
 
 /// <summary>One patch found by a search.</summary>

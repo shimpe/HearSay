@@ -36,7 +36,9 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
     [InlineData("bell", 2.0)]
     public void RoundTrip_ReducesTheAudioLossStrongly(string name, double minimumGain)
     {
-        PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(TargetOf(name), new PatchMatchOptions { EvaluationBudget = 9000 });
+        // The gain of the search from the hypotheses read off the target; library neighbours would start closer and
+        // make the ratio say less. The library has a test of its own below.
+        PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(TargetOf(name), new PatchMatchOptions { EvaluationBudget = 9000, StructureLibrarySize = 0 });
 
         SearchSummary summary = result.SearchSummary;
         output.WriteLine($"{name}: {summary.InitialAudioLoss:F4} -> {summary.FinalAudioLoss:F4}, similarity {result.Comparison.Scores.Similarity:F3}, {summary.EvaluationsUsed} renders, {summary.Elapsed.TotalSeconds:F1} s");
@@ -48,6 +50,25 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
         Assert.Equal(result.Request.TotalSamples, result.PreviewAudio.Samples.Length);
         Assert.True(result.AlternativePatches.Count >= 2);
         Assert.True(result.AlternativePatches[0].Loss <= result.AlternativePatches[1].Loss);
+    }
+
+    [Fact]
+    public void StructureLibrary_FindsOneOfItsOwnPatchesBackOnASmallBudget()
+    {
+        // A small library, so that the test builds it in seconds; the target is one of its patches at another note.
+        const int size = 3000;
+        var library = StructureLibrary.For(SynthesisProfiles.SuperColliderFm7, size, Renderer);
+        OperatorMatrixPatch hidden = library.Patch(library.Nearest(new byte[SpectralFingerprint.Length], 1)[0].Seed);
+        RenderedAudio audio = Renderer.Render(hidden, RenderRequest.Create(262, 1.0, 0.3));
+        var target = new AudioTarget(audio.Samples, audio.SampleRate, 262.0);
+
+        PatchMatchResult with = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { EvaluationBudget = 800, StructureLibrarySize = size });
+        PatchMatchResult without = new OperatorMatrixPatchMatcher().Match(target, new PatchMatchOptions { EvaluationBudget = 800, StructureLibrarySize = 0 });
+
+        output.WriteLine($"with the library {with.AlternativePatches[0].AudioLoss:F4} ({with.AlternativePatches[0].Origin}), without {without.AlternativePatches[0].AudioLoss:F4}");
+        Assert.StartsWith(NearestStructurePriorProvider.OriginPrefix, with.AlternativePatches[0].Origin, StringComparison.Ordinal);
+        Assert.True(with.AlternativePatches[0].AudioLoss < 0.02, $"audio loss {with.AlternativePatches[0].AudioLoss}");
+        Assert.True(with.AlternativePatches[0].AudioLoss < without.AlternativePatches[0].AudioLoss);
     }
 
     [Fact]
@@ -238,7 +259,9 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
     public void MatchBestOf_KeepsTheWinningSeedAndMergesTheFinalistsOfAllSeeds()
     {
         AudioTarget target = TargetOf("simple-2op");
-        var options = new PatchMatchOptions { EvaluationBudget = 600, RandomSeed = 7 };
+        // Without the structure library: its neighbours do not depend on the seed, so both seeds would find the same
+        // structures and the merge would have nothing to show.
+        var options = new PatchMatchOptions { EvaluationBudget = 600, RandomSeed = 7, StructureLibrarySize = 0 };
 
         PatchMatchResult first = new OperatorMatrixPatchMatcher().Match(target, options);
         PatchMatchResult second = new OperatorMatrixPatchMatcher().Match(target, options with { RandomSeed = 8 });

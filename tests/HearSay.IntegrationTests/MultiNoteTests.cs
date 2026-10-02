@@ -30,7 +30,9 @@ public sealed class MultiNoteTests(ITestOutputHelper output)
         AudioTarget[] set = [TargetAt(hidden, 48), TargetAt(hidden, 60), TargetAt(hidden, 72)];
         AudioTarget unseen = TargetAt(hidden, 55);
         var matcher = new OperatorMatrixPatchMatcher();
-        var options = new PatchMatchOptions { EvaluationBudget = 20000 };
+        // Without the structure library: its patches have no key scaling and it is looked up from one note, so it would
+        // help the single-note match more than the set and blur what this test is about.
+        var options = new PatchMatchOptions { EvaluationBudget = 20000, StructureLibrarySize = 0 };
 
         PatchMatchResult multi = matcher.Match(set, options);
         PatchMatchResult single = matcher.Match(set[1], options);

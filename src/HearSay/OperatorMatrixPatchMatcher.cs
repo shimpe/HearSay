@@ -55,9 +55,21 @@ public static class SynthesisBackends
 
     /// <summary>Prior providers of a profile.</summary>
     /// <param name="profile">Synthesis profile.</param>
-    public static IReadOnlyList<ISynthesisPriorProvider> PriorProvidersFor(SynthesisProfile profile)
+    /// <param name="structureLibrarySize">
+    /// Patches in the structure library whose nearest neighbours by sound become hypotheses, in a group of their own;
+    /// 0 for none. Only profiles with a backend-exact renderer get one.
+    /// </param>
+    public static IReadOnlyList<ISynthesisPriorProvider> PriorProvidersFor(SynthesisProfile profile, int structureLibrarySize = 0)
     {
         ArgumentNullException.ThrowIfNull(profile);
+        IReadOnlyList<ISynthesisPriorProvider> providers = ReadingProvidersFor(profile);
+        return structureLibrarySize > 0 && profile.RenderProfile == RenderProfile.BackendExact
+            ? [.. providers, new NearestStructurePriorProvider(StructureLibrary.For(profile, structureLibrarySize, RendererFor(profile)))]
+            : providers;
+    }
+
+    private static IReadOnlyList<ISynthesisPriorProvider> ReadingProvidersFor(SynthesisProfile profile)
+    {
         ISynthesisPriorProvider sine = new SinePhaseModulationPriorProvider();
         ISynthesisPriorProvider tracks = new PartialTrackPriorProvider(sine);
         ISynthesisPriorProvider stacks = new SinePhaseModulationPriorProvider { StackedModulatorsOnly = true };
@@ -260,7 +272,12 @@ public sealed class OperatorMatrixPatchMatcher
         ArgumentNullException.ThrowIfNull(targets);
         options ??= new PatchMatchOptions();
         IOperatorMatrixRenderer renderer = _renderer ?? SynthesisBackends.RendererFor(options.SynthesisProfile);
-        IReadOnlyList<ISynthesisPriorProvider> providers = _providers ?? SynthesisBackends.PriorProvidersFor(options.SynthesisProfile);
+        if (_providers is null && options.StructureLibrarySize > 0 && !StructureLibrary.IsAvailable(options.SynthesisProfile, options.StructureLibrarySize))
+        {
+            progress?.Report(new SearchProgress($"building the structure library of {options.SynthesisProfile.Name} ({options.StructureLibrarySize} patches, once; a few minutes)", 0, options.EvaluationBudget, double.NaN));
+        }
+
+        IReadOnlyList<ISynthesisPriorProvider> providers = _providers ?? SynthesisBackends.PriorProvidersFor(options.SynthesisProfile, options.StructureLibrarySize);
         var coordinator = new OperatorMatrixPatchSearchCoordinator(renderer, providers);
         SearchOutcome outcome = coordinator.Search(targets, options, progress, cancellationToken);
 

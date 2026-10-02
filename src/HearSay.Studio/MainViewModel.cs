@@ -419,7 +419,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     Progress = (index + p.Fraction) / profiles.Count;
                     string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run} of {p.RunCount} (seed {Seed + p.Run - 1}) · ") : string.Empty;
                     string previous = double.IsNaN(p.BestLossOfPreviousRuns) ? string.Empty : FormattableString.Invariant($" · best of earlier seeds {p.BestLossOfPreviousRuns:F4}");
-                    Status = FormattableString.Invariant($"{prefix}{run}{p.Stage}: {p.EvaluationsUsed} of {p.EvaluationBudget} evaluations, best loss {p.BestLoss:F4}{previous}");
+                    // Before the search proper (building a structure library) there is no loss yet.
+                    Status = double.IsNaN(p.BestLoss)
+                        ? prefix + run + p.Stage
+                        : FormattableString.Invariant($"{prefix}{run}{p.Stage}: {p.EvaluationsUsed} of {p.EvaluationBudget} evaluations, best loss {p.BestLoss:F4}{previous}");
                 });
                 PatchMatchResult result = await Task.Run(() => _matcher.MatchBestOf(targets, seeds, options, progress, token), CancellationToken.None);
                 _results[result.Profile.Name] = result;

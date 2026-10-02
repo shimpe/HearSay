@@ -261,7 +261,18 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             .OrderBy(static s => s.Evaluation.Loss)
             .ThenBy(static s => s.Hypothesis.Origin, StringComparer.Ordinal)
             .ToList();
-        var survivors = SelectSurvivors(screenedBest, s => groupOf.GetValueOrDefault(s.Hypothesis), options.SurvivorCount);
+        List<(PatchHypothesis Hypothesis, PatchEvaluation Evaluation)> survivors;
+        if (options.LibraryBasinMode == LibraryBasinMode.Extra)
+        {
+            // The survivors the read structures would have had without the library, and the best neighbours on top.
+            survivors = SelectSurvivors([.. screenedBest.Where(static s => !FromLibrary(s.Hypothesis.Origin))], s => groupOf.GetValueOrDefault(s.Hypothesis), options.SurvivorCount);
+            survivors.AddRange(screenedBest.Where(static s => FromLibrary(s.Hypothesis.Origin)).Take(2 * options.LibraryBasinCount));
+        }
+        else
+        {
+            survivors = SelectSurvivors(screenedBest, s => groupOf.GetValueOrDefault(s.Hypothesis), options.SurvivorCount);
+        }
+
         stages.Add(new SearchStageSummary("hypothesis screening", evaluator.Used - usedBefore, survivors[0].Evaluation.Loss, EvaluationLevel.Coarse, $"{hypotheses.Count} hypotheses at {scales.Length} modulation scales, {survivors.Count} survive"));
         progress?.Report(new SearchProgress("hypothesis screening", evaluator.Used, evaluator.Budget, survivors[0].Evaluation.Loss));
 
@@ -295,7 +306,8 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             progress?.Report(new SearchProgress("survivor optimization", evaluator.Used, evaluator.Budget, basins.Min(static b => b.Best.Loss)));
         }
 
-        basins = Distinct(basins, options.BasinCount);
+        basins = SelectBasins(basins, options);
+        int basinCount = Math.Max(options.BasinCount, basins.Count);
 
         // From here on every candidate is judged on the whole set. The losses change scale, so the basins are
         // re-evaluated and their optimizer runs start afresh; the initial loss is the best untouched hypothesis on the set.
@@ -324,7 +336,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         {
             int keep = round == rounds - 1
                 ? Math.Min(basins.Count, options.FinalistCount)
-                : Math.Max(options.FinalistCount, (int)Math.Ceiling(options.BasinCount * (1.0 - (round / (double)rounds))));
+                : Math.Max(options.FinalistCount, (int)Math.Ceiling(basinCount * (1.0 - (round / (double)rounds))));
             Retire(basins, retired, keep);
             int perBasin = deepBudget / rounds / Math.Max(1, basins.Count);
             for (int b = 0; b < basins.Count && !cancellationToken.IsCancellationRequested; b++)
@@ -694,6 +706,44 @@ public sealed class OperatorMatrixPatchSearchCoordinator
     /// Best basins first, without duplicates. Two basins are duplicates when they have the same canonical regime, or
     /// the same frequency structure together with practically the same loss terms: the same sound found twice.
     /// </summary>
+    /// <summary>True for a hypothesis or basin that descends from a structure-library neighbour.</summary>
+    private static bool FromLibrary(string origin) => origin.StartsWith(NearestStructurePriorProvider.OriginPrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The basins kept after the survivor round. Library neighbours start out sounding closer than read structures with
+    /// default amounts, so left to compete freely they take basins from read structures that would win once tuned;
+    /// <see cref="LibraryBasinMode"/> decides how much room they get.
+    /// </summary>
+    private static List<SearchBasin> SelectBasins(List<SearchBasin> basins, PatchMatchOptions options)
+    {
+        List<SearchBasin> read = [.. basins.Where(static b => !FromLibrary(b.Origin))];
+        List<SearchBasin> library = [.. basins.Where(static b => FromLibrary(b.Origin))];
+        if (library.Count == 0 || options.LibraryBasinMode == LibraryBasinMode.Free)
+        {
+            return Distinct(basins, options.BasinCount);
+        }
+
+        List<SearchBasin> neighbours = Distinct(library, Math.Max(0, options.LibraryBasinCount));
+        if (options.LibraryBasinMode == LibraryBasinMode.Capped)
+        {
+            // The best few neighbours compete with the read structures; the rest never reach a basin.
+            return Distinct([.. read, .. neighbours], options.BasinCount);
+        }
+
+        // Extra: the read structures keep the basins they would have had, and the neighbours come on top.
+        List<SearchBasin> kept = Distinct(read, options.BasinCount);
+        foreach (SearchBasin neighbour in neighbours)
+        {
+            if (!kept.Exists(k => k.Regime == neighbour.Regime))
+            {
+                kept.Add(neighbour);
+            }
+        }
+
+        kept.Sort(static (a, b) => a.Best.Loss.CompareTo(b.Best.Loss));
+        return kept;
+    }
+
     private static List<SearchBasin> Distinct(List<SearchBasin> basins, int count)
     {
         List<SearchBasin> ordered = [.. basins.OrderBy(static b => b.Best.Loss).ThenBy(static b => b.Id)];
