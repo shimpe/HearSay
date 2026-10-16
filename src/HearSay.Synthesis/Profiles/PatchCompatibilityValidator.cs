@@ -72,8 +72,9 @@ public interface IPatchCompatibilityValidator
 }
 
 /// <summary>
-/// Default compatibility check. Disabled operators and disabled edges are ignored: only what can be heard has to be
-/// representable. Stateless and thread-safe.
+/// Default compatibility check. Operators that cannot be heard, disabled or not, and the edges that touch them are
+/// ignored, as the exporters and renderers ignore them: only what can be heard has to be representable. Stateless and
+/// thread-safe.
 /// </summary>
 public sealed class PatchCompatibilityValidator : IPatchCompatibilityValidator
 {
@@ -104,10 +105,11 @@ public sealed class PatchCompatibilityValidator : IPatchCompatibilityValidator
                 $"The patch has {n} operators; the backend needs exactly {capabilities.OperatorCount}."));
         }
 
+        bool[] audible = patch.FindAudibleOperators();
         for (int i = 0; i < n; i++)
         {
             OperatorPatch op = patch.Operators[i];
-            if (!op.Enabled)
+            if (!audible[i])
             {
                 continue;
             }
@@ -148,7 +150,7 @@ public sealed class PatchCompatibilityValidator : IPatchCompatibilityValidator
 
         foreach (ModulationEdge edge in patch.ModulationMatrix.Edges)
         {
-            if (!edge.Enabled || edge.Amount == 0.0 || !patch.Operators[edge.SourceOperator].Enabled || !patch.Operators[edge.DestinationOperator].Enabled)
+            if (!edge.Enabled || edge.Amount == 0.0 || !audible[edge.SourceOperator] || !audible[edge.DestinationOperator])
             {
                 continue;
             }

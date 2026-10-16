@@ -118,4 +118,23 @@ public sealed class OperatorFilterModelTests
         var fm7 = new RandomPatchGenerator(SynthesisProfiles.SuperColliderFm7.Capabilities, new RandomPatchOptions { FilterProbability = 1.0 });
         Assert.All(Enumerable.Range(0, 10), seed => Assert.All(fm7.Generate(seed).Operators, static o => Assert.Null(o.Filter)));
     }
+
+    [Fact]
+    public void InaudibleOperators_DoNotHaveToBeRepresentable()
+    {
+        // OP2 is enabled but neither heard nor modulating anything heard: a saw with a filter and self-feedback.
+        OperatorMatrixPatch patch = Carrier(null)
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2)) with { Waveform = OperatorWaveform.Saw, Filter = OperatorFilter.LowPass(4) })
+            .WithEdge(new ModulationEdge(1, 1, true, 0.5));
+        Assert.False(patch.FindAudibleOperators()[1]);
+        SynthesisCapabilities fm7 = SynthesisProfiles.SuperColliderFm7.Capabilities with { SupportsSelfFeedback = false };
+        PatchCompatibilityResult result = PatchCompatibilityValidator.Instance.Validate(patch, fm7);
+        Assert.True(result.IsCompatible, result.ToString());
+
+        // Heard, the same operator is refused for each of the three reasons.
+        PatchCompatibilityResult heard = PatchCompatibilityValidator.Instance.Validate(patch.WithOutputLevel(1, 0.5), fm7);
+        Assert.Contains(heard.Issues, static i => i.Code == PatchCompatibilityCodes.OperatorFilter);
+        Assert.Contains(heard.Issues, static i => i.Code == PatchCompatibilityCodes.UnsupportedWaveform);
+        Assert.Contains(heard.Issues, static i => i.Code == PatchCompatibilityCodes.SelfFeedback);
+    }
 }
