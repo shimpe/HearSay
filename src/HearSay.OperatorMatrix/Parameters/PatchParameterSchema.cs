@@ -116,10 +116,17 @@ public sealed class PatchParameterSchema
                 bool Has(OperatorMatrixPatch p, Func<OperatorFilter, bool> uses) => Audible(p) && p.Operators[op].Filter is { } f && uses(f);
                 double Read(OperatorMatrixPatch p, Func<OperatorFilter, double> value, double fallback) => p.Operators[op].Filter is { } f ? value(f) : fallback;
 
+                // The search ranges, widened to a value the patch already has (a hand-made F1 at 50 Hz), so that the
+                // first write does not move it.
+                OperatorFilter? present = patch.Operators[op].Filter;
+                double lowHz = Math.Max(10.0, Math.Min(80.0, present?.FixedHz ?? 80.0));
+                double highHz = Math.Min(20000.0, Math.Max(8000.0, present?.FixedHz ?? 8000.0));
+                double highRatio = Math.Min(16.0, Math.Max(8.0, present?.FormantRatio ?? 8.0));
+
                 list.Add(Smooth(filterId + ".cutoff", filterGroup, 0.25, 64.0, ParameterTransforms.Logarithmic, p => Read(p, static f => f.CutoffRatio, 4.0), (p, v) => WithFilter(p, f => f with { CutoffRatio = Math.Clamp(v, 0.25, 64.0) }), p => Has(p, static f => f.IsKeyTracked)));
-                list.Add(Smooth(filterId + ".fixedHz", filterGroup, 80.0, 8000.0, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FixedHz, 1000.0), (p, v) => WithFilter(p, f => f with { FixedHz = Math.Clamp(v, 80.0, 8000.0) }), p => Has(p, static f => !f.IsKeyTracked)));
+                list.Add(Smooth(filterId + ".fixedHz", filterGroup, lowHz, highHz, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FixedHz, 1000.0), (p, v) => WithFilter(p, f => f with { FixedHz = Math.Clamp(v, lowHz, highHz) }), p => Has(p, static f => !f.IsKeyTracked)));
                 list.Add(Smooth(filterId + ".q", filterGroup, OperatorFilter.MinQ, OperatorFilter.MaxQ, ParameterTransforms.Logarithmic, p => Read(p, static f => f.Q, OperatorFilter.ButterworthQ), (p, v) => WithFilter(p, f => f with { Q = Math.Clamp(v, OperatorFilter.MinQ, OperatorFilter.MaxQ) }), p => Has(p, static _ => true)));
-                list.Add(Smooth(filterId + ".formantRatio", filterGroup, 1.0, 8.0, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FormantRatio, 2.0), (p, v) => WithFilter(p, f => f with { FormantRatio = Math.Clamp(v, 1.0, 8.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Formant)));
+                list.Add(Smooth(filterId + ".formantRatio", filterGroup, 1.0, highRatio, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FormantRatio, 2.0), (p, v) => WithFilter(p, f => f with { FormantRatio = Math.Clamp(v, 1.0, highRatio) }), p => Has(p, static f => f.Type == OperatorFilterType.Formant)));
                 list.Add(Smooth(filterId + ".formantLevel", filterGroup, 0.0, 1.0, ParameterTransforms.Linear, p => Read(p, static f => f.FormantLevel, 0.5), (p, v) => WithFilter(p, f => f with { FormantLevel = Math.Clamp(v, 0.0, 1.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Formant)));
                 list.Add(Smooth(filterId + ".peakGain", filterGroup, -24.0, 24.0, ParameterTransforms.Linear, p => Read(p, static f => f.PeakGainDb, 6.0), (p, v) => WithFilter(p, f => f with { PeakGainDb = Math.Clamp(v, -24.0, 24.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Peak)));
                 list.Add(Smooth(filterId + ".octaves", filterGroup, -4.0, 4.0, ParameterTransforms.Linear, p => Read(p, static f => f.EnvelopeOctaves, 0.0), (p, v) => WithFilter(p, f => f with { EnvelopeOctaves = Math.Clamp(v, -4.0, 4.0) }), p => Has(p, static f => f.Envelope is not null)));

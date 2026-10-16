@@ -291,6 +291,21 @@ public sealed class ParameterTests
     }
 
     [Fact]
+    public void FilterParameters_KeepAHandMadeValueOutsideTheSearchRange()
+    {
+        // F1 at 50 Hz and F2 at 12 x F1 are valid patches but outside the search ranges (80..8000 Hz, 1..8).
+        OperatorMatrixPatch patch = FilteredSaw(OperatorFilter.FormantAt(50, 12, 0.5, 8));
+        PatchParameterSchema schema = PatchParameterSchema.Build(patch, SynthesisProfiles.SuperColliderFmx6.Capabilities);
+        foreach ((string id, double value) in new[] { ("op1.operatorFilter.fixedHz", 50.0), ("op1.operatorFilter.formantRatio", 12.0) })
+        {
+            PatchParameter parameter = schema.Find(id)!;
+            OperatorMatrixPatch same = parameter.SetNormalized(patch, parameter.GetNormalized(patch));
+            OperatorFilter filter = same.Operators[0].Filter!;
+            Assert.Equal(value, id.EndsWith("fixedHz", StringComparison.Ordinal) ? filter.FixedHz : filter.FormantRatio, 6);
+        }
+    }
+
+    [Fact]
     public void Filter_CostsALittleComplexity()
     {
         OperatorMatrixPatch plain = FilteredSaw(OperatorFilter.LowPass(4));
