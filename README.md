@@ -57,6 +57,19 @@ the command line, the API, every search option, hand-editing patches and trouble
 
 ## Installation
 
+**Ready-made builds** of HearSay Studio and the command line (`hearsay-cli`) for Windows, macOS and Linux (x64 and
+ARM64) are on the [Releases](https://github.com/shimpe/HearSay/releases) page: self-contained, unpack and run. They
+are made by the `Release` workflow (`.github/workflows/release.yml`) whenever a version tag is pushed:
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+or by hand from the Actions tab. It runs the fast test projects first, builds every platform on its own runner, and
+publishes the archives with the release notes; a version with a hyphen (`v0.3.0-beta.1`) becomes a pre-release. The
+macOS app is signed ad hoc but not notarized, so the first start needs right-click, Open.
+
 The library is not published to NuGet yet. Reference the project:
 
 ```bash

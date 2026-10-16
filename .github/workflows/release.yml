@@ -1,0 +1,195 @@
+# Builds HearSay Studio and the command line for Windows, macOS and Linux and publishes them as a GitHub Release.
+#
+# Start it by pushing a version tag:
+#
+#   git tag v0.3.0
+#   git push origin v0.3.0
+#
+# or by hand from the Actions tab (Run workflow), giving the version. A version with a hyphen (0.3.0-beta.1) becomes a
+# pre-release. Every build is self-contained: nothing has to be installed to run it.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the leading v, for example 0.3.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$INPUT_VERSION"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          version="${version#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$version' is not a version such as 0.3.0 or 0.3.0-beta.1"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # The fast test projects. The integration tests take most of an hour and the SuperCollider tests skip themselves
+  # without sclang, so neither runs here.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build
+        run: dotnet build HearSay.sln -c Release
+      - name: Test
+        run: |
+          for project in HearSay.Synthesis.Tests HearSay.Audio.Tests HearSay.Modeling.Tests HearSay.OperatorMatrix.Tests; do
+            dotnet test "tests/$project" -c Release --no-build
+          done
+
+  # Each platform builds on its own runner: building the Windows executables on Linux cannot embed their manifest and
+  # icon, and the macOS app has to be signed (ad hoc) on a Mac to start on Apple Silicon.
+  build:
+    needs: [version, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: windows-latest, rid: win-arm64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: ubuntu-latest, rid: linux-arm64 }
+          - { os: macos-latest, rid: osx-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RID: ${{ matrix.rid }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish
+        shell: bash
+        run: |
+          common="-c Release -r $RID --self-contained true -p:Version=$VERSION -p:DebugType=None -p:DebugSymbols=false"
+          dotnet publish src/HearSay.Studio/HearSay.Studio.csproj $common -o publish/studio
+          dotnet publish src/HearSay.Cli/HearSay.Cli.csproj $common -o publish/cli
+          cp LICENSE README.md publish/studio/
+          cp LICENSE README.md publish/cli/
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path publish/studio/* -DestinationPath "dist/HearSay-Studio-$env:VERSION-$env:RID.zip"
+          Compress-Archive -Path publish/cli/* -DestinationPath "dist/hearsay-cli-$env:VERSION-$env:RID.zip"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist
+          chmod +x publish/studio/HearSay.Studio publish/cli/hearsay-cli
+          tar -czf "dist/HearSay-Studio-$VERSION-$RID.tar.gz" -C publish/studio .
+          tar -czf "dist/hearsay-cli-$VERSION-$RID.tar.gz" -C publish/cli .
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p dist
+          app="publish/HearSay Studio.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          cp -R publish/studio/. "$app/Contents/MacOS/"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>HearSay Studio</string>
+            <key>CFBundleDisplayName</key><string>HearSay Studio</string>
+            <key>CFBundleIdentifier</key><string>io.github.shimpe.hearsay</string>
+            <key>CFBundleExecutable</key><string>HearSay.Studio</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          chmod +x "$app/Contents/MacOS/HearSay.Studio" publish/cli/hearsay-cli
+          # Ad-hoc signatures: without one, Apple Silicon refuses to start the binaries at all. They are not notarized,
+          # so Gatekeeper still asks; see the release notes.
+          codesign --force --deep --sign - "$app"
+          codesign --force --sign - publish/cli/hearsay-cli
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/HearSay-Studio-$VERSION-$RID.zip"
+          tar -czf "dist/hearsay-cli-$VERSION-$RID.tar.gz" -C publish/cli .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hearsay-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release
+        shell: bash
+        run: |
+          cat > notes.md <<'NOTES'
+          Self-contained builds of HearSay Studio (desktop app) and `hearsay-cli` (command line): unpack and run, nothing
+          else to install. To play the exported patches you need SuperCollider with the plugin of the synthesis target:
+          sc3-plugins for FM7, the FMX6 plugin for FMX6, the Nome6 plugin for Nome6.
+
+          The first search for a synthesis target builds its structure library once (a few minutes, about 86 MB in the
+          local application data); turn it off with the Library check box or `--library 0`.
+
+          - **Windows:** unzip and start `HearSay.Studio.exe`. SmartScreen may warn about an unknown publisher: More info, Run anyway.
+          - **macOS:** unzip and move `HearSay Studio.app` to Applications. The app is not notarized: the first time,
+            right-click it and choose Open, or run `xattr -dr com.apple.quarantine "/Applications/HearSay Studio.app"`.
+            `osx-arm64` is for Apple Silicon, `osx-x64` for Intel Macs.
+          - **Linux:** unpack and start `./HearSay.Studio`; sound needs a working OpenAL output (PulseAudio or PipeWire).
+          NOTES
+          prerelease=""
+          if [[ "$VERSION" == *-* ]]; then prerelease="--prerelease"; fi
+          gh release create "v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "HearSay $VERSION" \
+            --notes-file notes.md \
+            --generate-notes \
+            $prerelease
