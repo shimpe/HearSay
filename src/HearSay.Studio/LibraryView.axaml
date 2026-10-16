@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:HearSay.Studio"
+             xmlns:profiles="using:HearSay.Synthesis.Profiles"
+             x:Class="HearSay.Studio.LibraryView"
+             x:DataType="local:LibraryViewModel">
+  <Grid RowDefinitions="*,Auto" ColumnDefinitions="3*,2*" RowSpacing="12" ColumnSpacing="12">
+
+    <!-- Graph: profile, breadcrumb, families -->
+    <Border Grid.Row="0" Grid.Column="0" Classes="card">
+      <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+          <TextBlock Grid.Column="0" Classes="title" Text="LIBRARY" Margin="0" VerticalAlignment="Center" />
+          <ComboBox Grid.Column="1" Width="110" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="profiles:SynthesisProfile">
+                <TextBlock Text="{Binding Name, Converter={x:Static local:ProfileNameConverter.Instance}}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </Grid>
+        <ItemsControl Grid.Row="1" ItemsSource="{Binding Crumbs}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="local:Crumb">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Content="{Binding Label}" Click="OnCrumb" Padding="6,2" FontSize="11" Background="Transparent" Foreground="{StaticResource AccentBrush}" />
+                <TextBlock Text="›" Classes="muted" VerticalAlignment="Center" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Grid Grid.Row="2" ColumnDefinitions="*">
+          <Border Grid.Column="0" CornerRadius="6" ClipToBounds="True">
+            <local:LibraryGraph x:Name="Graph" Nodes="{Binding Nodes}" Edges="{Binding Edges}" SelectedIndex="{Binding SelectedIndex}" Message="{Binding GraphMessage}" NodeClicked="OnNodeClicked" NodeOpened="OnNodeOpened" />
+          </Border>
+        </Grid>
+      </Grid>
+    </Border>
+
+    <!-- The selected sound -->
+    <Border Grid.Row="0" Grid.Column="1" Classes="card">
+      <DockPanel>
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+          <TextBlock Grid.Column="0" Classes="title" Text="PATCH" Margin="0" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Copy the SuperCollider code" />
+          <Button Grid.Column="2" Content="Save…" Click="OnSave" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Write patch.json, patch.scd and preview.wav to a folder; it can be imported again" />
+          <Button Grid.Column="3" Content="Show in Search" Click="OnShowInSearch" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Show this sound as the patch of the Search tab" />
+        </Grid>
+        <TextBlock DockPanel.Dock="Bottom" Text="{Binding SelectionText}" Classes="muted" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
+        <local:PatchView Code="{Binding Scd}" Patch="{Binding ShownPatch}" Watermark="Click a node to see its code." />
+      </DockPanel>
+    </Border>
+
+    <!-- Keyboard -->
+    <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Classes="card" Padding="14,10">
+      <StackPanel Spacing="4">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <TextBlock Grid.Column="0" Text="play the last clicked sound" Classes="muted" FontSize="10" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="2" Text="lower on a key = louder" Classes="muted" FontSize="9" VerticalAlignment="Center" />
+        </Grid>
+        <ScrollViewer x:Name="KeyboardScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled" AllowAutoHide="False" LayoutUpdated="OnKeyboardLayoutUpdated">
+          <local:PianoKeyboard x:Name="Keyboard" Height="80" Margin="0,0,0,18" LowestNote="0" HighestNote="127" WhiteKeyWidth="26" NotePressed="OnNotePressed" />
+        </ScrollViewer>
+        <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>

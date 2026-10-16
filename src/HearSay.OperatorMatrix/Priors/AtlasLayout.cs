@@ -165,7 +165,10 @@ public sealed class AtlasLayout
         return (Math.Sign(rayleigh) * value, v);
     }
 
-    /// <summary>Into the unit square with room for the largest node; points that coincide go on a circle.</summary>
+    /// <summary>
+    /// Into the unit square with room for the largest node, each axis filling it: the second axis of the scaling is
+    /// usually the narrower, and is stretched up to 2.5 times the first. Points that coincide go on a circle.
+    /// </summary>
     private static (double[] X, double[] Y) Scale((double[] X, double[] Y) points, double[] radii)
     {
         int n = radii.Length;
@@ -192,12 +195,14 @@ public sealed class AtlasLayout
             return (x, y);
         }
 
-        double scale = (1 - (2 * margin)) / span;
-        double ox = 0.5 - ((minX + maxX) / 2 * scale), oy = 0.5 - ((minY + maxY) / 2 * scale);
+        double room = 1 - (2 * margin);
+        double scaleX = room / Math.Max(maxX - minX, span / 2.5);
+        double scaleY = room / Math.Max(maxY - minY, span / 2.5);
+        double ox = 0.5 - ((minX + maxX) / 2 * scaleX), oy = 0.5 - ((minY + maxY) / 2 * scaleY);
         for (int i = 0; i < n; i++)
         {
-            x[i] = ox + (points.X[i] * scale);
-            y[i] = oy + (points.Y[i] * scale);
+            x[i] = ox + (points.X[i] * scaleX);
+            y[i] = oy + (points.Y[i] * scaleY);
         }
 
         return (x, y);

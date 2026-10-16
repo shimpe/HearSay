@@ -210,11 +210,15 @@ public sealed class LibraryGraph : Control
         ToolTip.SetIsOpen(this, false);
     }
 
-    private double Side => Math.Max(1, Math.Min(Bounds.Width, Bounds.Height) - (2 * Pad));
+    // The unit square is stretched to the whole control; radii follow the shorter side, so stretching only adds room
+    // between nodes and no overlap comes back.
+    private double PlotWidth => Math.Max(1, Bounds.Width - (2 * Pad));
 
-    private Point Centre(GraphNode node) => new(
-        ((Bounds.Width - Side) / 2) + (node.X * Side),
-        ((Bounds.Height - Side) / 2) + (node.Y * Side));
+    private double PlotHeight => Math.Max(1, Bounds.Height - (2 * Pad));
+
+    private double Side => Math.Min(PlotWidth, PlotHeight);
+
+    private Point Centre(GraphNode node) => new(Pad + (node.X * PlotWidth), Pad + (node.Y * PlotHeight));
 
     private double Radius(GraphNode node) => Math.Max(4, node.Radius * Side);
 

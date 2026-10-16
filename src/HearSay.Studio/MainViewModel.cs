@@ -145,6 +145,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public MainViewModel()
     {
         Notes = new NotePlayer(_player);
+        Library = new LibraryViewModel(Notes, s => Status = s, p => Progress = p, ShowLibraryPatch);
         RunCommand = new RelayCommand(() => _ = RunAsync(), () => Targets.Count > 0 && !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
         RemoveCommand = new RelayCommand(RemoveSelected, () => SelectedTarget is not null && !IsRunning);
@@ -156,6 +157,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>Plays notes for both tabs.</summary>
     internal NotePlayer Notes { get; }
+
+    private int _selectedTab;
+
+    /// <summary>The Library tab.</summary>
+    public LibraryViewModel Library { get; }
+
+    /// <summary>Selected tab: 0 Search, 1 Library. Showing the Library tab loads its library the first time.</summary>
+    public int SelectedTab
+    {
+        get => _selectedTab;
+        set
+        {
+            if (Set(ref _selectedTab, value) && value == 1)
+            {
+                _ = Library.EnsureLoadedAsync();
+            }
+        }
+    }
+
+    /// <summary>Shows a library sound in the Search tab.</summary>
+    /// <param name="patch">The sound.</param>
+    public void ShowLibraryPatch(LibraryPatch patch)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        SelectedTab = 0;
+    }
 
     /// <summary>Loaded target notes.</summary>
     public ObservableCollection<TargetItem> Targets { get; } = [];
