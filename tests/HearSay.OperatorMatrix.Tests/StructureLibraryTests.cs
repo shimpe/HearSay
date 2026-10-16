@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using HearSay.Analysis;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.Synthesis.Fm7Compatible.Rendering;
@@ -17,6 +18,31 @@ public sealed class StructureLibraryTests
     {
         RenderedAudio audio = Renderer.Render(patch, RenderRequest.Create(hz, 1.0, 0.3));
         return SpectralFingerprint.Of(audio.Samples, audio.SampleRate, hz);
+    }
+
+    private sealed class Recorder : IProgress<double>
+    {
+        public ConcurrentBag<double> Values { get; } = [];
+
+        public void Report(double value) => Values.Add(value);
+    }
+
+    [Fact]
+    public void Library_GivesItsFingerprintsAndSeedsByIndex_AndReportsBuildProgress()
+    {
+        var recorder = new Recorder();
+        StructureLibrary library = StructureLibrary.Build(Fm7, 300, Renderer, recorder);
+        foreach (int i in new[] { 0, 7, 299 })
+        {
+            byte[] expected = Print(library.Patch(library.Seed(i)), StructureLibrary.ReferenceHz);
+            Assert.Equal(expected, library.Fingerprint(i).ToArray());
+        }
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => library.Fingerprint(300).Length);
+        Assert.NotEmpty(recorder.Values);
+        Assert.All(recorder.Values, static v => Assert.InRange(v, 0.0, 1.0));
+        Assert.Contains(1.0, recorder.Values);
+        Assert.Equal(RenderRequest.Create(StructureLibrary.ReferenceHz, 1.0, 0.3), StructureLibrary.ReferenceRequest);
     }
 
     [Fact]
@@ -60,6 +86,7 @@ public sealed class StructureLibraryTests
             SynthesisProfile profile = SynthesisProfiles.SuperColliderFm7 with { Name = "test-" + Guid.NewGuid().ToString("N") };
             StructureLibrary built = StructureLibrary.For(profile, 50, Renderer, directory);
             string file = Assert.Single(Directory.GetFiles(directory));
+            Assert.Equal(StructureLibrary.FileOf(profile, 50, directory), file);
             Assert.Contains($"-v{profile.StructureLibraryVersion}-50.bin", file, StringComparison.Ordinal);
 
             // Another process would load it; within this one the same instance is shared.

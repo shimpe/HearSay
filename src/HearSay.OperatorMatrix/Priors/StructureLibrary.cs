@@ -39,6 +39,9 @@ public sealed class StructureLibrary
     /// <summary>Note at which the library patches are rendered and fingerprinted.</summary>
     public static double ReferenceHz => 220.0;
 
+    /// <summary>The request every library patch is rendered and fingerprinted with: the reference note, held 1 s, released 0.3 s.</summary>
+    public static RenderRequest ReferenceRequest => RenderRequest.Create(ReferenceHz, 1.0, 0.3);
+
     /// <summary>
     /// The library of a profile at a size, from memory, from disk or built and saved; one per profile and size per
     /// process.
@@ -47,13 +50,14 @@ public sealed class StructureLibrary
     /// <param name="size">Number of patches.</param>
     /// <param name="renderer">Renderer of the profile, used when the library has to be built.</param>
     /// <param name="directory">Folder of the library files; the user's local application data when null.</param>
-    public static StructureLibrary For(SynthesisProfile profile, int size, IOperatorMatrixRenderer renderer, string? directory = null)
+    /// <param name="progress">Fraction of the patches rendered while the library is built; not called when it is loaded.</param>
+    public static StructureLibrary For(SynthesisProfile profile, int size, IOperatorMatrixRenderer renderer, string? directory = null, IProgress<double>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(size);
         string path = PathOf(profile, size, directory);
-        return Cache.GetOrAdd(path, _ => new Lazy<StructureLibrary>(() => LoadOrBuild(profile.Capabilities, profile.StructureLibraryVersion, size, renderer, path))).Value;
+        return Cache.GetOrAdd(path, _ => new Lazy<StructureLibrary>(() => LoadOrBuild(profile.Capabilities, profile.StructureLibraryVersion, size, renderer, path, progress))).Value;
     }
 
     /// <summary>True when the library of a profile and size is in memory or on disk, so that <see cref="For"/> returns at once.</summary>
@@ -67,6 +71,16 @@ public sealed class StructureLibrary
         return (Cache.TryGetValue(path, out Lazy<StructureLibrary>? lazy) && lazy.IsValueCreated) || File.Exists(path);
     }
 
+    /// <summary>The file a library of a profile and size is kept in.</summary>
+    /// <param name="profile">Synthesis profile.</param>
+    /// <param name="size">Number of patches.</param>
+    /// <param name="directory">Folder of the library files; the user's local application data when null.</param>
+    public static string FileOf(SynthesisProfile profile, int size, string? directory = null)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return PathOf(profile, size, directory);
+    }
+
     private static string PathOf(SynthesisProfile profile, int size, string? directory)
     {
         directory ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HearSay", "structure-libraries");
@@ -77,26 +91,51 @@ public sealed class StructureLibrary
     /// <param name="capabilities">Capabilities the patches are generated within.</param>
     /// <param name="size">Number of patches.</param>
     /// <param name="renderer">Renderer that plays them.</param>
-    public static StructureLibrary Build(SynthesisCapabilities capabilities, int size, IOperatorMatrixRenderer renderer)
+    /// <param name="progress">Fraction of the patches rendered, about a hundred times and 1 at the end.</param>
+    public static StructureLibrary Build(SynthesisCapabilities capabilities, int size, IOperatorMatrixRenderer renderer, IProgress<double>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(renderer);
         var seeds = new int[size];
         var prints = new byte[size * SpectralFingerprint.Length];
+        int done = 0;
+        int step = Math.Max(1, size / 100);
         Parallel.For(0, size, i =>
         {
             int seed = FirstSeed + i;
             OperatorMatrixPatch patch = Generate(capabilities, seed);
-            RenderedAudio audio = renderer.Render(patch, RenderRequest.Create(ReferenceHz, 1.0, 0.3));
+            RenderedAudio audio = renderer.Render(patch, ReferenceRequest);
             seeds[i] = seed;
             SpectralFingerprint.Of(audio.Samples, audio.SampleRate, ReferenceHz).CopyTo(prints, i * SpectralFingerprint.Length);
+            int count = Interlocked.Increment(ref done);
+            if (count % step == 0 && count < size)
+            {
+                progress?.Report((double)count / size);
+            }
         });
+        progress?.Report(1.0);
         return new StructureLibrary(capabilities, seeds, prints);
     }
 
     /// <summary>The library patch of a seed.</summary>
     /// <param name="seed">Seed from <see cref="Nearest"/>.</param>
     public OperatorMatrixPatch Patch(int seed) => Generate(_capabilities, seed);
+
+    /// <summary>The fingerprint of the patch at an index.</summary>
+    /// <param name="index">Index, 0 to <see cref="Count"/> - 1.</param>
+    public ReadOnlySpan<byte> Fingerprint(int index)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Count);
+        return _prints.AsSpan(index * SpectralFingerprint.Length, SpectralFingerprint.Length);
+    }
+
+    /// <summary>The seed of the patch at an index; <see cref="Patch"/> regenerates the patch from it.</summary>
+    /// <param name="index">Index, 0 to <see cref="Count"/> - 1.</param>
+    public int Seed(int index) => _seeds[index];
+
+    /// <summary>A library from given seeds and fingerprints, for tests.</summary>
+    internal static StructureLibrary FromFingerprints(SynthesisCapabilities capabilities, int[] seeds, byte[] prints) => new(capabilities, seeds, prints);
 
     /// <summary>The seeds of the patches whose fingerprints are closest to a fingerprint, closest first.</summary>
     /// <param name="print">Fingerprint of the target.</param>
@@ -180,14 +219,14 @@ public sealed class StructureLibrary
         return heard >= minimumHeard && onTheNote;
     }
 
-    private static StructureLibrary LoadOrBuild(SynthesisCapabilities capabilities, int version, int size, IOperatorMatrixRenderer renderer, string path)
+    private static StructureLibrary LoadOrBuild(SynthesisCapabilities capabilities, int version, int size, IOperatorMatrixRenderer renderer, string path, IProgress<double>? progress)
     {
         if (TryLoad(capabilities, version, size, path) is { } loaded)
         {
             return loaded;
         }
 
-        StructureLibrary built = Build(capabilities, size, renderer);
+        StructureLibrary built = Build(capabilities, size, renderer, progress);
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
