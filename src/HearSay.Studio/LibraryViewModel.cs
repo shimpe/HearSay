@@ -52,6 +52,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private LibraryFamily? _family;
     private IReadOnlyList<LibraryFamily> _children = [];
     private int _loadVersion;
+    private int _navVersion;
     private bool _loaded;
     private IReadOnlyList<GraphNode>? _nodes;
     private IReadOnlyList<GraphEdge>? _edges;
@@ -213,16 +214,21 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             return;
         }
 
+        int version = _loadVersion;
         IReadOnlyList<LibraryFamily> path = await Task.Run(() => atlas.Locate(item.Print));
-        Crumbs.Clear();
-        Crumbs.Add(new Crumb("all", atlas.Root));
-        for (int k = 1; k < path.Count; k++)
+        if (version != _loadVersion || !ReferenceEquals(atlas, _atlas))
         {
-            Crumbs.Add(new Crumb(CrumbLabel(atlas, path[k], path[k].Path[^1]), path[k]));
+            // Another library was opened meanwhile; this placement belongs to the old one.
+            return;
         }
 
+        List<Crumb> crumbs = [new Crumb("all", atlas.Root), .. path.Skip(1).Select(f => new Crumb(CrumbLabel(atlas, f, f.Path[^1]), f))];
         _placed = (item, path);
-        await ShowFamilyAsync(path[^1]);
+        if (!await ShowFamilyAsync(path[^1], crumbs))
+        {
+            return;
+        }
+
         Select(_children.Count);
         _status($"{item.Name} placed among {_children.Count} {(path[^1].Size <= LibraryAtlas.Branching ? "sounds" : "families")} like it; one level up shows the neighbouring families.");
     }
@@ -284,8 +290,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
 
         LibraryFamily child = _children[index];
-        Crumbs.Add(new Crumb(CrumbLabel(atlas, child, index), child));
-        await ShowFamilyAsync(child);
+        await ShowFamilyAsync(child, [.. Crumbs, new Crumb(CrumbLabel(atlas, child, index), child)]);
     }
 
     /// <summary>Goes back to a family of the breadcrumb.</summary>
@@ -298,12 +303,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             return;
         }
 
-        while (Crumbs.Count > at + 1)
-        {
-            Crumbs.RemoveAt(Crumbs.Count - 1);
-        }
-
-        await ShowFamilyAsync(crumb.Family);
+        await ShowFamilyAsync(crumb.Family, [.. Crumbs.Take(at + 1)]);
     }
 
     /// <summary>Plays the last clicked sound at a note.</summary>
@@ -350,6 +350,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private async Task LoadAsync()
     {
         int version = ++_loadVersion;
+        _navVersion++;
         SynthesisProfile profile = _profile;
         string name = ProfileNameConverter.Short(profile.Name);
         _atlas = null;
@@ -397,8 +398,11 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             }
 
             _atlas = atlas;
-            Crumbs.Add(new Crumb("all", atlas.Root));
-            await ShowFamilyAsync(atlas.Root);
+            if (!await ShowFamilyAsync(atlas.Root, [new Crumb("all", atlas.Root)]) || version != _loadVersion)
+            {
+                return;
+            }
+
             _status(string.Create(CultureInfo.InvariantCulture, $"{name} library: {atlas.Library.Count:N0} sounds in {_children.Count} families. Click a node to hear it, double-click a family to open it."));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
@@ -410,22 +414,37 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task ShowFamilyAsync(LibraryFamily family)
+    /// <summary>
+    /// Shows the children of a family with the breadcrumb that leads to it, both at once and only if nothing else was
+    /// opened meanwhile: the last family asked for wins, so the breadcrumb always tells where the graph is.
+    /// </summary>
+    /// <returns>True when the family is shown.</returns>
+    private async Task<bool> ShowFamilyAsync(LibraryFamily family, IReadOnlyList<Crumb> crumbs)
     {
         if (_atlas is not { } atlas)
         {
-            return;
+            return false;
         }
 
         int version = _loadVersion;
+        int navigation = ++_navVersion;
         (IReadOnlyList<LibraryFamily> children, List<byte[]> prints, List<OperatorMatrixPatch> patches) = await Task.Run(() =>
         {
             IReadOnlyList<LibraryFamily> c = atlas.Children(family);
             return (c, c.Select(f => atlas.Library.Fingerprint(f.Medoid).ToArray()).ToList(), c.Select(f => atlas.Library.Patch(atlas.Library.Seed(f.Medoid))).ToList());
         });
-        if (version != _loadVersion)
+        if (version != _loadVersion || navigation != _navVersion || !ReferenceEquals(atlas, _atlas))
         {
-            return;
+            return false;
+        }
+
+        if (!Crumbs.SequenceEqual(crumbs))
+        {
+            Crumbs.Clear();
+            foreach (Crumb crumb in crumbs)
+            {
+                Crumbs.Add(crumb);
+            }
         }
 
         _family = family;
@@ -483,6 +502,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         Edges = [.. layout.Edges.Select(static e => new GraphEdge(e.From, e.To))];
         SelectedIndex = -1;
         GraphMessage = null;
+        return true;
     }
 
     private static double Brightness(byte[] print) => Math.Clamp(Math.Log2(SoundDescriptors.BrightnessRatio(print)) / 4.0, 0.0, 1.0);
