@@ -18,9 +18,6 @@ namespace HearSay.OperatorMatrix.Priors;
 /// </remarks>
 public sealed class StructureLibrary
 {
-    /// <summary>Changes whenever the patches or the fingerprint of a library would change, so that old files are rebuilt.</summary>
-    public const int FormatVersion = 1;
-
     private const int FirstSeed = 50_000_000;
     private const int RetryStride = 1_000_003;
     private static readonly ConcurrentDictionary<string, Lazy<StructureLibrary>> Cache = new(StringComparer.Ordinal);
@@ -56,7 +53,7 @@ public sealed class StructureLibrary
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(size);
         string path = PathOf(profile, size, directory);
-        return Cache.GetOrAdd(path, _ => new Lazy<StructureLibrary>(() => LoadOrBuild(profile.Capabilities, size, renderer, path))).Value;
+        return Cache.GetOrAdd(path, _ => new Lazy<StructureLibrary>(() => LoadOrBuild(profile.Capabilities, profile.StructureLibraryVersion, size, renderer, path))).Value;
     }
 
     /// <summary>True when the library of a profile and size is in memory or on disk, so that <see cref="For"/> returns at once.</summary>
@@ -73,7 +70,7 @@ public sealed class StructureLibrary
     private static string PathOf(SynthesisProfile profile, int size, string? directory)
     {
         directory ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HearSay", "structure-libraries");
-        return Path.Combine(directory, $"{profile.Name}-v{FormatVersion}-{size}.bin");
+        return Path.Combine(directory, $"{profile.Name}-v{profile.StructureLibraryVersion}-{size}.bin");
     }
 
     /// <summary>Builds a library in memory without touching the disk.</summary>
@@ -146,6 +143,7 @@ public sealed class StructureLibrary
             FixedFrequencyProbability = 0,
             MaxEdgeAmount = 2.0,
             RoughnessProbability = 0.2,
+            FilterProbability = capabilities.SupportsOperatorFilters ? 0.3 : 0.0,
         };
         int heard = options.MinOperators;
         var generator = new RandomPatchGenerator(capabilities, options);
@@ -182,9 +180,9 @@ public sealed class StructureLibrary
         return heard >= minimumHeard && onTheNote;
     }
 
-    private static StructureLibrary LoadOrBuild(SynthesisCapabilities capabilities, int size, IOperatorMatrixRenderer renderer, string path)
+    private static StructureLibrary LoadOrBuild(SynthesisCapabilities capabilities, int version, int size, IOperatorMatrixRenderer renderer, string path)
     {
-        if (TryLoad(capabilities, size, path) is { } loaded)
+        if (TryLoad(capabilities, version, size, path) is { } loaded)
         {
             return loaded;
         }
@@ -196,7 +194,7 @@ public sealed class StructureLibrary
             string temporary = path + ".tmp";
             using (var writer = new BinaryWriter(File.Create(temporary)))
             {
-                writer.Write(FormatVersion);
+                writer.Write(version);
                 writer.Write(size);
                 writer.Write(SpectralFingerprint.Length);
                 foreach (int seed in built._seeds)
@@ -220,7 +218,7 @@ public sealed class StructureLibrary
         return built;
     }
 
-    private static StructureLibrary? TryLoad(SynthesisCapabilities capabilities, int size, string path)
+    private static StructureLibrary? TryLoad(SynthesisCapabilities capabilities, int version, int size, string path)
     {
         try
         {
@@ -230,7 +228,7 @@ public sealed class StructureLibrary
             }
 
             using var reader = new BinaryReader(File.OpenRead(path));
-            if (reader.ReadInt32() != FormatVersion || reader.ReadInt32() != size || reader.ReadInt32() != SpectralFingerprint.Length)
+            if (reader.ReadInt32() != version || reader.ReadInt32() != size || reader.ReadInt32() != SpectralFingerprint.Length)
             {
                 return null;
             }

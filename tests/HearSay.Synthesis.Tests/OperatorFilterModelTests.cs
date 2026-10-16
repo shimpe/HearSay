@@ -92,4 +92,29 @@ public sealed class OperatorFilterModelTests
         Assert.Equal(1, SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion);
         Assert.Equal(1, SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion);
     }
+
+    [Fact]
+    public void RandomFilters_LeaveTheRestOfThePatchAsTheSeedGaveIt()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var plain = new RandomPatchGenerator(fmx6, new RandomPatchOptions());
+        var filtered = new RandomPatchGenerator(fmx6, new RandomPatchOptions { FilterProbability = 1.0 });
+        int withFilter = 0;
+        for (int seed = 0; seed < 20; seed++)
+        {
+            OperatorMatrixPatch a = plain.Generate(seed);
+            OperatorMatrixPatch b = filtered.Generate(seed);
+            Assert.Empty(b.Validate());
+            Assert.True(PatchCompatibilityValidator.Instance.Validate(b, fmx6).IsCompatible);
+            withFilter += b.Operators.Count(static o => o.Filter is not null);
+            OperatorMatrixPatch stripped = b with { Operators = [.. b.Operators.Select(static o => o with { Filter = null })] };
+            Assert.Equal(a.ComputeHash(), stripped.ComputeHash());
+        }
+
+        Assert.True(withFilter > 20);
+
+        // Profiles without filters never get one, whatever the option says.
+        var fm7 = new RandomPatchGenerator(SynthesisProfiles.SuperColliderFm7.Capabilities, new RandomPatchOptions { FilterProbability = 1.0 });
+        Assert.All(Enumerable.Range(0, 10), seed => Assert.All(fm7.Generate(seed).Operators, static o => Assert.Null(o.Filter)));
+    }
 }

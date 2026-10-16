@@ -32,6 +32,12 @@ public sealed record RandomPatchOptions
     /// <summary>Probability that an operator is roughened by the shared noise, for profiles that have one.</summary>
     public double RoughnessProbability { get; init; }
 
+    /// <summary>
+    /// Chance that an enabled operator gets a filter, for profiles with operator filters. Drawn from a generator of its
+    /// own, so the rest of the patch is the one the seed gives without filters.
+    /// </summary>
+    public double FilterProbability { get; init; }
+
     /// <summary>Probability that the patch has a pitch envelope or a vibrato.</summary>
     public double PitchModulationProbability { get; init; } = 0.2;
 
@@ -179,7 +185,44 @@ public sealed class RandomPatchGenerator
                 : operators[op] with { NoisePhase = Math.Round(random.NextDouble() * 0.8, 3) };
         }
 
+        if (_capabilities.SupportsOperatorFilters && _options.FilterProbability > 0)
+        {
+            var filterRandom = new Random(unchecked((seed * 397) ^ 0x5F17));
+            for (int i = 0; i < enabledCount; i++)
+            {
+                if (filterRandom.NextDouble() < _options.FilterProbability)
+                {
+                    operators[i] = operators[i] with { Filter = RandomFilter(filterRandom) };
+                }
+            }
+        }
+
         return new OperatorMatrixPatch(operators, new PhaseModulationMatrix(n, edges), levels, pitch) { Noise = noise };
+    }
+
+    private static OperatorFilter RandomFilter(Random random)
+    {
+        double q = Round(0.5 * Math.Pow(16, random.NextDouble()));
+        int poles = random.Next(2) == 0 ? 2 : 4;
+        OperatorFilter filter = random.Next(6) switch
+        {
+            0 => OperatorFilter.LowPass(Round(1.5 * Math.Pow(16, random.NextDouble())), q, poles),
+            1 => OperatorFilter.HighPass(Round(0.5 * Math.Pow(8, random.NextDouble())), q, poles),
+            2 => OperatorFilter.BandPass(Round(1 + (random.NextDouble() * 7)), q),
+            3 => OperatorFilter.Notch(Round(1 + (random.NextDouble() * 7)), q),
+            4 => OperatorFilter.PeakAt(Round(200 * Math.Pow(20, random.NextDouble())), Round((random.NextDouble() * 24) - 12), q),
+            _ => OperatorFilter.FormantAt(Round(250 + (random.NextDouble() * 650)), Round(1.5 + (random.NextDouble() * 2.5)), Round(0.3 + (random.NextDouble() * 0.7)), Round(4 + (random.NextDouble() * 8))),
+        };
+        if (random.NextDouble() >= 0.4)
+        {
+            return filter;
+        }
+
+        // A sweep that starts open and closes to the base frequency.
+        double attack = Round(0.005 + (random.NextDouble() * 0.05));
+        double decay = Round(0.05 + (random.NextDouble() * 0.5));
+        var envelope = new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(attack, 1), new EnvelopePoint(decay, 0), new EnvelopePoint(0.1, 0)], SustainPoint: 2, ReleasePoint: 3);
+        return filter with { EnvelopeOctaves = Round(0.5 + (random.NextDouble() * 2.5)), Envelope = envelope };
     }
 
     private static OperatorEnvelope RandomEnvelope(Random random) =>

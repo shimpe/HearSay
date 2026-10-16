@@ -60,12 +60,39 @@ public sealed class StructureLibraryTests
             SynthesisProfile profile = SynthesisProfiles.SuperColliderFm7 with { Name = "test-" + Guid.NewGuid().ToString("N") };
             StructureLibrary built = StructureLibrary.For(profile, 50, Renderer, directory);
             string file = Assert.Single(Directory.GetFiles(directory));
-            Assert.Contains($"-v{StructureLibrary.FormatVersion}-50.bin", file, StringComparison.Ordinal);
+            Assert.Contains($"-v{profile.StructureLibraryVersion}-50.bin", file, StringComparison.Ordinal);
 
             // Another process would load it; within this one the same instance is shared.
             Assert.Same(built, StructureLibrary.For(profile, 50, Renderer, directory));
             byte[] probe = Print(built.Patch(built.Nearest(new byte[SpectralFingerprint.Length], 1)[0].Seed), StructureLibrary.ReferenceHz);
             Assert.Equal(0, built.Nearest(probe, 1)[0].Distance);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LibraryVersion_IsPerProfile_AndTheFmx6LibraryHasFilters()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "hearsay-library-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            SynthesisProfile fm7 = SynthesisProfiles.SuperColliderFm7 with { Name = "test-fm7-" + Guid.NewGuid().ToString("N") };
+            SynthesisProfile fmx6 = SynthesisProfiles.SuperColliderFmx6 with { Name = "test-fmx6-" + Guid.NewGuid().ToString("N") };
+            StructureLibrary.For(fm7, 30, Renderer, directory);
+            StructureLibrary library = StructureLibrary.For(fmx6, 120, new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer(), directory);
+
+            Assert.Single(Directory.GetFiles(directory, $"{fm7.Name}-v1-30.bin"));
+            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v2-120.bin"));
+            int filtered = 0;
+            foreach ((int seed, long _) in library.Nearest(new byte[SpectralFingerprint.Length], 120))
+            {
+                filtered += library.Patch(seed).Operators.Any(static o => o.Filter is not null) ? 1 : 0;
+            }
+
+            Assert.InRange(filtered, 30, 110);
         }
         finally
         {
