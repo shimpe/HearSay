@@ -9,7 +9,7 @@ public static class PatchDescription
     /// <summary>
     /// The waveform parameters of an operator that its waveform uses, empty for the others: the duty cycle of a pulse,
     /// the response of filtered noise, the elliptic parameter m (with its nome q), the sn-to-sd morph, and the roughness
-    /// the shared noise gives the phase or the elliptic parameter.
+    /// the shared noise gives the phase or the elliptic parameter, and the operator filter.
     /// </summary>
     /// <param name="op">Operator.</param>
     public static string WaveformDetail(OperatorPatch op)
@@ -24,7 +24,42 @@ public static class PatchDescription
         };
         string phase = op.NoisePhase != 0.0 && op.Waveform != OperatorWaveform.Noise ? string.Create(CultureInfo.InvariantCulture, $"phase noise {op.NoisePhase:0.###} rad") : string.Empty;
         string m = op.NoiseM != 0.0 && op.Waveform == OperatorWaveform.Elliptic ? string.Create(CultureInfo.InvariantCulture, $"m noise {op.NoiseM:0.###}") : string.Empty;
-        return string.Join("  ", new[] { waveform, phase, m }.Where(static s => s.Length > 0));
+        string filter = op.Filter is null ? string.Empty : FilterDetail(op.Filter);
+        return string.Join("  ", new[] { waveform, phase, m, filter }.Where(static s => s.Length > 0));
+    }
+
+    /// <summary>A few characters for an operator filter, as in the block diagram: <c>LP4 x4</c>, <c>formant 700/1260</c>.</summary>
+    /// <param name="filter">Filter.</param>
+    public static string FilterLabel(OperatorFilter filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        return filter.Type switch
+        {
+            OperatorFilterType.LowPass => string.Create(CultureInfo.InvariantCulture, $"LP{filter.Poles} x{filter.CutoffRatio:0.##}"),
+            OperatorFilterType.HighPass => string.Create(CultureInfo.InvariantCulture, $"HP{filter.Poles} x{filter.CutoffRatio:0.##}"),
+            OperatorFilterType.BandPass => string.Create(CultureInfo.InvariantCulture, $"BP x{filter.CutoffRatio:0.##}"),
+            OperatorFilterType.Notch => string.Create(CultureInfo.InvariantCulture, $"notch x{filter.CutoffRatio:0.##}"),
+            OperatorFilterType.Peak => string.Create(CultureInfo.InvariantCulture, $"peak {filter.FixedHz:0} {(filter.PeakGainDb >= 0 ? "+" : string.Empty)}{filter.PeakGainDb:0.#}"),
+            _ => string.Create(CultureInfo.InvariantCulture, $"formant {filter.FixedHz:0}/{filter.FixedHz * filter.FormantRatio:0}"),
+        };
+    }
+
+    /// <summary>An operator filter in words, with its sweep when it has one.</summary>
+    /// <param name="filter">Filter.</param>
+    public static string FilterDetail(OperatorFilter filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        string text = filter.Type switch
+        {
+            OperatorFilterType.LowPass => string.Create(CultureInfo.InvariantCulture, $"low-pass {filter.Poles} poles, cutoff {filter.CutoffRatio:0.##}x"),
+            OperatorFilterType.HighPass => string.Create(CultureInfo.InvariantCulture, $"high-pass {filter.Poles} poles, cutoff {filter.CutoffRatio:0.##}x"),
+            OperatorFilterType.BandPass => string.Create(CultureInfo.InvariantCulture, $"band-pass, centre {filter.CutoffRatio:0.##}x"),
+            OperatorFilterType.Notch => string.Create(CultureInfo.InvariantCulture, $"notch, centre {filter.CutoffRatio:0.##}x"),
+            OperatorFilterType.Peak => string.Create(CultureInfo.InvariantCulture, $"peak {filter.FixedHz:0} Hz {filter.PeakGainDb:+0.#;-0.#;0} dB"),
+            _ => string.Create(CultureInfo.InvariantCulture, $"formant F1 {filter.FixedHz:0} Hz, F2 {filter.FixedHz * filter.FormantRatio:0} Hz at {filter.FormantLevel:0.##}"),
+        };
+        string sweep = filter.Envelope is null || filter.EnvelopeOctaves == 0.0 ? string.Empty : string.Create(CultureInfo.InvariantCulture, $", sweep {filter.EnvelopeOctaves:0.##} oct");
+        return string.Create(CultureInfo.InvariantCulture, $"filter {text}, Q {filter.Q:0.##}{sweep}");
     }
 
     /// <summary>Audible operators and the modulation matrix as text.</summary>

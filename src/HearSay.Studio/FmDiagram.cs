@@ -359,7 +359,10 @@ public sealed class FmDiagram : Control
         }
     }
 
-    /// <summary>Frequency, and waveform when it is not a sine, in a few characters; a tilde marks noise roughness.</summary>
+    /// <summary>
+    /// Frequency, waveform when it is not a sine, and the operator filter, in a few characters; a tilde marks noise
+    /// roughness.
+    /// </summary>
     private static string Describe(OperatorPatch op)
     {
         string frequency = op.Frequency.Mode == OperatorFrequencyMode.Fixed
@@ -375,6 +378,11 @@ public sealed class FmDiagram : Control
         else if (op.Waveform != OperatorWaveform.Sine)
         {
             frequency += " " + op.Waveform.ToString().ToLowerInvariant();
+        }
+
+        if (op.Filter is not null)
+        {
+            frequency += " " + PatchDescription.FilterLabel(op.Filter);
         }
 
         // Roughened by the shared noise, in phase or in m.

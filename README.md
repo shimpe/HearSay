@@ -33,7 +33,9 @@ phase-modulation patch that approximates it, renders a preview offline and expor
 FM7 is its first synthesis profile, and the [FMX6 UGen](https://github.com/shimpe/fmx6) with band-limited
 triangle, saw, square, pulse and noise operators is the second (`--profile supercollider-fmx6`), and the Nome6 UGen
 with Jacobi elliptic operators and a shared noise source the third (`--profile supercollider-nome6`); the target
-selector in HearSay Studio picks one or all of them. See [Patch matching](#patch-matching) and the full
+selector in HearSay Studio picks one or all of them. FMX6 operators can have a filter (low-pass, high-pass, band-pass,
+notch, peak or formant, with an optional sweep); the search proposes and tunes them. Exported patches with filters
+need the FMX6 plugin with operator filters. See [Patch matching](#patch-matching) and the full
 [patch-matching documentation](docs/patch-matching.md). The [expert manual](docs/expert-manual.md) is the
 practical guide: preparing targets, target sets, choosing FM7, FMX6 or Nome6, budget and seeds, reading results, Studio,
 the command line, the API, every search option, hand-editing patches and troubleshooting.

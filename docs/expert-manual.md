@@ -98,7 +98,7 @@ that fits none of them.
 | Profile | Operators | Extra per operator | Needs in SuperCollider |
 | --- | --- | --- | --- |
 | `supercollider-fm7` (default) | 6 sine, full matrix, self and circular feedback, ratio or fixed frequency, independent outputs, dynamic matrix | – | sc3-plugins (`FM7`) |
-| `supercollider-fmx6` | the same, plus triangle, saw, square, pulse, white noise and sample-and-hold noise | harmonic limit 1..128 (brightness of a band-limited wave), pulse duty cycle (`Shape`) | the [FMX6 plugin](https://github.com/shimpe/fmx6) |
+| `supercollider-fmx6` | the same, plus triangle, saw, square, pulse, white noise and sample-and-hold noise | harmonic limit 1..128 (brightness of a band-limited wave), pulse duty cycle (`Shape`), an optional filter (`Filter`) | the [FMX6 plugin](https://github.com/shimpe/fmx6); with operator filters for patches that use them |
 | `supercollider-nome6` | the FM7 matrix with Jacobi elliptic operators, 2x oversampled, plus noise operators on one shared noise source | elliptic parameter m (`Shape`, 0 = sine), sn-to-sd morph (`Morph`), phase and m roughness by the noise (`NoisePhase`, `NoiseM`); per patch the noise colour and cutoff (`Noise`) | the Nome6 plugin with noise |
 
 When to pick Nome6: odd harmonics that fall geometrically (a reed, a clarinet-like or hollow tone), where one elliptic
@@ -113,6 +113,42 @@ budget. On the synthetic waveform targets in patch-matching.md the loss halves o
 When to stay with FM7: the target is itself an FM sound, or you need sc3-plugins compatibility only. Every FM7 patch
 is also an FMX6 patch (sine is waveform 0), so a patch searched under FM7 can be exported for FMX6 later by
 searching again under FMX6 or by editing the profile of the export (section 14).
+
+### Operator filters (FMX6)
+
+Every FMX6 operator can have a filter between its waveform and its amplitude. What the operator sends, to the output
+and to the operators it modulates, is the filtered signal: a low-pass on a saw modulator softens the modulation, a
+filter on a carrier shapes the heard sound. All filters are TPT state-variable filters in double precision, rendered
+sample-exactly like the UGen.
+
+| Type | Frequency | Parameters the search tunes |
+| --- | --- | --- |
+| low-pass, high-pass (2 or 4 poles) | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
+| band-pass, notch | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
+| peak | `FixedHz` 80..8000 Hz | `Q` 0.5..20, `PeakGainDb` -24..24 |
+| formant | F1 = `FixedHz` 80..8000 Hz, F2 = F1 x `FormantRatio` 1..8 | `Q` 0.5..20 (both peaks), `FormantLevel` 0..1 (F2) |
+
+An optional envelope moves the frequency, `frequency x 2^(EnvelopeOctaves x env)` with `EnvelopeOctaves` -4..4 and
+levels 0..1; it uses the operator's key scaling of time. Key-tracked frequencies follow the note, not the pitch
+envelope or the vibrato; peak and formant frequencies stay fixed in hertz, as formants and body resonances do. The
+type and the number of poles are structural: the search changes them only by mutation.
+
+Where filters come from:
+
+- **Priors.** The formant prior fits a smooth envelope through the harmonic levels, compared with a sawtooth, and
+  proposes a saw or pulse carrier through a formant filter on its two strongest maxima (and variants with one peak and
+  with F1 + F3); its accuracy is about half the fundamental. The subtractive prior proposes a saw or square through a
+  low-pass at the roll-off of the harmonics, 4 poles when they fall 18 dB per octave or faster, with a sweep when the
+  brightness moves during the note.
+- **Mutations.** Screened like the other structural steps: add a low-pass, high-pass, band-pass, peak or formant
+  filter with starting values from the target; remove a filter; switch 2 and 4 poles or low-pass and band-pass; add
+  the sweep read from the target's brightness.
+- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 2 for FMX6
+  only, so it is rebuilt once after upgrading; the FM7 and Nome6 libraries are kept.
+
+A filter adds 0.05 to the complexity and its envelope another 0.03, so between two patches that sound alike the one
+without a filter wins. A patch without filters exports exactly as before and runs on FMX6 builds without operator
+filters; a patch with a filter passes `filters:` to `FMX6.ar` and needs the FMX6 plugin with operator filters.
 
 ## 5. Budget, seeds and time
 
@@ -195,7 +231,8 @@ computed from `freq.cpsmidi` inside the SynthDef, so the patch behaves across th
 taught it.
 
 The generated code uses the full matrix interface (`FM7.ar(ctlMatrix, modMatrix)` or
-`FMX6.ar(ctlMatrix, modMatrix, waves:, shapes:, harmonicLimits:)`), never the algorithm helpers. All operator
+`FMX6.ar(ctlMatrix, modMatrix, waves:, shapes:, harmonicLimits:)`, plus `filters:` when an operator has a filter),
+never the algorithm helpers. All operator
 controls are control-rate envelopes; the server's block size must be 64 (the default) for the export to be
 sample-exact with the preview.
 
@@ -391,7 +428,8 @@ File.WriteAllText("patch.scd", new SuperColliderFmx6Exporter().Export(patch));
 Per operator: `Enabled`, `Mode`, `Waveform`, `Frequency` (`AtRatio(r)` or `AtFixed(hz)`), `FineTuneCents`,
 `DetuneHz`, `InitialPhase`, `AmplitudeEnvelope` (points with level, time, curve and an optional sustain point;
 `Adsr`, `TwoStageDecay` and `Constant` build common ones), `VelocitySensitivity`, `KeyScaling` (level dB per octave,
-rate per octave, reference note), for FMX6 `Shape` (pulse duty) and `HarmonicLimit`, and for Nome6 `Shape`
+rate per octave, reference note), for FMX6 `Shape` (pulse duty), `HarmonicLimit` and `Filter` (`OperatorFilter.LowPass`,
+`HighPass`, `BandPass`, `Notch`, `PeakAt` and `FormantAt` build one; null for none), and for Nome6 `Shape`
 (elliptic m), `Morph`, `NoisePhase` and `NoiseM`. Per patch: `OutputLevels`, `ModulationMatrix` (edges
 `SourceOperator`, `DestinationOperator`, `Enabled`, `Amount` in radians, optional `AmountEnvelope`), `Pitch`
 (envelope and vibrato) and, for Nome6, `Noise` (colour and cutoff of the shared noise).
