@@ -39,8 +39,8 @@ oversampled rate, inside the one-sample feedback loop, before the decimator.
 
 | Type | Frequency | Parameters | Response |
 |---|---|---|---|
-| Low-pass | key-tracked (`CutoffRatio` x note) | Q, 2 or 4 poles | SVF low-pass output; 4 poles = two SVFs in series |
-| High-pass | key-tracked | Q, 2 or 4 poles | SVF high-pass output; 4 poles = two SVFs in series |
+| Low-pass | key-tracked (`CutoffRatio` x note) | Q, 2 or 4 poles | SVF low-pass output; 4 poles = a Butterworth stage (Q = 0.7071) then a stage with Q |
+| High-pass | key-tracked | Q, 2 or 4 poles | SVF high-pass output; 4 poles = a Butterworth stage (Q = 0.7071) then a stage with Q |
 | Band-pass | key-tracked | Q | SVF band-pass, unity gain at the centre (`k * v1`) |
 | Notch | key-tracked | Q | `x - k * v1` |
 | Peak | fixed Hz (`FixedHz`) | Q, gain dB | `x + (g - 1) * k * v1`, `g = 10^(dB / 20)` |
@@ -96,35 +96,42 @@ Input layout, appended after the existing optional oversampling input (index 72)
 | Indices | Content |
 |---|---|
 | 0 .. 72 | unchanged |
-| 73 .. 108 | six operators x `[type, freq, q, formantRatio, formantLevel, gainDb]` |
+| 73 .. 114 | six operators x `[type, freq, octaves, q, formantRatio, formantLevel, gainDb]` |
 
 - `type`: 0 off, 1 LP 2-pole, 2 LP 4-pole, 3 HP 2-pole, 4 HP 4-pole, 5 band-pass, 6 notch, 7 peak, 8 formant;
   read every block.
-- `freq`: frequency in Hz (centre, cutoff or F1); interpolated per sample like `amp` (`CALCSLOPE`), since the
-  exporter drives it with `EnvGen.kr`.
+- `freq`: base frequency in Hz (centre, cutoff or F1).
+- `octaves`: the envelope offset `EnvelopeOctaves x env`; the exporter drives it with `depth * EnvGen.kr(...)`.
+- `freq` and `octaves` are interpolated per sample like `amp` (`CALCSLOPE`). The UGen computes the frequency itself,
+  `freq x 2^octaves` in double precision, so that the HearSay renderer can reproduce it exactly; `2 ** x` evaluated by
+  scsynth in single precision could not be matched to the last bit.
 - `q`, `formantRatio`, `formantLevel`, `gainDb`: read every block.
 
-The constructor accepts 72, 73 or 109 inputs. With 72 or 73 no filter runs and the output is bit-identical to the
+The constructor accepts 72, 73 or 115 inputs. With 72 or 73 no filter runs and the output is bit-identical to the
 current plugin. Each operator keeps two SVF states (two variables each), reset to zero at construction.
 
-`FMX6.sc` gets a `filters` argument to `FMX6.ar` (an array of six `[type, freq, q, formantRatio, formantLevel,
-gainDb]` rows, defaulting to all off) and accepts the three input counts in `checkInputs`. The help file and the README
-document the filter types and the new argument. The filtered-noise waveform (7) stays as it is.
+`FMX6.sc` gets a `filters` argument to `FMX6.ar` (an array of six `[type, freq, octaves, q, formantRatio,
+formantLevel, gainDb]` rows). Without it the SynthDef has 73 inputs exactly as today. `checkInputs` accepts the three
+input counts. The help file and the README document the filter types and the new argument. The filtered-noise
+waveform (7) stays as it is.
 
 ## Renderer, compiler, exporter
 
 **`CompiledOperatorMatrixPatch`**: per audible operator the filter type code, Q, formant ratio, formant level and
-gain, and `FilterFrequencies[op][block]`: base (`note x CutoffRatio` or `FixedHz`) x `2^(EnvelopeOctaves x env)`, with
-the envelope run by the existing `ControlRateEnvelope` and the operator's key scaling time factor.
+gain, the base frequency (`note x CutoffRatio` or `FixedHz`, single precision as the SynthDef computes it), and
+`FilterOctaves[op][step]`: `EnvelopeOctaves x env`, with the envelope run by the existing `ControlRateEnvelope` and the
+operator's key scaling time factor.
 
 **`Fmx6CompatibleOperatorMatrixRenderer`**: the filter between the waveform and the amplitude, with formulas line for
-line equal to the C++ code, at the oversampled rate. Operators without a filter run exactly the current code, so
-existing renders stay bit-identical.
+line equal to the C++ code. HearSay renders and exports FMX6 without oversampling (oversample 1), so that is the rate
+the filter is reproduced at. Operators without a filter run exactly the current code, so existing renders stay
+bit-identical. The filter arithmetic lives in a shared class in `HearSay.Synthesis`, so that a later Nome6 filter can
+reuse it.
 
 **`SuperColliderFmx6Exporter` / `SuperColliderOperatorMatrixExporter`**: a patch with at least one filter passes
-`filters:` to `FMX6.ar`. A static frequency is a number expression (`freq * ratio` or the fixed Hz); with an envelope it
-is `(base * (2 ** (depth * EnvGen.kr(Env(...), gate, timeScale: ...))))`. A patch without filters exports exactly as
-today and runs on the current plugin.
+`filters:` to `FMX6.ar`. The base frequency is `(freq * ratio)` or the fixed Hz; the octaves are `0` or
+`(depth * EnvGen.kr(Env(...), gate, timeScale: ...))`. A patch without filters exports exactly as today and runs on the
+current plugin.
 
 ## Search
 
@@ -189,8 +196,8 @@ wins.
 
 ## Studio and descriptions
 
-The block diagram draws a filter block between an operator's oscillator and its output, labelled with the type and its
-main value (cutoff ratio or Hz). `PatchDescription` describes the filter. No new controls: filters are always
+The block diagram shows the filter as a label in the operator box, after the frequency and waveform (for example
+`LP4 x4`, `formant 700/1.9`); a separate block would collide with the modulation arrows. `PatchDescription` describes the filter. No new controls: filters are always
 available for FMX6.
 
 ## Testing
@@ -204,8 +211,12 @@ Fast tests (synthesis and operator matrix projects):
 - the formant prior recovers F1 and F2 within half of f0 from a rendered saw + formant patch.
 
 SuperCollider tests (skipped without sclang): per filter type an exported patch rendered in NRT equals the renderer
-sample-exactly, including a filtered modulator, a filter envelope, and oversampling 1 and 2. A SynthDef with 72 or 73
-inputs renders bit-identically on the new plugin.
+sample-exactly, including a filtered modulator and a filter envelope, at oversample 1 (what HearSay exports). With
+oversample 2 the UGen is checked to run and stay close to the 1x render. A SynthDef with 72 or 73 inputs renders
+bit-identically on the new plugin.
+
+Out of scope for this phase, kept cheap for later: filters on Nome6 (the model, the search and the filter arithmetic
+are backend-neutral; a later phase extends the Nome6 UGen, its renderer and exporter, and turns on the capability).
 
 ## Evaluation
 
