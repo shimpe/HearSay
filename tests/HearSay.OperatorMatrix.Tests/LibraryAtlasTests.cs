@@ -103,4 +103,62 @@ public sealed class LibraryAtlasTests
         Assert.Equal(Enumerable.Range(0, LibraryAtlas.Branching), children.Select(static c => c.Medoid));
         Assert.Equal(new[] { atlas.Root }, atlas.Locate(one));
     }
+
+    private static void AssertSameTopLevel(LibraryAtlas expected, LibraryAtlas actual)
+    {
+        IReadOnlyList<LibraryFamily> e = expected.Children(expected.Root), a = actual.Children(actual.Root);
+        Assert.Equal(e.Count, a.Count);
+        for (int k = 0; k < e.Count; k++)
+        {
+            Assert.Equal(e[k].Members, a[k].Members);
+            Assert.Equal(e[k].Medoid, a[k].Medoid);
+            Assert.Equal(e[k].Centroid, a[k].Centroid);
+            Assert.Equal(e[k].Path, a[k].Path);
+        }
+    }
+
+    [Fact]
+    public void CacheFile_SitsNextToTheLibrary()
+    {
+        string library = Path.Combine("x", "supercollider-fmx6-v2-300000.bin");
+        Assert.Equal(Path.Combine("x", "supercollider-fmx6-v2-300000-atlas-v1.bin"), LibraryAtlas.CacheFileOf(library));
+    }
+
+    [Fact]
+    public void Open_KeepsTheTopLevelOnDisk_AndRebuildsABrokenFile()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "hearsay-atlas-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string file = LibraryAtlas.CacheFileOf(Path.Combine(directory, "test-v1-3000.bin"));
+            LibraryAtlas first = LibraryAtlas.Open(Library.Value, file);
+            Assert.True(File.Exists(file));
+            AssertSameTopLevel(Atlas.Value, first);
+
+            // Loaded, not rebuilt: the file is left alone.
+            DateTime written = File.GetLastWriteTimeUtc(file);
+            AssertSameTopLevel(Atlas.Value, LibraryAtlas.Open(Library.Value, file));
+            Assert.Equal(written, File.GetLastWriteTimeUtc(file));
+
+            // Truncated: rebuilt and written again in full.
+            long length = new FileInfo(file).Length;
+            using (FileStream stream = File.Open(file, FileMode.Open))
+            {
+                stream.SetLength(length / 2);
+            }
+
+            AssertSameTopLevel(Atlas.Value, LibraryAtlas.Open(Library.Value, file));
+            Assert.Equal(length, new FileInfo(file).Length);
+
+            // Written for a library of another size: rebuilt.
+            StructureLibrary other = StructureLibrary.Build(Fm7, 200, new Fm7CompatibleOperatorMatrixRenderer());
+            LibraryAtlas.Open(other, file);
+            AssertSameTopLevel(Atlas.Value, LibraryAtlas.Open(Library.Value, file));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

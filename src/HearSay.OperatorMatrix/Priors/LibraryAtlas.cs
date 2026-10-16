@@ -127,6 +127,141 @@ public sealed class LibraryAtlas
         }
     }
 
+    private const int FileVersion = 1;
+
+    /// <summary>The file the top level of a library's tree is kept in, next to the library file.</summary>
+    /// <param name="libraryFile">Path of the library file, see <see cref="StructureLibrary.FileOf"/>.</param>
+    public static string CacheFileOf(string libraryFile)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(libraryFile);
+        return System.IO.Path.Combine(System.IO.Path.GetDirectoryName(libraryFile) ?? string.Empty, System.IO.Path.GetFileNameWithoutExtension(libraryFile) + "-atlas-v1.bin");
+    }
+
+    /// <summary>
+    /// The tree of a library with its top level loaded from a file, or split and saved there; a missing, truncated or
+    /// mismatching file is rebuilt, and one that cannot be written still serves this process.
+    /// </summary>
+    /// <param name="library">Library.</param>
+    /// <param name="cacheFile">File for the top level, see <see cref="CacheFileOf"/>.</param>
+    public static LibraryAtlas Open(StructureLibrary library, string cacheFile)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cacheFile);
+        LibraryFamily root = RootOf(library);
+        var atlas = new LibraryAtlas(library, root);
+        IReadOnlyList<LibraryFamily>? children = TryLoad(library, cacheFile);
+        if (children is null)
+        {
+            children = Split(library, root);
+            TrySave(library, children, cacheFile);
+        }
+
+        atlas.ChildrenCache[root] = new Lazy<IReadOnlyList<LibraryFamily>>(children);
+        return atlas;
+    }
+
+    private static IReadOnlyList<LibraryFamily>? TryLoad(StructureLibrary library, string file)
+    {
+        try
+        {
+            if (!File.Exists(file))
+            {
+                return null;
+            }
+
+            using var reader = new BinaryReader(File.OpenRead(file));
+            int length = SpectralFingerprint.Length;
+            if (reader.ReadInt32() != FileVersion || reader.ReadInt32() != library.Count || reader.ReadInt32() != length)
+            {
+                return null;
+            }
+
+            int count = reader.ReadInt32();
+            if (count is < 0 or > Branching)
+            {
+                return null;
+            }
+
+            var children = new List<LibraryFamily>(count);
+            int total = 0;
+            for (int k = 0; k < count; k++)
+            {
+                int size = reader.ReadInt32();
+                if (size <= 0 || size > library.Count - total)
+                {
+                    return null;
+                }
+
+                var members = new int[size];
+                for (int i = 0; i < size; i++)
+                {
+                    members[i] = reader.ReadInt32();
+                    if (members[i] < 0 || members[i] >= library.Count)
+                    {
+                        return null;
+                    }
+                }
+
+                var centroid = new double[length];
+                for (int b = 0; b < length; b++)
+                {
+                    centroid[b] = reader.ReadDouble();
+                }
+
+                int medoid = reader.ReadInt32();
+                children.Add(new LibraryFamily([k], members, centroid, medoid));
+                total += size;
+            }
+
+            return total == library.Count || count == Branching ? children : null;
+        }
+        catch (IOException)
+        {
+            // Also a truncated file (EndOfStreamException): it is rebuilt.
+            return null;
+        }
+    }
+
+    private static void TrySave(StructureLibrary library, IReadOnlyList<LibraryFamily> children, string file)
+    {
+        try
+        {
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(file))!);
+            string temporary = file + ".tmp";
+            using (var writer = new BinaryWriter(File.Create(temporary)))
+            {
+                writer.Write(FileVersion);
+                writer.Write(library.Count);
+                writer.Write(SpectralFingerprint.Length);
+                writer.Write(children.Count);
+                foreach (LibraryFamily child in children)
+                {
+                    writer.Write(child.Size);
+                    foreach (int m in child.MemberArray)
+                    {
+                        writer.Write(m);
+                    }
+
+                    foreach (double value in child.CentroidArray)
+                    {
+                        writer.Write(value);
+                    }
+
+                    writer.Write(child.Medoid);
+                }
+            }
+
+            File.Move(temporary, file, overwrite: true);
+        }
+        catch (IOException)
+        {
+            // An atlas that cannot be saved still serves this process.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     internal static LibraryFamily RootOf(StructureLibrary library)
     {
         int[] members = [.. Enumerable.Range(0, library.Count)];
