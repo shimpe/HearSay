@@ -301,7 +301,9 @@ public sealed class FmDiagram : Control
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
-            string tuning = DescribeTuning(patch.Operators[i]);
+            // The third line: fine tuning and detune, and the operator filter.
+            OperatorPatch shownOp = patch.Operators[i];
+            string tuning = string.Join(" ", new[] { DescribeTuning(shownOp), shownOp.Filter is null ? string.Empty : PatchDescription.FilterLabel(shownOp.Filter) }.Where(static s => s.Length > 0));
             if (tuning.Length == 0)
             {
                 DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 5), 12, Text, FontWeight.SemiBold);
@@ -359,10 +361,7 @@ public sealed class FmDiagram : Control
         }
     }
 
-    /// <summary>
-    /// Frequency, waveform when it is not a sine, and the operator filter, in a few characters; a tilde marks noise
-    /// roughness.
-    /// </summary>
+    /// <summary>Frequency, and waveform when it is not a sine, in a few characters; a tilde marks noise roughness.</summary>
     private static string Describe(OperatorPatch op)
     {
         string frequency = op.Frequency.Mode == OperatorFrequencyMode.Fixed
@@ -378,11 +377,6 @@ public sealed class FmDiagram : Control
         else if (op.Waveform != OperatorWaveform.Sine)
         {
             frequency += " " + op.Waveform.ToString().ToLowerInvariant();
-        }
-
-        if (op.Filter is not null)
-        {
-            frequency += " " + PatchDescription.FilterLabel(op.Filter);
         }
 
         // Roughened by the shared noise, in phase or in m.

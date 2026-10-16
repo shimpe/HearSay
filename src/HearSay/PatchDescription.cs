@@ -28,7 +28,7 @@ public static class PatchDescription
         return string.Join("  ", new[] { waveform, phase, m, filter }.Where(static s => s.Length > 0));
     }
 
-    /// <summary>A few characters for an operator filter, as in the block diagram: <c>LP4 x4</c>, <c>formant 700/1260</c>.</summary>
+    /// <summary>A few characters for an operator filter, as in the block diagram: <c>LP4 x4</c>, <c>fmt 700/1.8</c> (F1 and F2 / F1).</summary>
     /// <param name="filter">Filter.</param>
     public static string FilterLabel(OperatorFilter filter)
     {
@@ -40,7 +40,7 @@ public static class PatchDescription
             OperatorFilterType.BandPass => string.Create(CultureInfo.InvariantCulture, $"BP x{filter.CutoffRatio:0.##}"),
             OperatorFilterType.Notch => string.Create(CultureInfo.InvariantCulture, $"notch x{filter.CutoffRatio:0.##}"),
             OperatorFilterType.Peak => string.Create(CultureInfo.InvariantCulture, $"peak {filter.FixedHz:0} {(filter.PeakGainDb >= 0 ? "+" : string.Empty)}{filter.PeakGainDb:0.#}"),
-            _ => string.Create(CultureInfo.InvariantCulture, $"formant {filter.FixedHz:0}/{filter.FixedHz * filter.FormantRatio:0}"),
+            _ => string.Create(CultureInfo.InvariantCulture, $"fmt {filter.FixedHz:0}/{filter.FormantRatio:0.##}"),
         };
     }
 
