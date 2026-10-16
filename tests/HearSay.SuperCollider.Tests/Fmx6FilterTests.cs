@@ -164,7 +164,8 @@ public sealed class Fmx6FilterTests(ITestOutputHelper output)
         {
             BackendExportValidation r = results[i];
             output.WriteLine($"{cases[i].Name,-20} max sample diff {r.MaxSampleDifference:E2} (peak {r.PeakLevel:F2}), overall {r.OverallDistance:F5}");
-            Assert.True(r.MaxSampleDifference < 1e-4 * Math.Max(0.05, r.PeakLevel), $"{cases[i].Name}: {r}");
+            // Sample-exact means bit-identical: the renderer and the UGen do the same double-precision operations.
+            Assert.True(r.MaxSampleDifference == 0.0, $"{cases[i].Name}: {r}");
         }
 
         // At 2x oversampling the UGen runs and stays close to the 1x sound HearSay optimizes.

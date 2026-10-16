@@ -10,6 +10,22 @@ public struct SvfState
 
     /// <summary>Second integrator.</summary>
     public double Ic2;
+
+    // The coefficients of the last frequency and damping, recomputed only when either changes: the same inputs give
+    // the same coefficients, so this is bit-identical to computing them every sample. Zero frequency never matches.
+    internal double CachedF;
+    internal double CachedK;
+    internal double A1;
+    internal double A2;
+    internal double A3;
+
+    // Kept in the first state of an operator: 2^octaves of the envelope offset and the gain of a peak.
+    internal bool HasOctaves;
+    internal double CachedOctaves;
+    internal double OctaveFactor;
+    internal bool HasGain;
+    internal double CachedGainDb;
+    internal double Gain;
 }
 
 /// <summary>
@@ -77,7 +93,14 @@ public static class OperatorFilterKernel
     /// <param name="second">State of the second filter (four poles, or F2).</param>
     public static double Process(int type, double x, double baseHz, double octaves, double q, double formantRatio, double formantLevel, double gainDb, double sampleRate, ref SvfState first, ref SvfState second)
     {
-        double fc = baseHz * Math.Pow(2.0, octaves);
+        if (!first.HasOctaves || !octaves.Equals(first.CachedOctaves))
+        {
+            first.OctaveFactor = Math.Pow(2.0, octaves);
+            first.CachedOctaves = octaves;
+            first.HasOctaves = true;
+        }
+
+        double fc = baseHz * first.OctaveFactor;
         double k = 1.0 / Math.Max(0.5, Math.Min(q, 20.0));
         switch (type)
         {
@@ -123,8 +146,14 @@ public static class OperatorFilterKernel
             case Peak:
             {
                 Tick(x, fc, k, sampleRate, ref first, out double v1, out _);
-                double g = Math.Pow(10.0, gainDb / 20.0);
-                return x + ((g - 1.0) * (k * v1));
+                if (!first.HasGain || !gainDb.Equals(first.CachedGainDb))
+                {
+                    first.Gain = Math.Pow(10.0, gainDb / 20.0);
+                    first.CachedGainDb = gainDb;
+                    first.HasGain = true;
+                }
+
+                return x + ((first.Gain - 1.0) * (k * v1));
             }
 
             case Formant:
@@ -142,13 +171,19 @@ public static class OperatorFilterKernel
     private static void Tick(double x, double fc, double k, double sampleRate, ref SvfState s, out double v1, out double v2)
     {
         double f = Math.Max(10.0, Math.Min(fc, 0.49 * sampleRate));
-        double g = Math.Tan(Math.PI * f / sampleRate);
-        double a1 = 1.0 / (1.0 + (g * (g + k)));
-        double a2 = g * a1;
-        double a3 = g * a2;
+        if (f != s.CachedF || k != s.CachedK)
+        {
+            double g = Math.Tan(Math.PI * f / sampleRate);
+            s.A1 = 1.0 / (1.0 + (g * (g + k)));
+            s.A2 = g * s.A1;
+            s.A3 = g * s.A2;
+            s.CachedF = f;
+            s.CachedK = k;
+        }
+
         double v3 = x - s.Ic2;
-        v1 = (a1 * s.Ic1) + (a2 * v3);
-        v2 = s.Ic2 + (a2 * s.Ic1) + (a3 * v3);
+        v1 = (s.A1 * s.Ic1) + (s.A2 * v3);
+        v2 = s.Ic2 + (s.A2 * s.Ic1) + (s.A3 * v3);
         s.Ic1 = (2.0 * v1) - s.Ic1;
         s.Ic2 = (2.0 * v2) - s.Ic2;
     }

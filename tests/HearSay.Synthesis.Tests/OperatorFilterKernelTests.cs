@@ -100,4 +100,84 @@ public sealed class OperatorFilterKernelTests
         Assert.Equal(7, OperatorFilterKernel.Code(OperatorFilter.PeakAt(1000, 6, 2)));
         Assert.Equal(8, OperatorFilterKernel.Code(OperatorFilter.FormantAt(700, 2, 0.5, 8)));
     }
+
+    /// <summary>The formulas of the UGen, without any caching: the kernel must give exactly these samples.</summary>
+    private static double Reference(int type, double x, double baseHz, double octaves, double q, double ratio, double level, double gainDb, double rate, double[] a, double[] b)
+    {
+        static void Tick(double x, double fc, double k, double rate, double[] s, out double v1, out double v2)
+        {
+            double f = Math.Max(10.0, Math.Min(fc, 0.49 * rate));
+            double g = Math.Tan(Math.PI * f / rate);
+            double a1 = 1.0 / (1.0 + (g * (g + k)));
+            double a2 = g * a1;
+            double a3 = g * a2;
+            double v3 = x - s[1];
+            v1 = (a1 * s[0]) + (a2 * v3);
+            v2 = s[1] + (a2 * s[0]) + (a3 * v3);
+            s[0] = (2.0 * v1) - s[0];
+            s[1] = (2.0 * v2) - s[1];
+        }
+
+        const double bw = 1.4142135623730951;
+        double fc = baseHz * Math.Pow(2.0, octaves);
+        double k = 1.0 / Math.Max(0.5, Math.Min(q, 20.0));
+        double v1, v2, w1, w2;
+        switch (type)
+        {
+            case 1: Tick(x, fc, k, rate, a, out _, out v2); return v2;
+            case 2: Tick(x, fc, bw, rate, a, out _, out v2); Tick(v2, fc, k, rate, b, out _, out w2); return w2;
+            case 3: Tick(x, fc, k, rate, a, out v1, out v2); return x - (k * v1) - v2;
+            case 4:
+                Tick(x, fc, bw, rate, a, out v1, out v2);
+                double hp1 = x - (bw * v1) - v2;
+                Tick(hp1, fc, k, rate, b, out w1, out w2);
+                return hp1 - (k * w1) - w2;
+            case 5: Tick(x, fc, k, rate, a, out v1, out _); return k * v1;
+            case 6: Tick(x, fc, k, rate, a, out v1, out _); return x - (k * v1);
+            case 7: Tick(x, fc, k, rate, a, out v1, out _); return x + ((Math.Pow(10.0, gainDb / 20.0) - 1.0) * (k * v1));
+            case 8:
+                Tick(x, fc, k, rate, a, out v1, out _);
+                Tick(x, fc * ratio, k, rate, b, out w1, out _);
+                return (k * v1) + (level * (k * w1));
+            default: return x;
+        }
+    }
+
+    [Fact]
+    public void Kernel_IsBitIdenticalToTheUncachedFormulas_WhileItsInputsMoveAndHold()
+    {
+        var random = new Random(7);
+        for (int type = 0; type <= 8; type++)
+        {
+            var a = default(SvfState);
+            var b = default(SvfState);
+            double[] ra = new double[2], rb = new double[2];
+            double baseHz = 300, octaves = 0, gain = 6, q = 3;
+            for (int i = 0; i < 6000; i++)
+            {
+                // Inputs hold for a while, then jump or ramp, as control inputs of the UGen do.
+                if (i % 64 == 0)
+                {
+                    baseHz = random.Next(3) == 0 ? baseHz : 20 + (random.NextDouble() * 9000);
+                    octaves = i % 128 == 0 ? 0.0 : (random.NextDouble() * 4) - 2;
+                    gain = random.Next(2) == 0 ? gain : (random.NextDouble() * 48) - 24;
+                }
+                else if (i % 64 == 32)
+                {
+                    // The damping alone, and the gain alone, change while the frequency holds.
+                    q = 0.5 + (random.NextDouble() * 19.5);
+                    gain = random.Next(2) == 0 ? gain : (random.NextDouble() * 48) - 24;
+                }
+                else if (i % 512 > 256)
+                {
+                    octaves += 0.001;
+                }
+
+                double x = Math.Sin(i * 0.37) + (0.3 * Math.Sin(i * 2.1));
+                double expected = Reference(type, x, baseHz, octaves, q, 2.3, 0.6, gain, Rate, ra, rb);
+                double actual = OperatorFilterKernel.Process(type, x, baseHz, octaves, q, 2.3, 0.6, gain, Rate, ref a, ref b);
+                Assert.True(expected.Equals(actual), FormattableString.Invariant($"type {type}, sample {i}: {expected:R} vs {actual:R}"));
+            }
+        }
+    }
 }
