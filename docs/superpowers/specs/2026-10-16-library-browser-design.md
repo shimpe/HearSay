@@ -70,11 +70,13 @@ the current layout unchanged, and **Library**. Header and footer (status line, p
 New class in `HearSay.OperatorMatrix/Priors`, without UI, on top of a `StructureLibrary`.
 
 `StructureLibrary` gets read-only access to what it holds: `ReadOnlySpan<byte> Fingerprint(int index)` and
-`int Seed(int index)` (indices `0..Count-1`).
+`int Seed(int index)` (indices `0..Count-1`), the file name of a library (`FileOf`), the request its patches are
+rendered with (`ReferenceRequest`), and an optional progress report while it is built.
 
 ### Families
 
-- A family is a set of library indices, with a centroid (mean fingerprint, as doubles), a medoid (the member nearest
+- A family is a set of library indices, with a centroid (the final k-means centroid, as doubles: the mean of its
+  members when k-means converged), a medoid (the member nearest
   the centroid; its sound is the family's sound), a size and descriptors.
 - The root holds the whole library. A family of more than 40 members is split by k-means with k = 40 into its
   children; a family of 40 or fewer has its members as children, as leaves of one sound each.
@@ -96,14 +98,16 @@ New class in `HearSay.OperatorMatrix/Priors`, without UI, on top of a `Structure
 - Per opened family: the children's medoids (and a placed imported sound) are laid out in two dimensions by classical
   MDS on their pairwise distances (square roots of the squared fingerprint distances), the two largest eigenvectors of
   the double-centred matrix by power iteration with a fixed start vector.
-- Then up to 50 overlap-removal steps push apart nodes closer than the sum of their radii (radius from the size, on a
+- Then up to 200 overlap-removal steps push apart nodes closer than the sum of their radii (radius from the size, on a
   logarithmic scale). The result is scaled to the unit square.
 - Edges: each node is joined to its two nearest siblings by distance.
 - The layout is deterministic: no randomness besides the seeded k-means.
+- Centring on a placed imported sound moves it to the middle and scales positions and radii down together just
+  enough that every node stays inside, so no overlap comes back.
 
 ### Descriptors
 
-From the medoid's fingerprint and patch, in this order, joined with ` . `:
+From the medoid's fingerprint and patch, in this order, joined with ` · `:
 
 - brightness: the power-weighted mean band of the body slice, as a multiple of the note (band b is 0.25 x 2^(b/12)):
   *dark* below 2, *mellow* 2 to 4, *bright* 4 to 8, *very bright* from 8;
