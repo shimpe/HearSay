@@ -101,6 +101,34 @@ public sealed class ExportedSoundsTests : IDisposable
     }
 
     [Fact]
+    public void Scan_SkipsFoldersItMayNotRead()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Folder("good", Sine);
+        string locked = Folder("locked", Sine);
+        var info = new DirectoryInfo(locked);
+        System.Security.AccessControl.DirectorySecurity security = info.GetAccessControl();
+        var everyone = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.WorldSid, null);
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(everyone, System.Security.AccessControl.FileSystemRights.ListDirectory | System.Security.AccessControl.FileSystemRights.ReadData, System.Security.AccessControl.AccessControlType.Deny);
+        security.AddAccessRule(deny);
+        info.SetAccessControl(security);
+        try
+        {
+            ExportedSoundScan scan = ExportedSounds.Scan(_directory);
+            Assert.Equal("good", Assert.Single(scan.Sounds).Name);
+        }
+        finally
+        {
+            security.RemoveAccessRule(deny);
+            info.SetAccessControl(security);
+        }
+    }
+
+    [Fact]
     public void Scan_OfAFolderWithoutPatches_FindsNothing()
     {
         File.WriteAllText(Path.Combine(_directory, "notes.txt"), "nothing here");

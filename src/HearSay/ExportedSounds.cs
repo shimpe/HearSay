@@ -35,7 +35,9 @@ public static partial class ExportedSounds
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         var sounds = new List<ExportedSound>();
         var skipped = new List<string>();
-        foreach (string file in Directory.EnumerateFiles(directory, "*patch.json", SearchOption.AllDirectories).Where(IsExportedPatch).OrderBy(ResultFolderOf, StringComparer.Ordinal).ThenBy(IsAlternative).ThenBy(static f => f, StringComparer.Ordinal))
+        // Folders that may not be read (protected or junctioned ones under a user folder) are passed over.
+        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+        foreach (string file in Directory.EnumerateFiles(directory, "*patch.json", options).Where(IsExportedPatch).OrderBy(ResultFolderOf, StringComparer.Ordinal).ThenBy(IsAlternative).ThenBy(static f => f, StringComparer.Ordinal))
         {
             string name = NameOf(file);
             OperatorMatrixPatch patch;
@@ -43,7 +45,7 @@ public static partial class ExportedSounds
             {
                 patch = OperatorMatrixPatch.FromJson(File.ReadAllText(file));
             }
-            catch (Exception e) when (e is JsonException or IOException or NotSupportedException or ArgumentException or InvalidOperationException or NullReferenceException)
+            catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException or NullReferenceException)
             {
                 skipped.Add($"{name}: unreadable ({e.Message})");
                 continue;
@@ -122,7 +124,7 @@ public static partial class ExportedSounds
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(summary));
             return Property(Property(document.RootElement, "searchSummary"), "profile") is { ValueKind: JsonValueKind.String } profile ? profile.GetString() : null;
         }
-        catch (Exception e) when (e is JsonException or IOException)
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
             return null;
         }

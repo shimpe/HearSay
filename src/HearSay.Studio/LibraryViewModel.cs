@@ -154,11 +154,35 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     public async Task ImportAsync(string directory)
     {
         _status("Reading " + directory + "…");
-        (ExportedSoundScan scan, List<ImportedItem> items) = await Task.Run(() =>
+        ExportedSoundScan scan;
+        List<ImportedItem> items;
+        List<string> unplayable;
+        try
         {
-            ExportedSoundScan s = ExportedSounds.Scan(directory);
-            return (s, s.Sounds.AsParallel().AsOrdered().Select(static sound => new ImportedItem(sound, ExportedSounds.Fingerprint(sound))).ToList());
-        });
+            (scan, items, unplayable) = await Task.Run(() =>
+            {
+                ExportedSoundScan s = ExportedSounds.Scan(directory);
+                var rendered = s.Sounds.AsParallel().AsOrdered().Select(static sound =>
+                {
+                    try
+                    {
+                        return (Item: new ImportedItem(sound, ExportedSounds.Fingerprint(sound)), Problem: (string?)null);
+                    }
+                    catch (Exception e) when (e is ArgumentException or InvalidOperationException or NotSupportedException or IOException)
+                    {
+                        return (Item: (ImportedItem?)null, Problem: $"{sound.Name}: cannot be rendered ({e.Message})");
+                    }
+                }).ToList();
+                return (s, rendered.Where(static r => r.Item is not null).Select(static r => r.Item!).ToList(), rendered.Where(static r => r.Problem is not null).Select(static r => r.Problem!).ToList());
+            });
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
+        {
+            _status("The folder could not be read: " + e.Message);
+            return;
+        }
+
+        scan = scan with { Skipped = [.. scan.Skipped, .. unplayable] };
         int added = 0;
         foreach (ImportedItem item in items.Where(i => Imports.All(known => known.Sound.PatchFile != i.Sound.PatchFile)))
         {
