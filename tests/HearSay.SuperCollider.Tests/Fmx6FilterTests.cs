@@ -41,12 +41,22 @@ public sealed class Fmx6FilterTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void NoFilter_RendersExactlyAsBefore()
+    public void FilterOnOneOperator_LeavesTheOthersUntouched()
     {
-        OperatorMatrixPatch plain = Saw(null);
-        float[] expected = Render(plain);
-        Assert.Equal(expected, Render(plain with { }));
-        Assert.Null(HearSay.Synthesis.Compilation.PatchCompiler.Compile(plain, RenderRequest.Create(100, 0.4, 0.05)).Filters);
+        // The unfiltered saw sounds the same whether or not another operator of the patch has a filter.
+        OperatorPatch saw = OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant()) with { Waveform = OperatorWaveform.Saw, HarmonicLimit = 64 };
+        OperatorPatch filtered = OperatorPatch.Sine(OperatorFrequency.AtRatio(3), OperatorEnvelope.Constant()) with { Waveform = OperatorWaveform.Square, Filter = OperatorFilter.LowPass(2, 4, poles: 4) };
+        OperatorMatrixPatch silent = OperatorMatrixPatch.Silent(6);
+        float[] both = Render(silent.WithOperator(0, saw).WithOutputLevel(0, 0.5).WithOperator(1, filtered).WithOutputLevel(1, 0.5));
+        float[] sawAlone = Render(silent.WithOperator(0, saw).WithOutputLevel(0, 0.5));
+        float[] filteredAlone = Render(silent.WithOperator(1, filtered).WithOutputLevel(1, 0.5));
+        Assert.Equal(both.Length, sawAlone.Length);
+        for (int i = 0; i < both.Length; i++)
+        {
+            Assert.True(Math.Abs(both[i] - (sawAlone[i] + filteredAlone[i])) < 1e-6f, FormattableString.Invariant($"sample {i}"));
+        }
+
+        Assert.Null(HearSay.Synthesis.Compilation.PatchCompiler.Compile(Saw(null), RenderRequest.Create(100, 0.4, 0.05)).Filters);
     }
 
     [Fact]
@@ -88,12 +98,18 @@ public sealed class Fmx6FilterTests(ITestOutputHelper output)
         // Review focus 1: a cutoff far above Nyquist on a high note is clamped, not NaN.
         Assert.All(Render(Saw(OperatorFilter.LowPass(64, q: 20, poles: 4)), hz: 2000), static s => Assert.True(float.IsFinite(s)));
 
-        // Review focus 2: a resonant filter inside a self-feedback loop stays bounded.
-        OperatorMatrixPatch loop = OperatorMatrixPatch.Silent(6)
-            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant()) with { Filter = OperatorFilter.BandPass(3, 20) })
-            .WithOutputLevel(0, 1.0)
-            .WithEdge(new ModulationEdge(0, 0, true, 3.0));
-        Assert.All(Render(loop), static s => Assert.True(float.IsFinite(s) && Math.Abs(s) < 50f));
+        // Review focus 2: a resonant filter inside a self-feedback loop stays bounded, also the ones with most gain: a
+        // 4-pole low-pass at Q 20 tuned to the note (about 14 times) and a +24 dB peak (about 16 times).
+        foreach (OperatorFilter filter in new[] { OperatorFilter.BandPass(3, 20), OperatorFilter.LowPass(1, 20, poles: 4), OperatorFilter.PeakAt(100, 24, 20) })
+        {
+            OperatorMatrixPatch loop = OperatorMatrixPatch.Silent(6)
+                .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant()) with { Filter = filter })
+                .WithOutputLevel(0, 1.0)
+                .WithEdge(new ModulationEdge(0, 0, true, 3.0));
+            float[] samples = Render(loop);
+            Assert.All(samples, static s => Assert.True(float.IsFinite(s) && Math.Abs(s) < 50f));
+            Assert.True(samples.Max(Math.Abs) > 1.5f || filter.Type == OperatorFilterType.BandPass, $"{filter.Type} should resonate");
+        }
     }
 
     [Fact]
