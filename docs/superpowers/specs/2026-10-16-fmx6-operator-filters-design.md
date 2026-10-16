@@ -176,9 +176,11 @@ trajectory, 2 or 4 poles from the slope above the cutoff.
 ### Structure library and random patches
 
 `RandomPatchGenerator` gives about 30 % of FMX6 patches a filter, with parameters in musical ranges.
-`StructureLibrary.FormatVersion` increases. The version is part of the cache file name, so every library is rebuilt
-once (FM7 about 90 s, Nome6 about 6 min, FMX6 a little longer than before); FM7 and Nome6 libraries come out with the
-same content.
+The library version becomes a property of the profile instead of the global `StructureLibrary.FormatVersion`:
+`SynthesisProfile.StructureLibraryVersion` (default 1), used in the cache file name
+(`{profile}-v{version}-{size}.bin`) and checked in the file header. `supercollider-fmx6` gets version 2, so only the
+FMX6 library is rebuilt once; FM7 and Nome6 keep version 1, the same file names, and their cached libraries. A later
+change of the file layout raises the version of every profile.
 
 ### Complexity
 
