@@ -11,7 +11,8 @@ namespace HearSay.Studio;
 /// The operator routing of a patch drawn as an FM block diagram: carriers on the bottom row feeding the output bus,
 /// every modulator one row above the highest operator it modulates. Edges going down are drawn straight; edges that
 /// go up or sideways (feedback through other operators) are dashed curves; self-feedback is a loop beside the operator.
-/// Only operators that can be heard are drawn.
+/// Only operators that can be heard are drawn. An operator filter is a strip at the bottom of its box, on the way
+/// out: a sketch of its response and its label.
 /// </summary>
 public sealed class FmDiagram : Control
 {
@@ -25,6 +26,9 @@ public sealed class FmDiagram : Control
     private static readonly IBrush Text = new SolidColorBrush(Color.Parse("#E2E8F0"));
     private static readonly IBrush Muted = new SolidColorBrush(Color.Parse("#94A3B8"));
     private static readonly IBrush LabelBackground = new SolidColorBrush(Color.Parse("#0B1220"));
+    private static readonly IBrush Violet = new SolidColorBrush(Color.Parse("#C4B5FD"));
+    private static readonly IBrush FilterFill = new SolidColorBrush(Color.Parse("#3B2A6B"));
+    private static readonly Pen FilterPen = new(Violet, 1.2);
     private static readonly Pen BoxPen = new(new SolidColorBrush(Color.Parse("#475569")), 1.2);
     private static readonly Pen EdgePen = new(Accent, 1.5);
     private static readonly Pen FeedbackPen = new(Amber, 1.5, new DashStyle([4, 3], 0));
@@ -112,7 +116,10 @@ public sealed class FmDiagram : Control
         double slot = usable / widest;
 
         // Wide enough gaps between neighbours for an arrow and its amount.
-        double boxW = Math.Min(96, Math.Max(56, slot - 44)), boxH = 46;
+        // Taller boxes when there is a filter strip to draw.
+        const double FilterH = 15;
+        bool anyFilter = shown.Any(i => patch.Operators[i].Filter is not null);
+        double boxW = Math.Min(96, Math.Max(56, slot - 44)), boxH = anyFilter ? 46 + FilterH : 46;
         double busY = height - 28;
 
         // Room above the top row for self-feedback loops and their amounts.
@@ -301,9 +308,14 @@ public sealed class FmDiagram : Control
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
-            // The third line: fine tuning and detune, and the operator filter.
+            // The third line: fine tuning and detune.
             OperatorPatch shownOp = patch.Operators[i];
-            string tuning = string.Join(" ", new[] { DescribeTuning(shownOp), shownOp.Filter is null ? string.Empty : PatchDescription.FilterLabel(shownOp.Filter) }.Where(static s => s.Length > 0));
+            string tuning = DescribeTuning(shownOp);
+            if (shownOp.Filter is { } filter)
+            {
+                DrawFilter(context, filter, new Rect(rect.X, rect.Bottom - FilterH, rect.Width, FilterH), boxW);
+            }
+
             if (tuning.Length == 0)
             {
                 DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 5), 12, Text, FontWeight.SemiBold);
@@ -325,6 +337,48 @@ public sealed class FmDiagram : Control
             context.DrawText(formatted, at);
         }
     }
+
+    /// <summary>
+    /// The filter strip along the bottom of an operator box: a sketch of the response and the label, with a tilde when
+    /// an envelope sweeps the frequency.
+    /// </summary>
+    private static void DrawFilter(DrawingContext context, OperatorFilter filter, Rect strip, double boxW)
+    {
+        // Rounded at the bottom like the box, square at the top where it meets the rest of the box.
+        var fill = new Rect(strip.X + 1, strip.Y, strip.Width - 2, strip.Height - 1);
+        context.DrawRectangle(FilterFill, null, fill, 5, 5);
+        context.DrawRectangle(FilterFill, null, new Rect(fill.X, fill.Y, fill.Width, 6));
+        context.DrawLine(BoxPen, new Point(strip.X, strip.Y), new Point(strip.Right, strip.Y));
+
+        var glyph = new Rect(strip.X + 7, strip.Y + 3, 16, strip.Height - 6);
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext g = geometry.Open())
+        {
+            (double X, double Y)[] shape = ResponseSketch(filter);
+            g.BeginFigure(new Point(glyph.X + (shape[0].X * glyph.Width), glyph.Y + (shape[0].Y * glyph.Height)), false);
+            foreach ((double x, double y) in shape.Skip(1))
+            {
+                g.LineTo(new Point(glyph.X + (x * glyph.Width), glyph.Y + (y * glyph.Height)));
+            }
+
+            g.EndFigure(false);
+        }
+
+        context.DrawGeometry(null, FilterPen, geometry);
+        bool sweeps = filter.Envelope is not null && filter.EnvelopeOctaves != 0.0;
+        DrawText(context, PatchDescription.FilterLabel(filter) + (sweeps ? " ~" : string.Empty), new Point(glyph.Right + 4, strip.Y + 1), 10, Violet, maxWidth: boxW - (glyph.Right - strip.X) - 8);
+    }
+
+    /// <summary>The shape of a filter response in a unit square, 0 at the top: low frequencies left.</summary>
+    private static (double X, double Y)[] ResponseSketch(OperatorFilter filter) => filter.Type switch
+    {
+        OperatorFilterType.LowPass => [(0, 0.3), (0.45, 0.3), (1, 1)],
+        OperatorFilterType.HighPass => [(0, 1), (0.55, 0.3), (1, 0.3)],
+        OperatorFilterType.BandPass => [(0, 1), (0.35, 0.6), (0.5, 0.05), (0.65, 0.6), (1, 1)],
+        OperatorFilterType.Notch => [(0, 0.3), (0.38, 0.3), (0.5, 1), (0.62, 0.3), (1, 0.3)],
+        OperatorFilterType.Peak => [(0, 0.55), (0.35, 0.55), (0.5, filter.PeakGainDb >= 0 ? 0.0 : 1.0), (0.65, 0.55), (1, 0.55)],
+        _ => [(0, 1), (0.2, 0.05), (0.38, 0.9), (0.62, 0.35), (0.8, 1), (1, 1)],
+    };
 
     /// <summary>Point at <paramref name="t"/> on a cubic Bézier curve.</summary>
     private static Point Bezier(Point from, Point control1, Point control2, Point to, double t)
