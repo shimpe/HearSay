@@ -156,7 +156,7 @@ public static class PatchCanonicalizer
             }
         }
 
-        return new OperatorMatrixPatch(operators, new PhaseModulationMatrix(n, edges), levels, patch.Pitch);
+        return new OperatorMatrixPatch(operators, new PhaseModulationMatrix(n, edges), levels, patch.Pitch) { Noise = patch.Noise };
     }
 
     /// <summary>Regime key of the canonical form: equal for patches that differ only in operator numbering.</summary>

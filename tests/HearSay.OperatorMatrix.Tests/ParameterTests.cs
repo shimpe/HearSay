@@ -229,6 +229,13 @@ public sealed class ParameterTests
     }
 
     [Fact]
+    public void Canonicalization_KeepsTheSharedNoise()
+    {
+        OperatorMatrixPatch patch = Stack() with { Noise = new SharedNoise(-0.6, 1500.0) };
+        Assert.Equal(patch.Noise, PatchCanonicalizer.Canonicalize(patch).Noise);
+    }
+
+    [Fact]
     public void Complexity_GrowsWithStructureAndPenalizesTinyContributions()
     {
         OperatorMatrixPatch single = OperatorMatrixPatch.Silent(6).WithOperator(0, Stack().Operators[0]).WithOutputLevel(0, 0.8);
