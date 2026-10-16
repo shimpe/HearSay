@@ -1,11 +1,15 @@
+using HearSay.SuperCollider.FMX6;
+using HearSay.SuperCollider.Validation;
 using HearSay.Synthesis.Fmx6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
+using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
+using Xunit.Abstractions;
 
 namespace HearSay.SuperCollider.Tests;
 
 /// <summary>Operator filters in the FMX6-compatible renderer.</summary>
-public sealed class Fmx6FilterTests
+public sealed class Fmx6FilterTests(ITestOutputHelper output)
 {
     private static readonly Fmx6CompatibleOperatorMatrixRenderer Renderer = new();
     private const int Settled = 9600;
@@ -90,5 +94,87 @@ public sealed class Fmx6FilterTests
             .WithOutputLevel(0, 1.0)
             .WithEdge(new ModulationEdge(0, 0, true, 3.0));
         Assert.All(Render(loop), static s => Assert.True(float.IsFinite(s) && Math.Abs(s) < 50f));
+    }
+
+    [Fact]
+    public void Exporter_WritesFiltersOnlyWhenThereAreAny()
+    {
+        var exporter = new SuperColliderFmx6Exporter();
+        Assert.DoesNotContain("filters:", exporter.Export(Saw(null)), StringComparison.Ordinal);
+
+        var sweep = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1);
+        OperatorMatrixPatch patch = Saw(OperatorFilter.LowPass(4, 2, poles: 4) with { EnvelopeOctaves = 1.5, Envelope = sweep })
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(1)) with { Filter = OperatorFilter.FormantAt(700, 1.8, 0.5, 8) })
+            .WithOutputLevel(1, 0.5)
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(3)) with { Enabled = false, Filter = OperatorFilter.Notch(2, 2) });
+        string scd = exporter.Export(patch);
+
+        Assert.Contains("filters: [", scd, StringComparison.Ordinal);
+        Assert.Contains("[2, (freq * 4.0), (1.5 * EnvGen.kr(", scd, StringComparison.Ordinal);
+        Assert.Contains("[8, 700.0, 0, 8.0, 1.8, 0.5, 6.0]", scd, StringComparison.Ordinal);
+
+        // Review focus 4: the disabled operator's filter is written as off.
+        Assert.Contains("[0, 0, 0, 1, 1, 0, 0]", scd, StringComparison.Ordinal);
+    }
+
+    /// <summary>The FMX6 SynthDef of a patch with the UGen at another oversampling factor.</summary>
+    private sealed class OversampledExporter(int factor) : ISynthDefExporter
+    {
+        private readonly SuperColliderFmx6Exporter _inner = new();
+
+        public int ControlBlockSize => _inner.ControlBlockSize;
+
+        public string ExportSynthDef(OperatorMatrixPatch patch, string synthDefName = "HearSayPatch") =>
+            _inner.ExportSynthDef(patch, synthDefName).Replace("FMX6.ar(ctlMatrix, modMatrix,", $"FMX6.ar(ctlMatrix, modMatrix, oversample: {factor},", StringComparison.Ordinal);
+    }
+
+    [SuperColliderFact]
+    public void Filters_AreSampleExactInSuperCollider()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var validator = new BackendEquivalenceValidator(
+            Renderer,
+            new SuperColliderFm7Renderer(SuperColliderFactAttribute.Installation.Value!, new SuperColliderFmx6Exporter(), fmx6));
+        var request = new RenderRequest(220, null, 1.0, TimeSpan.FromSeconds(0.4), TimeSpan.FromSeconds(0.1), 48000);
+        var sweep = OperatorEnvelope.Adsr(0.02, 0.2, 0.2, 0.1);
+        OperatorMatrixPatch modulated = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant()))
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2), OperatorEnvelope.Constant()) with { Waveform = OperatorWaveform.Square, Filter = OperatorFilter.LowPass(3, 4, poles: 4) })
+            .WithOutputLevel(0, 1.0)
+            .WithEdge(new ModulationEdge(1, 0, true, 1.2));
+        (string Name, OperatorMatrixPatch Patch)[] cases =
+        [
+            ("lp2", Saw(OperatorFilter.LowPass(4, 2))),
+            ("lp4 sweep", Saw(OperatorFilter.LowPass(2, 3, poles: 4) with { EnvelopeOctaves = 3, Envelope = sweep })),
+            ("hp2", Saw(OperatorFilter.HighPass(3, 1.5))),
+            ("hp4", Saw(OperatorFilter.HighPass(3, 1.5, poles: 4))),
+            ("bp", Saw(OperatorFilter.BandPass(5, 6))),
+            ("notch", Saw(OperatorFilter.Notch(3, 3))),
+            ("peak", Saw(OperatorFilter.PeakAt(1500, 12, 4))),
+            ("formant", Saw(OperatorFilter.FormantAt(700, 1.7, 0.6, 10))),
+            ("formant sweep", Saw(OperatorFilter.FormantAt(500, 2.2, 0.4, 8) with { EnvelopeOctaves = -1, Envelope = sweep })),
+            ("filtered modulator", modulated),
+
+            // Review focus 3: the envelope pushes the cutoff below 10 Hz, where both sides clamp.
+            ("clamped low", Saw(OperatorFilter.LowPass(0.25, 2) with { EnvelopeOctaves = -4, Envelope = sweep })),
+        ];
+
+        IReadOnlyList<BackendExportValidation> results = validator.Validate([.. cases.Select(c => (c.Patch, request))]);
+        for (int i = 0; i < results.Count; i++)
+        {
+            BackendExportValidation r = results[i];
+            output.WriteLine($"{cases[i].Name,-20} max sample diff {r.MaxSampleDifference:E2} (peak {r.PeakLevel:F2}), overall {r.OverallDistance:F5}");
+            Assert.True(r.MaxSampleDifference < 1e-4 * Math.Max(0.05, r.PeakLevel), $"{cases[i].Name}: {r}");
+        }
+
+        // At 2x oversampling the UGen runs and stays close to the 1x sound HearSay optimizes.
+        var oversampled = new BackendEquivalenceValidator(
+            Renderer,
+            new SuperColliderFm7Renderer(SuperColliderFactAttribute.Installation.Value!, new OversampledExporter(2), fmx6));
+        foreach (BackendExportValidation r in oversampled.Validate([(cases[1].Patch, request), (cases[7].Patch, request)]))
+        {
+            output.WriteLine($"2x: overall {r.OverallDistance:F5}");
+            Assert.True(r.OverallDistance < 0.1, r.ToString());
+        }
     }
 }

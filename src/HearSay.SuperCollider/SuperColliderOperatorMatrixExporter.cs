@@ -196,9 +196,7 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
             frequency = Number(op.Frequency.FixedFrequencyHz + op.DetuneHz);
         }
 
-        string? timeScale = op.KeyScaling.RatePerOctave != 0.0
-            ? $"(2 ** ({Number(-op.KeyScaling.RatePerOctave)} * ((note - {Number(op.KeyScaling.ReferenceMidiNote)}) / 12)))"
-            : null;
+        string? timeScale = TimeScale(op);
         string amplitude = EnvGen(op.AmplitudeEnvelope, timeScale);
         if (op.VelocitySensitivity != 0.0)
         {
@@ -212,6 +210,13 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
 
         return $"[{frequency}, {Number(op.InitialPhase)}, {amplitude}]";
     }
+
+    /// <summary>The key scaling time factor of an operator as a SynthDef expression; null when neutral.</summary>
+    /// <param name="op">Operator.</param>
+    protected static string? TimeScale(OperatorPatch op) =>
+        op.KeyScaling.RatePerOctave != 0.0
+            ? $"(2 ** ({Number(-op.KeyScaling.RatePerOctave)} * ((note - {Number(op.KeyScaling.ReferenceMidiNote)}) / 12)))"
+            : null;
 
     private static string EdgeAmount(ModulationEdge edge) =>
         edge.AmountEnvelope is null
@@ -240,7 +245,10 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
         return "(" + string.Join(" + ", parts) + ")";
     }
 
-    private static string EnvGen(OperatorEnvelope envelope, string? timeScale)
+    /// <summary>An <c>EnvGen.kr</c> expression for an envelope, gated, with an optional time scale expression.</summary>
+    /// <param name="envelope">Envelope.</param>
+    /// <param name="timeScale">Time scale expression, or null for none.</param>
+    protected static string EnvGen(OperatorEnvelope envelope, string? timeScale)
     {
         IEnumerable<EnvelopePoint> segments = envelope.Points.Skip(1);
         string levels = List(envelope.Points.Count, i => Number(envelope.EffectiveLevel(i)));
