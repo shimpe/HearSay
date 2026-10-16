@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HearSay.Synthesis.Patches;
 
 /// <summary>Response of an operator filter. A structural parameter: the search moves between types by mutation only.</summary>
@@ -58,6 +60,7 @@ public sealed record OperatorFilter(
     public const double ButterworthQ = 0.7071;
 
     /// <summary>True for the types whose frequency follows the note; peak and formant are fixed in hertz.</summary>
+    [JsonIgnore]
     public bool IsKeyTracked => Type is OperatorFilterType.LowPass or OperatorFilterType.HighPass or OperatorFilterType.BandPass or OperatorFilterType.Notch;
 
     /// <summary>A low-pass filter.</summary>

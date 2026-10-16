@@ -31,6 +31,7 @@ public sealed class OperatorFilterModelTests
         OperatorMatrixPatch back = OperatorMatrixPatch.FromJson(patch.ToJson());
 
         Assert.Contains("\"filter\"", patch.ToJson(), StringComparison.Ordinal);
+        Assert.DoesNotContain("isKeyTracked", patch.ToJson(), StringComparison.Ordinal);
         Assert.Equal(patch.ComputeHash(), back.ComputeHash());
         Assert.Equal(OperatorFilterType.Formant, back.Operators[0].Filter!.Type);
         Assert.Equal(1.8, back.Operators[0].Filter!.FormantRatio);
