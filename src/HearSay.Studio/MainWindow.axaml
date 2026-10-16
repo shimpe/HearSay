@@ -252,7 +252,7 @@
                 </StackPanel>
 
                 <!-- Keyboard: plays the shown patch at any pitch; the target notes are marked -->
-                <StackPanel Grid.Row="3" Spacing="4" IsVisible="{Binding HasResult}">
+                <StackPanel Grid.Row="3" Spacing="4" IsVisible="{Binding HasPatch}">
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="play the result" Classes="muted" FontSize="10" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
@@ -264,8 +264,8 @@
                   </ScrollViewer>
                   <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
                 </StackPanel>
-                <Grid Grid.Row="4" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasResult}">
-                  <StackPanel Grid.Column="0">
+                <Grid Grid.Row="4" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasPatch}">
+                  <StackPanel Grid.Column="0" IsVisible="{Binding HasResult}">
                     <TextBlock Text="modulation matrix" Classes="muted" FontSize="10" Margin="0,0,0,4" />
                     <Grid ColumnDefinitions="30,Auto" RowDefinitions="Auto,Auto">
                       <ItemsControl Grid.Row="0" Grid.Column="1" ItemsSource="{Binding OperatorNames}">
@@ -302,7 +302,7 @@
                   </StackPanel>
                   <TextBox Grid.Column="1" Classes="mono" Text="{Binding ResultSummary}" FontSize="11" MinHeight="260" />
                 </Grid>
-                <TextBlock Grid.Row="5" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasResult}" />
+                <TextBlock Grid.Row="5" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasPatch}" />
                 </Grid>
                 </ScrollViewer>
               </Grid>
@@ -314,8 +314,8 @@
             <DockPanel>
               <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
                 <TextBlock Grid.Column="0" Classes="title" Text="PATCH" Margin="0" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" ToolTip.Tip="Copy the SuperCollider code" />
-                <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasResult}" />
+                <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasPatch}" ToolTip.Tip="Copy the SuperCollider code" />
+                <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasPatch}" />
               </Grid>
               <local:PatchView Code="{Binding Scd}" Watermark="{Binding ScdWatermark}" Patch="{Binding ShownPatch}" />
             </DockPanel>

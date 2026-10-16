@@ -134,6 +134,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _resultSummary = string.Empty;
     private string _scd = string.Empty;
     private PatchMatchResult? _result;
+    private LibraryPatch? _libraryPatch;
     private readonly AudioPlayer _player = new();
     private string _playingText = string.Empty;
     private AlternativeItem? _selectedAlternative;
@@ -176,12 +177,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Shows a library sound in the Search tab.</summary>
+    /// <summary>Shows a library sound as the patch of the Search tab: code, diagram and keyboard; the next search replaces it.</summary>
     /// <param name="patch">The sound.</param>
     public void ShowLibraryPatch(LibraryPatch patch)
     {
         ArgumentNullException.ThrowIfNull(patch);
+        SetResult(null);
+        _libraryPatch = patch;
+        _shownPatch = patch.Patch;
+        OnPropertyChanged(nameof(ShownPatch));
+        Scd = patch.Scd;
+        string routing = PatchDescription.Routing(patch.Patch);
+        int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
+        ResultSummary = $"from the library: {patch.Title}\n\n{(matrixAt > 0 ? routing[..matrixAt].TrimEnd() : routing)}";
+        OnPropertyChanged(nameof(HasPatch));
         SelectedTab = 0;
+        Status = $"Showing {patch.Title} from the library. The next search replaces it.";
     }
 
     /// <summary>Loaded target notes.</summary>
@@ -388,6 +399,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>True once a result exists.</summary>
     public bool HasResult => _result is not null;
 
+    /// <summary>True when a patch is shown: a search result or a sound from the library.</summary>
+    public bool HasPatch => _result is not null || _libraryPatch is not null;
+
     /// <summary>True when the search produced more than one finalist.</summary>
     public bool HasAlternatives => Alternatives.Count > 1;
 
@@ -514,6 +528,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <param name="velocity">Key velocity 0..1.</param>
     public async Task PlayNoteAsync(int midiNote, double velocity)
     {
+        if (_libraryPatch is { } library)
+        {
+            RenderRequest reference = HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest;
+            double libraryHz = 440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0);
+            var libraryNote = new RenderRequest(libraryHz, midiNote, velocity, reference.NoteDuration, reference.ReleaseDuration, reference.SampleRate);
+            if (await Notes.PlayAsync(library.Patch, library.Profile, reference, libraryNote))
+            {
+                PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({libraryHz:F1} Hz), velocity {velocity:F2}");
+            }
+
+            return;
+        }
+
         if (_result is null || _shownPatch is null)
         {
             return;
@@ -580,6 +607,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <param name="directory">Destination folder.</param>
     public async Task SaveAsync(string directory)
     {
+        if (_libraryPatch is { } library)
+        {
+            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(library.Patch, library.Profile, directory, library.HeaderComments));
+            Status = $"{written.Count} files written to {directory}.";
+            return;
+        }
+
         if (_result is null)
         {
             return;
@@ -609,6 +643,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void SetResult(PatchMatchResult? result)
     {
+        _libraryPatch = null;
         _result = result;
         _selectedAlternative = null;
         _shownPatch = null;
@@ -658,6 +693,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         PlayingText = string.Empty;
         OnPropertyChanged(nameof(HasResult));
+        OnPropertyChanged(nameof(HasPatch));
     }
 
     /// <summary>Shows one finalist: its matrix, routing, code, and what the keyboard plays.</summary>

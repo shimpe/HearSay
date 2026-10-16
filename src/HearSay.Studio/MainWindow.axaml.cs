@@ -26,7 +26,7 @@ public sealed partial class MainWindow : Window
             // A new result puts the keyboard back on its target notes.
             viewModel.PropertyChanged += (_, args) =>
             {
-                if (args.PropertyName == nameof(MainViewModel.HasResult))
+                if (args.PropertyName == nameof(MainViewModel.HasPatch))
                 {
                     _keyboardCentred = false;
                     Avalonia.Threading.Dispatcher.UIThread.Post(CentreKeyboard, Avalonia.Threading.DispatcherPriority.Loaded);

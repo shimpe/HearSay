@@ -289,6 +289,28 @@ The logo in the header and the window icon are one vector drawing (`HearSayLogo`
 chords of a modulation matrix, a wave through them. `HearSay.Studio --logo out.png [size]` writes it as a PNG and
 exits, for packaging.
 
+### The Library tab
+
+The Library tab shows the structure library of FM7, FMX6 or Nome6 as sound families: k-means on the spectral
+fingerprints splits the 300 000 sounds into 40 families, each family into 40 more, down to single sounds. Every node is
+a real sound, the member closest to its family's centre; nodes are sized by the number of sounds and coloured from
+dark (blue) to bright (yellow), and each is joined to its two nearest neighbours.
+
+- Click a node to hear it at A3 (the note the library was rendered at) and see its code and block diagram; the
+  keyboard plays the last clicked sound at any pitch. Double-click a family, or click the plus, to open it; the
+  breadcrumb goes back up. Resting the pointer on a node shows a few words about it: brightness, envelope, the
+  waveform of the loudest carrier, *filtered*, *noisy*, and the number of sounds.
+- **Copy** copies the SuperCollider code, with the library and seed in its header. **Save…** writes `patch.json`,
+  `patch.scd`, `preview.wav` and a `search-summary.json` with the profile, a folder that can be imported again.
+  **Show in Search** makes the sound the patch of the Search tab, until the next search.
+- **Import folder…** reads every `patch.json` (and the alternatives) under a folder of exported results. Click one in
+  the list to place it: the tab opens the family whose centre is closest at every level and shows the sound there as a
+  star among the sounds like it. One level up, the family it fell in has a dashed ring. Placement is by sound, so an
+  FM7 export can be placed in the FMX6 library.
+
+The first time a library is opened its top level is grouped (under a minute) and kept next to the library as
+`…-atlas-v1.bin`; a library missing on disk is built first (FMX6: about 17 minutes).
+
 ## 10. The command line
 
 ```
