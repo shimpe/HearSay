@@ -150,6 +150,12 @@ A filter adds 0.05 to the complexity and its envelope another 0.03, so between t
 without a filter wins. A patch without filters exports exactly as before and runs on FMX6 builds without operator
 filters; a patch with a filter passes `filters:` to `FMX6.ar` and needs the FMX6 plugin with operator filters.
 
+Resonance adds level. A low-pass or high-pass with a high Q passes a harmonic near its cutoff about Q times louder
+(20 times at Q 20), and a peak adds its gain (+24 dB is 16 times). On a modulator this deepens the modulation beyond
+what the edge amount says, and the limit on radians per destination does not count it; on a carrier the export can
+peak well above full scale. Lower `amp` in SuperCollider, or the output level of the operator, if a resonant patch
+clips. The search judges the sound with its level normalized, so it is not steered away from such patches.
+
 ## 5. Budget, seeds and time
 
 The budget is a number of candidate evaluations, not seconds. One evaluation renders the candidate at every target

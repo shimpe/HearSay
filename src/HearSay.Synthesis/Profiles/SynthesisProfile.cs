@@ -28,7 +28,8 @@ public enum RenderProfile
 /// <param name="SupportsIndependentOperatorOutputs">Every operator has its own gain into the output mix.</param>
 /// <param name="MaxModulationRadiansPerDestination">
 /// Largest total phase deviation, the sum of the absolute amounts that arrive at one operator, the backend handles
-/// without numerical trouble.
+/// without numerical trouble. Each source counts at unit amplitude: a resonant operator filter can make a source
+/// louder than its amplitude (about Q times at the resonance, or the gain of a peak), which this sum does not include.
 /// </param>
 /// <param name="SupportsSharedNoise">
 /// One noise source shared by all operators, coloured by <see cref="OperatorMatrixPatch.Noise"/>, that noise operators
