@@ -1,8 +1,22 @@
 using HearSay.Synthesis.Envelopes;
+using HearSay.Synthesis.Filters;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Rendering;
 
 namespace HearSay.Synthesis.Compilation;
+
+/// <summary>
+/// Operator filters of the audible operators, in the order of <see cref="CompiledOperatorMatrixPatch.OperatorIndices"/>,
+/// as the FMX6 UGen receives them: single-precision inputs, the envelope offset in octaves per control step.
+/// </summary>
+/// <param name="Types">Type code per operator, <see cref="OperatorFilterKernel.Off"/> for none.</param>
+/// <param name="BaseHz">Cutoff, centre or F1 before the envelope.</param>
+/// <param name="Octaves">Envelope offset; one entry when static, otherwise one per control step.</param>
+/// <param name="Q">Resonance.</param>
+/// <param name="FormantRatios">F2 / F1.</param>
+/// <param name="FormantLevels">Level of F2.</param>
+/// <param name="GainsDb">Peak gain.</param>
+public sealed record CompiledFilters(int[] Types, float[] BaseHz, float[][] Octaves, float[] Q, float[] FormantRatios, float[] FormantLevels, float[] GainsDb);
 
 /// <summary>
 /// A patch bound to one note and flattened for a sample loop: only audible operators and live edges remain, and
@@ -32,7 +46,8 @@ public sealed class CompiledOperatorMatrixPatch
         float[] outputGains,
         int[] edgeSources,
         int[] edgeDestinations,
-        float[][] edgeAmounts)
+        float[][] edgeAmounts,
+        CompiledFilters? filters)
     {
         SampleRate = sampleRate;
         BlockSize = blockSize;
@@ -54,7 +69,11 @@ public sealed class CompiledOperatorMatrixPatch
         EdgeSources = edgeSources;
         EdgeDestinations = edgeDestinations;
         EdgeAmounts = edgeAmounts;
+        Filters = filters;
     }
+
+    /// <summary>Operator filters; null when no audible operator has one.</summary>
+    public CompiledFilters? Filters { get; }
 
     /// <summary>Sample rate in hertz.</summary>
     public int SampleRate { get; }
@@ -214,6 +233,43 @@ public static class PatchCompiler
             amplitudes[k] = Run(op.AmplitudeEnvelope, steps, gateOffBlock, controlRate, op.KeyScaling.TimeFactor(midiNote), scale);
         }
 
+        CompiledFilters? filters = null;
+        if (indices.Any(i => patch.Operators[i].Filter is not null))
+        {
+            var types = new int[n];
+            var baseHz = new float[n];
+            var octaves = new float[n][];
+            var q = new float[n];
+            var ratios = new float[n];
+            var levels = new float[n];
+            var filterGains = new float[n];
+            for (int k = 0; k < n; k++)
+            {
+                OperatorPatch op = patch.Operators[indices[k]];
+                OperatorFilter? filter = op.Filter;
+                types[k] = OperatorFilterKernel.Code(filter);
+                if (filter is null)
+                {
+                    octaves[k] = [0f];
+                    q[k] = 1f;
+                    ratios[k] = 1f;
+                    continue;
+                }
+
+                // Single precision in the order of the exported SynthDef: (freq * ratio), or the fixed frequency.
+                baseHz[k] = filter.IsKeyTracked ? (float)request.FrequencyHz * (float)filter.CutoffRatio : (float)filter.FixedHz;
+                octaves[k] = filter.Envelope is null || filter.EnvelopeOctaves == 0.0
+                    ? [0f]
+                    : Run(filter.Envelope, steps, gateOffBlock, controlRate, op.KeyScaling.TimeFactor(midiNote), (float)filter.EnvelopeOctaves);
+                q[k] = (float)filter.Q;
+                ratios[k] = (float)filter.FormantRatio;
+                levels[k] = (float)filter.FormantLevel;
+                filterGains[k] = (float)filter.PeakGainDb;
+            }
+
+            filters = new CompiledFilters(types, baseHz, octaves, q, ratios, levels, filterGains);
+        }
+
         var sources = new List<int>();
         var destinations = new List<int>();
         var amounts = new List<float[]>();
@@ -251,7 +307,8 @@ public static class PatchCompiler
             gains,
             [.. sources],
             [.. destinations],
-            [.. amounts]);
+            [.. amounts],
+            filters);
     }
 
     /// <summary>Evaluates an envelope per control step: entry 0 is the construction value, entry b + 1 belongs to block b.</summary>

@@ -1,4 +1,5 @@
 using HearSay.Synthesis.Compilation;
+using HearSay.Synthesis.Filters;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -23,6 +24,7 @@ namespace HearSay.Synthesis.Fmx6Compatible.Rendering;
 /// <item>Filtered noise: the white noise through a TPT state-variable filter in double precision, cutoff at the operator frequency.</item>
 /// <item>Double-precision phase in cycles, single-precision frequency, phase offset, amplitude and matrix, all ramped linearly across each control block.</item>
 /// <item>No warm-up sample at construction: the first output sample is at phase zero. FM7 differs here.</item>
+/// <item>Operator filters: the TPT state-variable filters of <see cref="OperatorFilterKernel"/> between the waveform and the amplitude.</item>
 /// <item>No oversampling: the aliasing of deep modulation is part of the sound of the backend.</item>
 /// </list>
 /// <para>Instances are immutable and thread-safe.</para>
@@ -116,6 +118,21 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
         var wave = new int[n];
         var harmonicLimit = new int[n];
         float[] shape = compiled.Shapes;
+        CompiledFilters? filters = compiled.Filters;
+        var filterFreq = new float[n];
+        var filterFreqInc = new float[n];
+        var filterOct = new float[n];
+        var filterOctInc = new float[n];
+        var filterA = new SvfState[n];
+        var filterB = new SvfState[n];
+        if (filters is not null)
+        {
+            for (int k = 0; k < n; k++)
+            {
+                filterFreq[k] = filters.BaseHz[k];
+                filterOct[k] = filters.Octaves[k][0];
+            }
+        }
 
         for (int k = 0; k < n; k++)
         {
@@ -146,6 +163,12 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
                 float[] a = amplitudes[k];
                 freqInc[k] = ((f.Length == 1 ? f[0] : f[step]) - freq[k]) * slopeFactor;
                 ampInc[k] = ((a.Length == 1 ? a[0] : a[step]) - amp[k]) * slopeFactor;
+                if (filters is not null)
+                {
+                    float[] o = filters.Octaves[k];
+                    filterFreqInc[k] = (filters.BaseHz[k] - filterFreq[k]) * slopeFactor;
+                    filterOctInc[k] = ((o.Length == 1 ? o[0] : o[step]) - filterOct[k]) * slopeFactor;
+                }
             }
 
             for (int e = 0; e < edges; e++)
@@ -184,7 +207,21 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
                         _ => RandBipolar(ref rng[k]),
                     };
 
-                    float y = amp[k] * osc;
+                    float shaped = filters is null || filters.Types[k] == OperatorFilterKernel.Off
+                        ? osc
+                        : (float)OperatorFilterKernel.Process(
+                            filters.Types[k],
+                            osc,
+                            filterFreq[k],
+                            filterOct[k],
+                            filters.Q[k],
+                            filters.FormantRatios[k],
+                            filters.FormantLevels[k],
+                            filters.GainsDb[k],
+                            sampleRate,
+                            ref filterA[k],
+                            ref filterB[k]);
+                    float y = amp[k] * shaped;
                     mix += y * compiled.OutputGains[k];
                     if (wave[k] == 5 && wrapped)
                     {
@@ -197,6 +234,8 @@ public sealed class Fmx6CompatibleOperatorMatrixRenderer : IOperatorMatrixRender
                     lastPhaseMod[k] = totalPhaseMod;
                     freq[k] += freqInc[k];
                     amp[k] += ampInc[k];
+                    filterFreq[k] += filterFreqInc[k];
+                    filterOct[k] += filterOctInc[k];
                 }
 
                 for (int e = 0; e < edges; e++)
