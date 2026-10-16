@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:HearSay.Studio"
+             x:Class="HearSay.Studio.PatchView"
+             x:Name="Root">
+  <TabControl Padding="0,6,0,0">
+    <TabItem Header="{Binding CodeHeader, ElementName=Root}" FontSize="13">
+      <TextBox Classes="mono" Text="{Binding Code, ElementName=Root}" Watermark="{Binding Watermark, ElementName=Root}" />
+    </TabItem>
+    <TabItem Header="Block diagram" FontSize="13">
+      <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+        <local:FmDiagram Patch="{Binding Patch, ElementName=Root}" Margin="8" />
+      </Border>
+    </TabItem>
+  </TabControl>
+</UserControl>

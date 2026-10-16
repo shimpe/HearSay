@@ -100,7 +100,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnNotePressed(object? sender, KeyPress e) => ViewModel.PlayNote(e.MidiNote, e.Velocity);
+    private async void OnNotePressed(object? sender, KeyPress e) => await ViewModel.PlayNoteAsync(e.MidiNote, e.Velocity);
 
     private void OnPlayTarget(object? sender, RoutedEventArgs e)
     {

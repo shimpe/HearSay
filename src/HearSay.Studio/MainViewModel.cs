@@ -136,7 +136,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private PatchMatchResult? _result;
     private readonly AudioPlayer _player = new();
     private string _playingText = string.Empty;
-    private float _resultGain;
     private AlternativeItem? _selectedAlternative;
     private OperatorMatrixPatch? _shownPatch;
 
@@ -145,6 +144,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public MainViewModel()
     {
+        Notes = new NotePlayer(_player);
         RunCommand = new RelayCommand(() => _ = RunAsync(), () => Targets.Count > 0 && !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
         RemoveCommand = new RelayCommand(RemoveSelected, () => SelectedTarget is not null && !IsRunning);
@@ -153,6 +153,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Plays notes for both tabs.</summary>
+    internal NotePlayer Notes { get; }
 
     /// <summary>Loaded target notes.</summary>
     public ObservableCollection<TargetItem> Targets { get; } = [];
@@ -477,12 +480,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>True when an audio device could be opened.</summary>
-    public bool CanPlay => _player.IsAvailable;
+    public bool CanPlay => Notes.CanPlay;
 
-    /// <summary>Renders the best patch at a note and plays it. Nothing happens without a result.</summary>
+    /// <summary>Renders the shown patch at a note and plays it. Nothing happens without a patch.</summary>
     /// <param name="midiNote">MIDI note.</param>
     /// <param name="velocity">Key velocity 0..1.</param>
-    public void PlayNote(int midiNote, double velocity)
+    public async Task PlayNoteAsync(int midiNote, double velocity)
     {
         if (_result is null || _shownPatch is null)
         {
@@ -494,21 +497,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         double hz = 440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0);
         double held = Math.Clamp(result.Request.NoteDuration.TotalSeconds, 0.3, 2.0);
         double tail = Math.Clamp(Math.Max(0.3, result.Request.ReleaseDuration.TotalSeconds), 0.3, 2.0);
-        var request = new RenderRequest(hz, midiNote, velocity, TimeSpan.FromSeconds(held), TimeSpan.FromSeconds(tail), result.Request.SampleRate);
-        RenderedAudio audio = SynthesisBackends.RendererFor(result.Profile).Render(patch, request);
-        // One gain per shown patch, from the reference note at full velocity: the level differences between keys and
-        // velocities survive, unlike with a peak normalization of every note.
-        if (_resultGain <= 0)
+        var note = new RenderRequest(hz, midiNote, velocity, TimeSpan.FromSeconds(held), TimeSpan.FromSeconds(tail), result.Request.SampleRate);
+        if (await Notes.PlayAsync(patch, result.Profile, result.Request, note))
         {
-            RenderedAudio full = SynthesisBackends.RendererFor(result.Profile).Render(patch, result.Request with { Velocity = 1.0 });
-            _resultGain = full.Peak > 0 ? 0.5f / full.Peak : 1f;
+            PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (NotePlayer.RespondsToVelocity(patch) ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
         }
-
-        // A patch without velocity sensitivity ignores the key velocity; the keyboard then applies it as volume.
-        bool patchResponds = patch.Operators.Any(static o => o.Enabled && o.VelocitySensitivity > 0);
-        float gain = _resultGain * (patchResponds ? 1f : (float)velocity);
-        _player.Play(Scale(audio, Math.Min(gain, 0.98f / Math.Max(1e-6f, audio.Peak))));
-        PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (patchResponds ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
     }
 
     /// <summary>Plays a target file as it is.</summary>
@@ -519,7 +512,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             HearSay.Audio.AudioNote note = HearSay.Audio.WavFile.Read(item.Path);
-            _player.Play(Level(new RenderedAudio(note.Samples.ToArray(), note.SampleRate)));
+            Notes.Play(Level(new RenderedAudio(note.Samples.ToArray(), note.SampleRate)));
             PlayingText = "target " + item.Name;
         }
         catch (Exception e) when (e is IOException or InvalidDataException)
@@ -529,19 +522,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Stops playback.</summary>
-    public void StopPlayback() => _player.Stop();
-
-    /// <summary>Brings audio to a comfortable, equal level: peaks at -6 dBFS.</summary>
-    private static RenderedAudio Scale(RenderedAudio audio, float gain)
-    {
-        var samples = new float[audio.Samples.Length];
-        for (int i = 0; i < samples.Length; i++)
-        {
-            samples[i] = audio.Samples[i] * gain;
-        }
-
-        return new RenderedAudio(samples, audio.SampleRate);
-    }
+    public void StopPlayback() => Notes.Stop();
 
     private static RenderedAudio Level(RenderedAudio audio)
     {
@@ -658,7 +639,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OperatorMatrixPatch patch = candidate.Patch;
         _shownPatch = patch;
         OnPropertyChanged(nameof(ShownPatch));
-        _resultGain = 0;
         bool[] audible = patch.FindAudibleOperators();
         OperatorNames.Clear();
         MatrixCells.Clear();

@@ -314,16 +314,7 @@
             <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasResult}" ToolTip.Tip="Copy the SuperCollider code" />
             <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasResult}" />
           </Grid>
-          <TabControl Padding="0,6,0,0">
-            <TabItem Header="SuperCollider · patch.scd" FontSize="13">
-              <TextBox Classes="mono" Text="{Binding Scd}" Watermark="{Binding ScdWatermark}" />
-            </TabItem>
-            <TabItem Header="Block diagram" FontSize="13">
-              <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-                <local:FmDiagram Patch="{Binding ShownPatch}" Margin="8" />
-              </Border>
-            </TabItem>
-          </TabControl>
+          <local:PatchView Code="{Binding Scd}" Watermark="{Binding ScdWatermark}" Patch="{Binding ShownPatch}" />
         </DockPanel>
       </Border>
     </Grid>
