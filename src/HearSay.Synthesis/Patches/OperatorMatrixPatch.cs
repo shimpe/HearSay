@@ -243,6 +243,14 @@ public sealed record OperatorMatrixPatch(
                 problems.Add($"OP{i + 1} harmonic limit must be between 1 and 128.");
             }
 
+            if (op.Filter is not null)
+            {
+                foreach (string problem in op.Filter.Validate())
+                {
+                    problems.Add($"OP{i + 1} filter {problem}");
+                }
+            }
+
             if (op.VelocitySensitivity is < 0 or > 1 || !double.IsFinite(op.VelocitySensitivity))
             {
                 problems.Add($"OP{i + 1} velocity sensitivity must be between 0 and 1.");

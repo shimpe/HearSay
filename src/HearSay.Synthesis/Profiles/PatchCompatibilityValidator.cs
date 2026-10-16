@@ -23,6 +23,9 @@ public static class PatchCompatibilityCodes
     /// <summary>An operator uses the shared noise source of a backend that has none.</summary>
     public const string SharedNoise = "shared-noise";
 
+    /// <summary>An operator has a filter the backend cannot play.</summary>
+    public const string OperatorFilter = "operator-filter";
+
     /// <summary>An operator modulates itself and the backend has no self-feedback.</summary>
     public const string SelfFeedback = "self-feedback";
 
@@ -122,6 +125,11 @@ public sealed class PatchCompatibilityValidator : IPatchCompatibilityValidator
             if (!capabilities.SupportsSharedNoise && (op.NoisePhase != 0.0 || op.NoiseM != 0.0))
             {
                 issues.Add(new PatchCompatibilityIssue(PatchCompatibilityCodes.SharedNoise, $"OP{i + 1} is roughened by shared noise, which the backend does not have.", i));
+            }
+
+            if (!capabilities.SupportsOperatorFilters && op.Filter is not null)
+            {
+                issues.Add(new PatchCompatibilityIssue(PatchCompatibilityCodes.OperatorFilter, $"OP{i + 1} has a filter, which the backend does not have.", i));
             }
 
             bool ratio = op.Frequency.Mode == OperatorFrequencyMode.Ratio;

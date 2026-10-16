@@ -35,6 +35,7 @@ public enum RenderProfile
 /// play and that roughens the phase (<see cref="OperatorPatch.NoisePhase"/>) and the elliptic parameter
 /// (<see cref="OperatorPatch.NoiseM"/>) of the others.
 /// </param>
+/// <param name="SupportsOperatorFilters">Every operator may have a filter (<see cref="OperatorPatch.Filter"/>).</param>
 public sealed record SynthesisCapabilities(
     int OperatorCount,
     IReadOnlySet<OperatorMode> SupportedModes,
@@ -47,7 +48,8 @@ public sealed record SynthesisCapabilities(
     bool SupportsFixedFrequency,
     bool SupportsIndependentOperatorOutputs,
     double MaxModulationRadiansPerDestination = 24.0,
-    bool SupportsSharedNoise = false)
+    bool SupportsSharedNoise = false,
+    bool SupportsOperatorFilters = false)
 {
     /// <summary>True when everything this set allows is also allowed by <paramref name="other"/>.</summary>
     /// <param name="other">Capabilities of, for example, a renderer.</param>
@@ -65,7 +67,8 @@ public sealed record SynthesisCapabilities(
             && (!SupportsFixedFrequency || other.SupportsFixedFrequency)
             && (!SupportsIndependentOperatorOutputs || other.SupportsIndependentOperatorOutputs)
             && MaxModulationRadiansPerDestination <= other.MaxModulationRadiansPerDestination
-            && (!SupportsSharedNoise || other.SupportsSharedNoise);
+            && (!SupportsSharedNoise || other.SupportsSharedNoise)
+            && (!SupportsOperatorFilters || other.SupportsOperatorFilters);
     }
 }
 
@@ -80,7 +83,15 @@ public sealed record SynthesisProfile(
     SynthesisCapabilities Capabilities,
     RenderProfile RenderProfile,
     int ControlBlockSize,
-    string Description);
+    string Description)
+{
+    /// <summary>
+    /// Version of the structure library of this profile: part of the cache file name, so raising it rebuilds that
+    /// library once. Raise it when the random patches of the profile change; raise every profile when the file
+    /// layout or the fingerprint changes.
+    /// </summary>
+    public int StructureLibraryVersion { get; init; } = 1;
+}
 
 /// <summary>Built-in synthesis profiles.</summary>
 public static class SynthesisProfiles
@@ -111,6 +122,7 @@ public static class SynthesisProfiles
     /// Six phase-modulation operators with selectable waveforms, as played by the <c>FMX6</c> UGen
     /// (https://github.com/shimpe/fmx6): sine, band-limited triangle, saw, square and pulse, white and
     /// sample-and-hold noise, and filtered noise, over the same full matrix as FM7. Needs FMX6 with waveform 7.
+    /// Needs FMX6 with operator filters.
     /// </summary>
     public static SynthesisProfile SuperColliderFmx6 { get; } = new(
         "supercollider-fmx6",
@@ -127,10 +139,14 @@ public static class SynthesisProfiles
                 OperatorWaveform.SampleHoldNoise,
                 OperatorWaveform.FilteredNoise,
             },
+            SupportsOperatorFilters = true,
         },
         RenderProfile.BackendExact,
         ControlBlockSize: 64,
-        "Six operators with sine, triangle, saw, square, pulse, noise and filtered-noise waveforms, full 6x6 matrix, SuperCollider FMX6 UGen.");
+        "Six operators with sine, triangle, saw, square, pulse, noise and filtered-noise waveforms and a filter per operator, full 6x6 matrix, SuperCollider FMX6 UGen.")
+    {
+        StructureLibraryVersion = 2,
+    };
 
     /// <summary>
     /// Six phase-modulation operators that are Jacobi elliptic oscillators, as played by the <c>Nome6</c> UGen: a

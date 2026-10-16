@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HearSay.Synthesis.Patches;
 
 /// <summary>
@@ -182,6 +184,14 @@ public sealed record OperatorPatch(
     /// around <see cref="Shape"/>, -1..1, the sign giving the direction; for backends with a shared noise source only.
     /// </summary>
     public double NoiseM { get; init; }
+
+    /// <summary>
+    /// Filter between the waveform and the amplitude, for backends with operator filters
+    /// (<see cref="Profiles.SynthesisCapabilities.SupportsOperatorFilters"/>); null for none. Left out of the JSON when
+    /// null, so that patches without filters keep their serialized form and their hash.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public OperatorFilter? Filter { get; init; }
 
     /// <summary>Largest elliptic parameter m: m = 1 has an infinite period and is no oscillator.</summary>
     public const double MaxEllipticM = 0.999999;
