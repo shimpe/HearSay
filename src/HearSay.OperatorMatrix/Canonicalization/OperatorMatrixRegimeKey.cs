@@ -254,7 +254,7 @@ public static class PatchComplexity
             total += options.ExtremeDetune * (Math.Max(0.0, (Math.Abs(op.DetuneHz) - 3.0) / 5.0) + Math.Max(0.0, (Math.Abs(op.FineTuneCents) - 25.0) / 25.0));
             if (op.Filter is { } filter)
             {
-                total += options.PerFilter + (filter.Envelope is null ? 0.0 : options.PerFilterEnvelope);
+                total += options.PerFilter + (filter.Envelope is null || filter.EnvelopeOctaves == 0.0 ? 0.0 : options.PerFilterEnvelope);
             }
 
             double level = patch.OutputLevels[i];

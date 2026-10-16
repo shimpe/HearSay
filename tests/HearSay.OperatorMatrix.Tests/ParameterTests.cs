@@ -300,5 +300,9 @@ public sealed class ParameterTests
         double sweep = PatchComplexity.Measure(FilteredSaw(OperatorFilter.LowPass(4) with { EnvelopeOctaves = 1, Envelope = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1) }));
         Assert.Equal(none + 0.05, filter, 10);
         Assert.Equal(filter + 0.03, sweep, 10);
+
+        // An envelope with no depth moves nothing and costs nothing, as the compiler and the exporter ignore it.
+        double inert = PatchComplexity.Measure(FilteredSaw(OperatorFilter.LowPass(4) with { EnvelopeOctaves = 0, Envelope = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1) }));
+        Assert.Equal(filter, inert, 10);
     }
 }
