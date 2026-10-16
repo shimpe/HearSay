@@ -78,9 +78,14 @@ public static class SynthesisBackends
         // structures with other waveforms on their carriers or on one of their modulators, the waveforms and noise read
         // from the spectrum, and both kinds of structure with the noise of a noisy target added. The best of each group
         // always gets a basin, so one kind of hypothesis cannot crowd out the others.
-        return profile.Capabilities.SupportedWaveforms.Count > 1
+        IReadOnlyList<ISynthesisPriorProvider> reading = profile.Capabilities.SupportedWaveforms.Count > 1
             ? [sine, stacks, tracks, new WaveformVariantPriorProvider(sine, includeInner: false), new HarmonicWaveformPriorProvider(), new ModulatorWaveformPriorProvider(sine), new NoisePriorProvider(sine), new NoisePriorProvider(tracks)]
             : [sine, stacks, tracks];
+
+        // Filtered carriers read from the spectral envelope, each kind in a group of its own.
+        return profile.Capabilities.SupportsOperatorFilters
+            ? [.. reading, new FormantPriorProvider(), new SubtractivePriorProvider()]
+            : reading;
     }
 
     /// <summary>
