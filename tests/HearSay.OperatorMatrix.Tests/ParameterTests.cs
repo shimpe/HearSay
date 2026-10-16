@@ -224,4 +224,53 @@ public sealed class ParameterTests
 
     private static bool PatchEnvelopesEqual(OperatorEnvelope a, OperatorEnvelope b) =>
         a.SustainPoint == b.SustainPoint && a.ReleasePoint == b.ReleasePoint && a.Points.SequenceEqual(b.Points);
+
+    private static OperatorMatrixPatch FilteredSaw(OperatorFilter filter) =>
+        OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1)) with { Waveform = OperatorWaveform.Saw, Filter = filter })
+            .WithOutputLevel(0, 1.0);
+
+    [Fact]
+    public void FilterParameters_FollowTheFilterType()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        OperatorMatrixPatch lowPass = FilteredSaw(OperatorFilter.LowPass(4, 2));
+        var ids = PatchParameterSchema.Build(lowPass, fmx6).ActiveSmooth(lowPass).Select(static p => p.Id).ToHashSet();
+        Assert.Contains("op1.operatorFilter.cutoff", ids);
+        Assert.Contains("op1.operatorFilter.q", ids);
+        Assert.DoesNotContain("op1.operatorFilter.fixedHz", ids);
+        Assert.DoesNotContain("op1.operatorFilter.octaves", ids);
+
+        var sweep = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1);
+        OperatorMatrixPatch formant = FilteredSaw(OperatorFilter.FormantAt(700, 1.8, 0.5, 8) with { EnvelopeOctaves = 1, Envelope = sweep });
+        PatchParameterSchema schema = PatchParameterSchema.Build(formant, fmx6);
+        ids = schema.ActiveSmooth(formant).Select(static p => p.Id).ToHashSet();
+        Assert.Contains("op1.operatorFilter.fixedHz", ids);
+        Assert.Contains("op1.operatorFilter.formantRatio", ids);
+        Assert.Contains("op1.operatorFilter.formantLevel", ids);
+        Assert.Contains("op1.operatorFilter.octaves", ids);
+        Assert.Contains("op1.operatorFilter.env.p1.time", ids);
+        Assert.DoesNotContain("op1.operatorFilter.cutoff", ids);
+
+        // Writing through a parameter changes only the filter and stays in range.
+        PatchParameter q = schema.Find("op1.operatorFilter.q")!;
+        OperatorMatrixPatch changed = q.Set(formant, 50.0);
+        Assert.Equal(20.0, changed.Operators[0].Filter!.Q);
+        Assert.Empty(changed.Validate());
+
+        // Profiles without filters have no filter parameters at all.
+        Assert.DoesNotContain(PatchParameterSchema.Build(lowPass, SynthesisProfiles.SuperColliderFm7.Capabilities).Parameters, static p => p.Id.Contains("operatorFilter", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Filter_CostsALittleComplexity()
+    {
+        OperatorMatrixPatch plain = FilteredSaw(OperatorFilter.LowPass(4));
+        plain = plain.WithOperator(0, plain.Operators[0] with { Filter = null });
+        double none = PatchComplexity.Measure(plain);
+        double filter = PatchComplexity.Measure(FilteredSaw(OperatorFilter.LowPass(4)));
+        double sweep = PatchComplexity.Measure(FilteredSaw(OperatorFilter.LowPass(4) with { EnvelopeOctaves = 1, Envelope = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1) }));
+        Assert.Equal(none + 0.05, filter, 10);
+        Assert.Equal(filter + 0.03, sweep, 10);
+    }
 }

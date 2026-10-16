@@ -204,6 +204,12 @@ public sealed record ComplexityOptions
 
     /// <summary>Cost of extreme detuning, per operator, growing beyond 3 Hz or 25 cents.</summary>
     public double ExtremeDetune { get; init; } = 0.10;
+
+    /// <summary>Cost of an operator filter.</summary>
+    public double PerFilter { get; init; } = 0.05;
+
+    /// <summary>Extra cost of a filter envelope.</summary>
+    public double PerFilterEnvelope { get; init; } = 0.03;
 }
 
 /// <summary>
@@ -233,6 +239,11 @@ public static class PatchComplexity
             OperatorPatch op = patch.Operators[i];
             total += options.PerExtraEnvelopePoint * Math.Max(0, op.AmplitudeEnvelope.Points.Count - 5);
             total += options.ExtremeDetune * (Math.Max(0.0, (Math.Abs(op.DetuneHz) - 3.0) / 5.0) + Math.Max(0.0, (Math.Abs(op.FineTuneCents) - 25.0) / 25.0));
+            if (op.Filter is { } filter)
+            {
+                total += options.PerFilter + (filter.Envelope is null ? 0.0 : options.PerFilterEnvelope);
+            }
+
             double level = patch.OutputLevels[i];
             if (level != 0.0 && Math.Abs(level) < 0.01)
             {

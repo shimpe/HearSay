@@ -106,6 +106,39 @@ public sealed class PatchParameterSchema
                 list.Add(Smooth(id + ".noiseM", group, -1.0, 1.0, ParameterTransforms.SoftLogarithmic(0.05), p => p.Operators[op].NoiseM, (p, v) => p.WithOperator(op, p.Operators[op] with { NoiseM = Math.Clamp(v, -1.0, 1.0) is var m && m != 0.0 ? m : 1e-4 }), p => Audible(p) && p.Operators[op].NoiseM != 0.0 && p.Operators[op].Waveform == OperatorWaveform.Elliptic));
             }
 
+            if (capabilities.SupportsOperatorFilters)
+            {
+                // The filter of an operator, once a mutation or a prior has given it one: only the values its type uses.
+                string filterGroup = group + "/Filter";
+                string filterId = id + ".operatorFilter";
+                OperatorMatrixPatch WithFilter(OperatorMatrixPatch p, Func<OperatorFilter, OperatorFilter> change) =>
+                    p.Operators[op].Filter is { } f ? p.WithOperator(op, p.Operators[op] with { Filter = change(f) }) : p;
+                bool Has(OperatorMatrixPatch p, Func<OperatorFilter, bool> uses) => Audible(p) && p.Operators[op].Filter is { } f && uses(f);
+                double Read(OperatorMatrixPatch p, Func<OperatorFilter, double> value, double fallback) => p.Operators[op].Filter is { } f ? value(f) : fallback;
+
+                list.Add(Smooth(filterId + ".cutoff", filterGroup, 0.25, 64.0, ParameterTransforms.Logarithmic, p => Read(p, static f => f.CutoffRatio, 4.0), (p, v) => WithFilter(p, f => f with { CutoffRatio = Math.Clamp(v, 0.25, 64.0) }), p => Has(p, static f => f.IsKeyTracked)));
+                list.Add(Smooth(filterId + ".fixedHz", filterGroup, 80.0, 8000.0, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FixedHz, 1000.0), (p, v) => WithFilter(p, f => f with { FixedHz = Math.Clamp(v, 80.0, 8000.0) }), p => Has(p, static f => !f.IsKeyTracked)));
+                list.Add(Smooth(filterId + ".q", filterGroup, OperatorFilter.MinQ, OperatorFilter.MaxQ, ParameterTransforms.Logarithmic, p => Read(p, static f => f.Q, OperatorFilter.ButterworthQ), (p, v) => WithFilter(p, f => f with { Q = Math.Clamp(v, OperatorFilter.MinQ, OperatorFilter.MaxQ) }), p => Has(p, static _ => true)));
+                list.Add(Smooth(filterId + ".formantRatio", filterGroup, 1.0, 8.0, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FormantRatio, 2.0), (p, v) => WithFilter(p, f => f with { FormantRatio = Math.Clamp(v, 1.0, 8.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Formant)));
+                list.Add(Smooth(filterId + ".formantLevel", filterGroup, 0.0, 1.0, ParameterTransforms.Linear, p => Read(p, static f => f.FormantLevel, 0.5), (p, v) => WithFilter(p, f => f with { FormantLevel = Math.Clamp(v, 0.0, 1.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Formant)));
+                list.Add(Smooth(filterId + ".peakGain", filterGroup, -24.0, 24.0, ParameterTransforms.Linear, p => Read(p, static f => f.PeakGainDb, 6.0), (p, v) => WithFilter(p, f => f with { PeakGainDb = Math.Clamp(v, -24.0, 24.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Peak)));
+                list.Add(Smooth(filterId + ".octaves", filterGroup, -4.0, 4.0, ParameterTransforms.Linear, p => Read(p, static f => f.EnvelopeOctaves, 0.0), (p, v) => WithFilter(p, f => f with { EnvelopeOctaves = Math.Clamp(v, -4.0, 4.0) }), p => Has(p, static f => f.Envelope is not null)));
+                if (patch.Operators[op].Filter?.Envelope is { } filterShape)
+                {
+                    AddEnvelope(
+                        list,
+                        limits,
+                        filterId + ".env",
+                        filterGroup + "/Envelope",
+                        filterShape,
+                        1.0,
+                        ParameterTransforms.Linear,
+                        p => p.Operators[op].Filter?.Envelope,
+                        (p, e) => WithFilter(p, f => f with { Envelope = e }),
+                        p => Has(p, static f => f.Envelope is not null));
+                }
+            }
+
             string frequency = group + "/Frequency";
             list.Add(Structural(id + ".frequency.mode", frequency, [.. frequencyModes], p => (int)p.Operators[op].Frequency.Mode, (p, v) => p.WithOperator(op, p.Operators[op] with { Frequency = p.Operators[op].Frequency with { Mode = (OperatorFrequencyMode)(int)v } }), Enabled));
             list.Add(Structural(id + ".frequency.ratio", frequency, ratios, p => p.Operators[op].Frequency.Ratio, (p, v) => p.WithOperator(op, p.Operators[op] with { Frequency = p.Operators[op].Frequency with { Ratio = v } }), p => Enabled(p) && p.Operators[op].Frequency.Mode == OperatorFrequencyMode.Ratio));
