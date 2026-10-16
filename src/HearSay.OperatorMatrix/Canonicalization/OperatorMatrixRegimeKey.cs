@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using HearSay.Synthesis.Filters;
 using HearSay.Synthesis.Patches;
 
 namespace HearSay.OperatorMatrix.Canonicalization;
@@ -13,6 +14,8 @@ namespace HearSay.OperatorMatrix.Canonicalization;
 /// <param name="Value">Canonical text form; equal structures give equal values.</param>
 public sealed record OperatorMatrixRegimeKey(string Value)
 {
+    private static readonly string[] FilterToken = ["", "LP2", "LP4", "HP2", "HP4", "BP", "N", "PK", "FMT"];
+
     /// <summary>Derives the key of a patch. Operators and edges that cannot be heard are ignored.</summary>
     /// <param name="patch">Patch to describe.</param>
     public static OperatorMatrixRegimeKey FromPatch(OperatorMatrixPatch patch)
@@ -43,6 +46,16 @@ public sealed record OperatorMatrixRegimeKey(string Value)
             if (patch.OutputLevels[i] != 0.0)
             {
                 text.Append("/out");
+            }
+
+            // The filter type and its slope are structural; a sweep changes how the cutoff responds over time.
+            if (op.Filter is { } filter)
+            {
+                text.Append('/').Append(FilterToken[OperatorFilterKernel.Code(filter)]);
+                if (filter.Envelope is not null && filter.EnvelopeOctaves != 0.0)
+                {
+                    text.Append('~');
+                }
             }
 
             text.Append(';');

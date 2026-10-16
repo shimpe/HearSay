@@ -797,7 +797,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
     }
 
     /// <summary>Coarse structural family: how many operators are heard directly, how many only shape others, and whether there is feedback.</summary>
-    private static string Family(OperatorMatrixPatch patch)
+    internal static string Family(OperatorMatrixPatch patch)
     {
         bool[] audible = patch.FindAudibleOperators();
         int heard = 0, shaping = 0;
@@ -821,7 +821,10 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         // The waveforms in use are part of the family: a structure with a noise or saw operator starts from a
         // different place than the same routing with sines, and needs its own chance.
         string waveforms = string.Join(",", patch.Operators.Where((o, i) => audible[i]).Select(static o => o.Waveform).Distinct().Order());
-        return $"{heard}/{shaping}/{(feedback ? "fb" : "ff")}/{waveforms}";
+
+        // So is a filter: the filtered carriers of the formant and subtractive priors compete apart from plain ones.
+        bool filtered = patch.Operators.Where((o, i) => audible[i]).Any(static o => o.Filter is not null);
+        return $"{heard}/{shaping}/{(feedback ? "fb" : "ff")}/{waveforms}{(filtered ? "/filtered" : string.Empty)}";
     }
 
     private static bool SameFrequencies(OperatorMatrixPatch a, OperatorMatrixPatch b)

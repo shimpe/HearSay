@@ -1,5 +1,6 @@
 using HearSay.OperatorMatrix.Canonicalization;
 using HearSay.OperatorMatrix.Parameters;
+using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 
@@ -189,6 +190,26 @@ public sealed class ParameterTests
         Assert.NotEqual(key, OperatorMatrixRegimeKey.FromPatch(patch.WithOperator(1, patch.Operators[1] with { Frequency = OperatorFrequency.AtFixed(440) })));
         Assert.NotEqual(key, OperatorMatrixRegimeKey.FromPatch(patch.WithEdge(new ModulationEdge(1, 1, true, 0.5))));
         Assert.NotEqual(key, OperatorMatrixRegimeKey.FromPatch(patch.WithOutputLevel(1, 0.3)));
+    }
+
+    [Fact]
+    public void RegimeKey_SeparatesFilterTypesAndPoles_ButNotTheirValues()
+    {
+        OperatorMatrixPatch plain = FilteredSaw(OperatorFilter.LowPass(4));
+        plain = plain.WithOperator(0, plain.Operators[0] with { Filter = null });
+        OperatorMatrixRegimeKey none = OperatorMatrixRegimeKey.FromPatch(plain);
+        Assert.Equal("op1:PhaseModulation/Saw/r1/out;|", none.Value);
+
+        OperatorMatrixRegimeKey lowPass = OperatorMatrixRegimeKey.FromPatch(FilteredSaw(OperatorFilter.LowPass(4)));
+        Assert.NotEqual(none, lowPass);
+        Assert.Equal(lowPass, OperatorMatrixRegimeKey.FromPatch(FilteredSaw(OperatorFilter.LowPass(9, 3))));
+        Assert.NotEqual(lowPass, OperatorMatrixRegimeKey.FromPatch(FilteredSaw(OperatorFilter.LowPass(4, poles: 4))));
+        Assert.NotEqual(lowPass, OperatorMatrixRegimeKey.FromPatch(FilteredSaw(OperatorFilter.HighPass(4))));
+        Assert.NotEqual(lowPass, OperatorMatrixRegimeKey.FromPatch(FilteredSaw(OperatorFilter.BandPass(4, 2))));
+        Assert.NotEqual(lowPass, OperatorMatrixRegimeKey.FromPatch(FilteredSaw(OperatorFilter.LowPass(4) with { EnvelopeOctaves = 1, Envelope = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1) })));
+
+        // The survivor families keep a filtered structure apart from the same routing without a filter.
+        Assert.NotEqual(OperatorMatrixPatchSearchCoordinator.Family(plain), OperatorMatrixPatchSearchCoordinator.Family(FilteredSaw(OperatorFilter.LowPass(4))));
     }
 
     [Fact]
