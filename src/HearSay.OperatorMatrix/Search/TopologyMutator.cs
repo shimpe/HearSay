@@ -117,6 +117,12 @@ public sealed class TopologyMutator
             candidates.AddRange(NoiseWashes(patch, analysis, audible, free));
         }
 
+        // Filters, where the profile has them, before the many operator variants so that the cap cannot cut them off.
+        if (_capabilities.SupportsOperatorFilters)
+        {
+            candidates.AddRange(FilterVariants(patch, analysis, used));
+        }
+
         // Other waveforms for every operator, where the profile has them, and a brighter or darker band-limited one. A
         // modulator with harmonics keeps the sideband grid and only makes it denser, which the search would otherwise
         // imitate with feedback; and with one waveform changed per step, a structure in which several operators are
@@ -280,16 +286,18 @@ public sealed class TopologyMutator
             var operatorsFirst = new List<int>();
             var noiseFirst = new List<int>();
             var waveformsFirst = new List<int>();
+            var filtersFirst = new List<int>();
             foreach ((double _, int index) in ranked)
             {
                 string description = candidates[index].Description;
                 (description.StartsWith("add edge", StringComparison.Ordinal) || description.Contains(" fixed at ", StringComparison.Ordinal) ? edgesFirst
+                    : description.Contains(" filter ", StringComparison.Ordinal) ? filtersFirst
                     : description.Contains(" noise", StringComparison.Ordinal) ? noiseFirst
                     : description.Contains(" waveform ", StringComparison.Ordinal) ? waveformsFirst
                     : operatorsFirst).Add(index);
             }
 
-            List<int>[] turns = [edgesFirst, .. new[] { noiseFirst, waveformsFirst, operatorsFirst }
+            List<int>[] turns = [edgesFirst, .. new[] { noiseFirst, waveformsFirst, filtersFirst, operatorsFirst }
                 .Where(static l => l.Count > 0)
                 .OrderBy(l => screened[l[0]].Loss)];
             for (int i = 0; i < turns.Max(static t => t.Count) && result.Count < (count + 1) / 2; i++)
@@ -610,6 +618,73 @@ public sealed class TopologyMutator
                 return null;
             }
         }
+    }
+
+    /// <summary>
+    /// Filter variants of the heard operators, with starting values from the target: a low-pass at its roll-off, a
+    /// high-pass under a weak fundamental, a band-pass and a peak on the strongest maximum of its spectral envelope, a
+    /// formant filter on its two strongest; and for a filtered operator its removal, the other slope, a band-pass
+    /// instead of a low-pass and back, and the sweep of the target's brightness.
+    /// </summary>
+    private static List<TopologyMutation> FilterVariants(OperatorMatrixPatch patch, TargetAnalysis analysis, List<int> used)
+    {
+        var variants = new List<TopologyMutation>();
+        LowPassPrior? lowPass = FilterPriors.LowPass(analysis);
+        double? highPass = FilterPriors.HighPassRatio(analysis);
+        IReadOnlyList<SpectralPeak> peaks = FilterPriors.Peaks(analysis, 1);
+        OperatorFilter? formant = FilterPriors.Formant(analysis);
+        SweepPrior? sweep = FilterPriors.Sweep(analysis);
+        foreach (int op in used)
+        {
+            OperatorPatch current = patch.Operators[op];
+            OperatorMatrixPatch With(OperatorFilter? filter) => patch.WithOperator(op, current with { Filter = filter });
+            string name = $"OP{op + 1} filter";
+            if (current.Filter is not { } filter)
+            {
+                variants.Add(new TopologyMutation(With(OperatorFilter.LowPass(lowPass?.CutoffRatio ?? 4.0, OperatorFilter.ButterworthQ, lowPass?.Poles ?? 2)), name + " low-pass"));
+                if (highPass is double ratio)
+                {
+                    variants.Add(new TopologyMutation(With(OperatorFilter.HighPass(ratio)), name + " high-pass"));
+                }
+
+                if (peaks.Count > 0)
+                {
+                    double centre = Math.Clamp(peaks[0].Hz / analysis.FundamentalHz, 0.25, 64.0);
+                    variants.Add(new TopologyMutation(With(OperatorFilter.BandPass(centre, peaks[0].Q)), name + " band-pass"));
+                    variants.Add(new TopologyMutation(With(OperatorFilter.PeakAt(Math.Clamp(peaks[0].Hz, 80.0, 8000.0), 9.0, peaks[0].Q)), name + " peak"));
+                }
+
+                if (formant is not null)
+                {
+                    variants.Add(new TopologyMutation(With(formant), name + " formant"));
+                }
+
+                continue;
+            }
+
+            variants.Add(new TopologyMutation(With(null), name + " removed"));
+            if (filter.Type is OperatorFilterType.LowPass or OperatorFilterType.HighPass)
+            {
+                int poles = filter.Poles == 4 ? 2 : 4;
+                variants.Add(new TopologyMutation(With(filter with { Poles = poles }), $"{name} {poles} poles"));
+            }
+
+            if (filter.Type == OperatorFilterType.LowPass)
+            {
+                variants.Add(new TopologyMutation(With(filter with { Type = OperatorFilterType.BandPass, Poles = 2 }), name + " band-pass"));
+            }
+            else if (filter.Type == OperatorFilterType.BandPass)
+            {
+                variants.Add(new TopologyMutation(With(filter with { Type = OperatorFilterType.LowPass }), name + " low-pass"));
+            }
+
+            if (sweep is not null && filter.Envelope is null)
+            {
+                variants.Add(new TopologyMutation(With(filter with { EnvelopeOctaves = sweep.Octaves, Envelope = sweep.Envelope }), name + " sweep"));
+            }
+        }
+
+        return variants;
     }
 
     /// <summary>

@@ -628,4 +628,32 @@ public sealed class SearchComponentTests
         Assert.InRange(basin.Best.Patch.ModulationMatrix[0, 1], 2.0, 3.0);
         Assert.Equal(basin.Regime, Canonicalization.PatchCanonicalizer.CanonicalKey(basin.Best.Patch));
     }
+
+    [Fact]
+    public void ScreenedMutations_IncludeFilters_ForProfilesWithFilters()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var renderer = new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer();
+        OperatorMatrixPatch hidden = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.01, 0.1, 0.8, 0.2)) with { Waveform = OperatorWaveform.Saw, HarmonicLimit = 64, Filter = OperatorFilter.LowPass(4, poles: 4) })
+            .WithOutputLevel(0, 0.8);
+        RenderRequest request = RenderRequest.Create(110, 1.0, 0.3);
+        RenderedAudio audio = renderer.Render(hidden, request);
+        PreparedObjectiveTarget target = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 110));
+        TargetAnalysis analysis = target.Analysis;
+        PatchEvaluator EvaluatorFor(IOperatorMatrixRenderer r) => new(r, new AudioObjective(), target, request, 2000, 0.02, null, 8);
+        OperatorMatrixPatch unfiltered = hidden.WithOperator(0, hidden.Operators[0] with { Filter = null });
+
+        IReadOnlyList<TopologyMutation> mutations = new TopologyMutator(fmx6).ProposeScreened(unfiltered, analysis, EvaluatorFor(renderer), new Random(1), 6);
+        Assert.Contains(mutations, static m => m.Description.Contains(" filter ", StringComparison.Ordinal));
+        Assert.All(mutations, m => Assert.True(PatchCompatibilityValidator.Instance.Validate(m.Patch, fmx6).IsCompatible));
+
+        // The other way round: a filtered patch is offered its removal and a change of slope.
+        IReadOnlyList<TopologyMutation> back = new TopologyMutator(fmx6).ProposeScreened(hidden, analysis, EvaluatorFor(renderer), new Random(1), 12, maxScreened: 400);
+        Assert.Contains(back, static m => m.Description == "OP1 filter removed" || m.Description == "OP1 filter 2 poles");
+
+        // FM7 is never offered a filter.
+        OperatorMatrixPatch sine = OperatorMatrixPatch.Silent(6).WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1))).WithOutputLevel(0, 0.8);
+        Assert.DoesNotContain(new TopologyMutator(Fm7).ProposeScreened(sine, analysis, EvaluatorFor(Renderer), new Random(1), 6), static m => m.Description.Contains(" filter ", StringComparison.Ordinal));
+    }
 }
