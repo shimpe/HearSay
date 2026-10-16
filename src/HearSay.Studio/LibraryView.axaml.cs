@@ -59,6 +59,32 @@ public sealed partial class LibraryView : UserControl
 
     private void OnShowInSearch(object? sender, RoutedEventArgs e) => ViewModel.ShowInSearch();
 
+    private async void OnImport(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+        {
+            return;
+        }
+
+        IReadOnlyList<IStorageFolder> folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Folder of exported results (patch.json)",
+            AllowMultiple = false,
+        });
+        if (folders.Count == 1 && folders[0].TryGetLocalPath() is string directory)
+        {
+            await ViewModel.ImportAsync(directory);
+        }
+    }
+
+    private async void OnImportTapped(object? sender, Avalonia.Input.TappedEventArgs e)
+    {
+        if (e.Source is Control { DataContext: ImportedItem item })
+        {
+            await ViewModel.PlaceAsync(item);
+        }
+    }
+
     /// <summary>Puts A3, the library's reference note, in the middle of the keyboard once it has a size.</summary>
     private void OnKeyboardLayoutUpdated(object? sender, EventArgs e)
     {

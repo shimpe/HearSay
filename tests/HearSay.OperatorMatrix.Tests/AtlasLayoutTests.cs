@@ -91,5 +91,32 @@ public sealed class AtlasLayoutTests
         Assert.Equal(0.5, centred.Positions[5].Y, 12);
         AssertTidy(centred);
         Assert.Equal(layout.Edges, centred.Edges);
+
+        // Centring keeps the graph filling the square: every side of the centred node that has nodes reaches its edge.
+        foreach (int index in Enumerable.Range(0, layout.Positions.Count))
+        {
+            AtlasLayout c = layout.CenterOn(index);
+            AssertTidy(c);
+            (double x, double y) = layout.Positions[index];
+            if (layout.Positions.Any(p => p.X > x))
+            {
+                Assert.True(c.Positions.Max(static p => p.X) > 0.9, $"centred on {index}, the right side does not reach the edge");
+            }
+
+            if (layout.Positions.Any(p => p.X < x))
+            {
+                Assert.True(c.Positions.Min(static p => p.X) < 0.1, $"centred on {index}, the left side does not reach the edge");
+            }
+
+            if (layout.Positions.Any(p => p.Y > y))
+            {
+                Assert.True(c.Positions.Max(static p => p.Y) > 0.9, $"centred on {index}, the lower side does not reach the edge");
+            }
+
+            if (layout.Positions.Any(p => p.Y < y))
+            {
+                Assert.True(c.Positions.Min(static p => p.Y) < 0.1, $"centred on {index}, the upper side does not reach the edge");
+            }
+        }
     }
 }

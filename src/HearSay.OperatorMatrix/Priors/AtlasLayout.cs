@@ -61,8 +61,9 @@ public sealed class AtlasLayout
     }
 
     /// <summary>
-    /// The same layout with one node in the middle: positions and radii scaled down together just enough that every
-    /// node stays inside, so no overlap comes back.
+    /// The same layout with one node in the middle. Each side of it, left, right, above and below, is scaled on its own
+    /// to fill its half of the square, so the graph keeps its size wherever the node was; radii shrink with the
+    /// smallest of these scales, so no overlap comes back.
     /// </summary>
     /// <param name="index">Node to centre.</param>
     public AtlasLayout CenterOn(int index)
@@ -70,16 +71,23 @@ public sealed class AtlasLayout
         ArgumentOutOfRangeException.ThrowIfNegative(index);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Positions.Count);
         (double cx, double cy) = Positions[index];
-        double s = 1.0;
-        for (int i = 0; i < Positions.Count; i++)
+        double room = 0.5 - (Radii.Max() + Gap);
+        double Scale(Func<(double X, double Y), double> axis, double centre, int side)
         {
-            double reach = Math.Max(Math.Abs(Positions[i].X - cx), Math.Abs(Positions[i].Y - cy)) + Radii[i];
-            s = Math.Min(s, 0.5 / reach);
+            double far = Positions.Max(p => side * (axis(p) - centre));
+            return far > 1e-12 ? room / far : double.PositiveInfinity;
         }
 
+        double left = Scale(static p => p.X, cx, -1), right = Scale(static p => p.X, cx, 1);
+        double up = Scale(static p => p.Y, cy, -1), down = Scale(static p => p.Y, cy, 1);
+        double radii = Math.Min(1.0, Math.Min(Math.Min(left, right), Math.Min(up, down)));
+
+        // A side without nodes has an infinite scale; the centred node itself stays at 0.5 rather than 0 times that.
+        static double Map(double value, double centre, double below, double above) =>
+            value == centre ? 0.5 : 0.5 + ((value - centre) * (value < centre ? below : above));
         return new AtlasLayout(
-            [.. Positions.Select(p => (0.5 + ((p.X - cx) * s), 0.5 + ((p.Y - cy) * s)))],
-            [.. Radii.Select(r => r * s)],
+            [.. Positions.Select(p => (Map(p.X, cx, left, right), Map(p.Y, cy, up, down)))],
+            [.. Radii.Select(r => r * radii)],
             Edges);
     }
 

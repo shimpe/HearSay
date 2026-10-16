@@ -16,6 +16,18 @@ namespace HearSay.Studio;
 /// <param name="Family">The family it opens.</param>
 public sealed record Crumb(string Label, LibraryFamily Family);
 
+/// <summary>An imported sound with its fingerprint.</summary>
+/// <param name="Sound">The sound.</param>
+/// <param name="Print">Its fingerprint, rendered as a library sound is.</param>
+public sealed record ImportedItem(ExportedSound Sound, byte[] Print)
+{
+    /// <summary>Name in the list.</summary>
+    public string Name => Sound.Name;
+
+    /// <summary>Profile it plays on, short.</summary>
+    public string ProfileName => ProfileNameConverter.Short(Sound.Profile.Name);
+}
+
 /// <summary>A sound from the library, as it is handed to the Search tab.</summary>
 /// <param name="Title">For example <c>FMX6 #50123456</c>, or an import's name.</param>
 /// <param name="Patch">Patch.</param>
@@ -132,6 +144,65 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>True when an audio device could be opened.</summary>
     public bool CanPlay => _notes.CanPlay;
 
+    private (ImportedItem Item, IReadOnlyList<LibraryFamily> Path)? _placed;
+
+    /// <summary>Sounds imported this session.</summary>
+    public ObservableCollection<ImportedItem> Imports { get; } = [];
+
+    /// <summary>Reads the exported sounds under a folder and adds them to the list.</summary>
+    /// <param name="directory">Folder.</param>
+    public async Task ImportAsync(string directory)
+    {
+        _status("Reading " + directory + "…");
+        (ExportedSoundScan scan, List<ImportedItem> items) = await Task.Run(() =>
+        {
+            ExportedSoundScan s = ExportedSounds.Scan(directory);
+            return (s, s.Sounds.AsParallel().AsOrdered().Select(static sound => new ImportedItem(sound, ExportedSounds.Fingerprint(sound))).ToList());
+        });
+        int added = 0;
+        foreach (ImportedItem item in items.Where(i => Imports.All(known => known.Sound.PatchFile != i.Sound.PatchFile)))
+        {
+            Imports.Add(item);
+            added++;
+        }
+
+        if (scan.Sounds.Count == 0 && scan.Skipped.Count == 0)
+        {
+            _status($"No exported sounds (patch.json) under {directory}.");
+            return;
+        }
+
+        string skipped = scan.Skipped.Count == 0
+            ? string.Empty
+            : $", {scan.Skipped.Count} skipped: {string.Join("; ", scan.Skipped.Take(3))}{(scan.Skipped.Count > 3 ? "; …" : string.Empty)}";
+        _status($"{added} sound(s) imported{skipped}. Click one in the list to place it in the library.");
+    }
+
+    /// <summary>Opens the family an imported sound falls in and shows it there as a star, selected and centred.</summary>
+    /// <param name="item">Imported sound.</param>
+    public async Task PlaceAsync(ImportedItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (_atlas is not { } atlas)
+        {
+            _status("The library is not ready yet; place the sound when it is.");
+            return;
+        }
+
+        IReadOnlyList<LibraryFamily> path = await Task.Run(() => atlas.Locate(item.Print));
+        Crumbs.Clear();
+        Crumbs.Add(new Crumb("all", atlas.Root));
+        for (int k = 1; k < path.Count; k++)
+        {
+            Crumbs.Add(new Crumb(CrumbLabel(atlas, path[k], path[k].Path[^1]), path[k]));
+        }
+
+        _placed = (item, path);
+        await ShowFamilyAsync(path[^1]);
+        Select(_children.Count);
+        _status($"{item.Name} placed among {_children.Count} {(path[^1].Size <= LibraryAtlas.Branching ? "sounds" : "families")} like it; one level up shows the neighbouring families.");
+    }
+
     /// <summary>Loads the library the first time the tab is shown.</summary>
     public Task EnsureLoadedAsync()
     {
@@ -148,6 +219,19 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="index">Node index.</param>
     public void Select(int index)
     {
+        if (index == _children.Count && _placed is { } placed && ReferenceEquals(placed.Path[^1], _family))
+        {
+            ImportedItem item = placed.Item;
+            SelectedIndex = index;
+            SetSelection(new Selection(
+                item.Name,
+                item.Sound.Patch,
+                item.Sound.Profile,
+                $"{item.Name} · imported from {item.Sound.PatchFile}",
+                [$"Imported from {item.Sound.PatchFile}."]));
+            return;
+        }
+
         if (_atlas is not { } atlas || index < 0 || index >= _children.Count)
         {
             return;
@@ -246,6 +330,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         string name = ProfileNameConverter.Short(profile.Name);
         _atlas = null;
         _family = null;
+        _placed = null;
         _children = [];
         Crumbs.Clear();
         Nodes = null;
@@ -321,8 +406,31 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
         _family = family;
         _children = children;
-        AtlasLayout layout = AtlasLayout.Compute(prints, [.. children.Select(static c => c.Size)]);
-        Nodes = [.. children.Select((c, k) => new GraphNode(
+        ImportedItem? star = _placed is { } placed && ReferenceEquals(placed.Path[^1], family) ? placed.Item : null;
+        int marked = -1;
+        if (_placed is { } p)
+        {
+            int at = p.Path.ToList().FindIndex(f => ReferenceEquals(f, family));
+            if (at >= 0 && at + 1 < p.Path.Count)
+            {
+                marked = p.Path[at + 1].Path[^1];
+            }
+        }
+
+        List<byte[]> layoutPrints = star is null ? prints : [.. prints, star.Print];
+        List<int> sizes = [.. children.Select(static c => c.Size)];
+        if (star is not null)
+        {
+            sizes.Add(1);
+        }
+
+        AtlasLayout layout = AtlasLayout.Compute(layoutPrints, sizes);
+        if (star is not null)
+        {
+            layout = layout.CenterOn(children.Count);
+        }
+
+        var nodes = children.Select((c, k) => new GraphNode(
             layout.Positions[k].X,
             layout.Positions[k].Y,
             layout.Radii[k],
@@ -331,7 +439,23 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             $"#{k + 1} · {SoundDescriptors.Label(prints[k], patches[k], c.Size)}",
             IsImported: false,
             CanOpen: !c.IsLeaf,
-            IsMarked: false))];
+            IsMarked: k == marked)).ToList();
+        if (star is not null)
+        {
+            int s = children.Count;
+            nodes.Add(new GraphNode(
+                layout.Positions[s].X,
+                layout.Positions[s].Y,
+                layout.Radii[s],
+                Brightness(star.Print),
+                star.Name,
+                $"{star.Name} · {string.Join(" · ", SoundDescriptors.Of(star.Print, star.Sound.Patch))} · imported, {star.ProfileName}",
+                IsImported: true,
+                CanOpen: false,
+                IsMarked: false));
+        }
+
+        Nodes = nodes;
         Edges = [.. layout.Edges.Select(static e => new GraphEdge(e.From, e.To))];
         SelectedIndex = -1;
         GraphMessage = null;
