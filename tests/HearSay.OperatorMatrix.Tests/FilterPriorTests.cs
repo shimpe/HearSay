@@ -1,5 +1,6 @@
 using HearSay.Analysis;
 using HearSay.OperatorMatrix.Priors;
+using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Fmx6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
@@ -74,5 +75,20 @@ public sealed class FilterPriorTests
 
         Assert.Empty(new FormantPriorProvider().Generate(vowel, SynthesisProfiles.SuperColliderFm7.Capabilities));
         Assert.Empty(new SubtractivePriorProvider().Generate(dark, SynthesisProfiles.SuperColliderNome6.Capabilities));
+    }
+
+    [Fact]
+    public void SweepMutation_ForAnOpeningFilter_LowersTheBaseSoItOpensToTheMeasuredCutoff()
+    {
+        var opening = new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(0.25, 1), new EnvelopePoint(0.01, 1), new EnvelopePoint(0.1, 1)], SustainPoint: 2, ReleasePoint: 3);
+        TargetAnalysis analysis = Analyze(Saw(OperatorFilter.LowPass(1, poles: 4) with { EnvelopeOctaves = 3, Envelope = opening }), 110);
+        SweepPrior sweep = FilterPriors.Sweep(analysis)!;
+        Assert.True(sweep.Rising);
+
+        OperatorMatrixPatch measured = Saw(OperatorFilter.LowPass(8, poles: 4));
+        TopologyMutation variant = Assert.Single(TopologyMutator.FilterVariants(measured, analysis, [0]), static m => m.Description == "OP1 filter sweep");
+        OperatorFilter filter = variant.Patch.Operators[0].Filter!;
+        Assert.Equal(8.0 / Math.Pow(2.0, sweep.Octaves), filter.CutoffRatio, 10);
+        Assert.Equal(sweep.Octaves, filter.EnvelopeOctaves);
     }
 }

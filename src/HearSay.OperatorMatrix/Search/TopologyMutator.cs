@@ -626,7 +626,7 @@ public sealed class TopologyMutator
     /// formant filter on its two strongest; and for a filtered operator its removal, the other slope, a band-pass
     /// instead of a low-pass and back, and the sweep of the target's brightness.
     /// </summary>
-    private static List<TopologyMutation> FilterVariants(OperatorMatrixPatch patch, TargetAnalysis analysis, List<int> used)
+    internal static List<TopologyMutation> FilterVariants(OperatorMatrixPatch patch, TargetAnalysis analysis, List<int> used)
     {
         var variants = new List<TopologyMutation>();
         LowPassPrior? lowPass = FilterPriors.LowPass(analysis);
@@ -680,7 +680,17 @@ public sealed class TopologyMutator
 
             if (sweep is not null && filter.Envelope is null)
             {
-                variants.Add(new TopologyMutation(With(filter with { EnvelopeOctaves = sweep.Octaves, Envelope = sweep.Envelope }), name + " sweep"));
+                // An opening sweep sustains at its top: the current frequency becomes that top, so the base moves down.
+                OperatorFilter swept = filter with { EnvelopeOctaves = sweep.Octaves, Envelope = sweep.Envelope };
+                if (sweep.Rising)
+                {
+                    double factor = Math.Pow(2.0, sweep.Octaves);
+                    swept = filter.IsKeyTracked
+                        ? swept with { CutoffRatio = Math.Clamp(filter.CutoffRatio / factor, 0.25, 64.0) }
+                        : swept with { FixedHz = Math.Clamp(filter.FixedHz / factor, 10.0, 20000.0) };
+                }
+
+                variants.Add(new TopologyMutation(With(swept), name + " sweep"));
             }
         }
 
