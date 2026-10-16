@@ -154,7 +154,8 @@ Resonance adds level. A low-pass or high-pass with a high Q passes a harmonic ne
 (20 times at Q 20), and a peak adds its gain (+24 dB is 16 times). On a modulator this deepens the modulation beyond
 what the edge amount says, and the limit on radians per destination does not count it; on a carrier the export can
 peak well above full scale. Lower `amp` in SuperCollider, or the output level of the operator, if a resonant patch
-clips. The search judges the sound with its level normalized, so it is not steered away from such patches.
+clips. By default the search loudness-matches every candidate to the target (`TimbreNormalized`), so nothing
+steers it away from such patches.
 
 ## 5. Budget, seeds and time
 
