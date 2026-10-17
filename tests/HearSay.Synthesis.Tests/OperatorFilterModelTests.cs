@@ -89,9 +89,9 @@ public sealed class OperatorFilterModelTests
         Assert.True(fmx6.SupportsOperatorFilters);
         Assert.False(fmx6.IsSubsetOf(fmx6 with { SupportsOperatorFilters = false }));
         Assert.True((fmx6 with { SupportsOperatorFilters = false }).IsSubsetOf(fmx6));
-        Assert.Equal(2, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
+        Assert.Equal(3, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
         Assert.Equal(1, SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion);
-        Assert.Equal(1, SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion);
+        Assert.Equal(2, SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion);
     }
 
     [Fact]

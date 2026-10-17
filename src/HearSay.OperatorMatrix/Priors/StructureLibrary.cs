@@ -13,14 +13,26 @@ namespace HearSay.OperatorMatrix.Priors;
 /// (two or three, three or four, and four to six operators).
 /// </summary>
 /// <remarks>
-/// Building renders every patch once, about 100 seconds for 300 000 FM7 patches on 24 threads, so a library is kept on
-/// disk and loaded in a second afterwards. Instances are immutable and thread-safe.
+/// <para>
+/// A profile with noise (a noise waveform or the shared noise) has as many noise-free sounds again after its regular
+/// ones, drawn from seeds of their own: about three quarters of the regular FMX6 and Nome6 sounds are noisy, and a tonal
+/// target finds closer neighbours among sounds without noise.
+/// </para>
+/// <para>
+/// Building renders every patch once, about 100 seconds for 300 000 FM7 patches and twelve minutes for 300 000 FMX6
+/// patches on 24 threads, so a library is kept on disk and loaded in a second afterwards. Instances are immutable and
+/// thread-safe.
+/// </para>
 /// </remarks>
 public sealed class StructureLibrary
 {
     private const int FirstSeed = 50_000_000;
     private const int RetryStride = 1_000_003;
     private static readonly ConcurrentDictionary<string, Lazy<StructureLibrary>> Cache = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, ProgressRelay> Builds = new(StringComparer.Ordinal);
+
+    /// <summary>First seed of the noise-free sounds; regular sounds have smaller seeds.</summary>
+    internal const int NoiseFreeFirstSeed = 1_050_000_000;
 
     private readonly SynthesisCapabilities _capabilities;
     private readonly int[] _seeds;
@@ -47,17 +59,57 @@ public sealed class StructureLibrary
     /// process.
     /// </summary>
     /// <param name="profile">Synthesis profile; its patches are generated within its capabilities.</param>
-    /// <param name="size">Number of patches.</param>
+    /// <param name="size">Number of regular patches; see <see cref="CountFor"/>.</param>
     /// <param name="renderer">Renderer of the profile, used when the library has to be built.</param>
     /// <param name="directory">Folder of the library files; the user's local application data when null.</param>
-    /// <param name="progress">Fraction of the patches rendered while the library is built; not called when it is loaded.</param>
+    /// <param name="progress">
+    /// Fraction of the patches to render that is rendered, while the library is built; not called when it is loaded. A
+    /// caller that waits for a build another caller started gets the progress of that build too.
+    /// </param>
     public static StructureLibrary For(SynthesisProfile profile, int size, IOperatorMatrixRenderer renderer, string? directory = null, IProgress<double>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(size);
         string path = PathOf(profile, size, directory);
-        return Cache.GetOrAdd(path, _ => new Lazy<StructureLibrary>(() => LoadOrBuild(profile.Capabilities, profile.StructureLibraryVersion, size, renderer, path, progress))).Value;
+        ProgressRelay relay = Builds.GetOrAdd(path, static _ => new ProgressRelay());
+        relay.Add(progress);
+        try
+        {
+            return Cache.GetOrAdd(path, _ => new Lazy<StructureLibrary>(() => LoadOrBuild(profile, size, renderer, directory, path, relay))).Value;
+        }
+        finally
+        {
+            relay.Remove(progress);
+        }
+    }
+
+    /// <summary>Number of patches of a library of a size: the regular ones, and as many noise-free ones for a profile with noise.</summary>
+    /// <param name="capabilities">Capabilities of the profile.</param>
+    /// <param name="size">Number of regular patches.</param>
+    public static int CountFor(SynthesisCapabilities capabilities, int size)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        return HasNoise(capabilities) ? 2 * size : size;
+    }
+
+    /// <summary>
+    /// How many patches <see cref="For"/> would render: 0 when the library is in memory or on disk, the noise-free ones
+    /// when the file of <see cref="SynthesisProfile.StructureLibraryReusedVersion"/> is on disk, all of them otherwise.
+    /// </summary>
+    /// <param name="profile">Synthesis profile.</param>
+    /// <param name="size">Number of regular patches.</param>
+    /// <param name="directory">Folder of the library files; the user's local application data when null.</param>
+    public static int SoundsToRender(SynthesisProfile profile, int size, string? directory = null)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (IsAvailable(profile, size, directory))
+        {
+            return 0;
+        }
+
+        int count = CountFor(profile.Capabilities, size);
+        return count > size && ReusedPathOf(profile, size, directory) is { } reused && File.Exists(reused) ? count - size : count;
     }
 
     /// <summary>True when the library of a profile and size is in memory or on disk, so that <see cref="For"/> returns at once.</summary>
@@ -87,34 +139,54 @@ public sealed class StructureLibrary
         return Path.Combine(directory, $"{profile.Name}-v{profile.StructureLibraryVersion}-{size}.bin");
     }
 
+    private static string? ReusedPathOf(SynthesisProfile profile, int size, string? directory) =>
+        profile.StructureLibraryReusedVersion is int version ? PathOf(profile with { StructureLibraryVersion = version }, size, directory) : null;
+
+    private static bool HasNoise(SynthesisCapabilities capabilities) =>
+        capabilities.SupportsSharedNoise || capabilities.SupportedWaveforms.Any(static w => w.IsNoise());
+
     /// <summary>Builds a library in memory without touching the disk.</summary>
     /// <param name="capabilities">Capabilities the patches are generated within.</param>
-    /// <param name="size">Number of patches.</param>
+    /// <param name="size">Number of regular patches; see <see cref="CountFor"/>.</param>
     /// <param name="renderer">Renderer that plays them.</param>
     /// <param name="progress">Fraction of the patches rendered, about a hundred times and 1 at the end.</param>
     public static StructureLibrary Build(SynthesisCapabilities capabilities, int size, IOperatorMatrixRenderer renderer, IProgress<double>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(renderer);
-        var seeds = new int[size];
-        var prints = new byte[size * SpectralFingerprint.Length];
+        int[] seeds = [.. Enumerable.Range(FirstSeed, size), .. NoiseFreeSeeds(capabilities, size)];
+        return new StructureLibrary(capabilities, seeds, Render(capabilities, seeds, renderer, progress));
+    }
+
+    private static IEnumerable<int> NoiseFreeSeeds(SynthesisCapabilities capabilities, int size) =>
+        Enumerable.Range(NoiseFreeFirstSeed, CountFor(capabilities, size) - size);
+
+    /// <summary>The library of an older version whose sounds are the regular ones of this version, with the noise-free sounds added.</summary>
+    private static StructureLibrary Extend(StructureLibrary regular, IOperatorMatrixRenderer renderer, IProgress<double>? progress)
+    {
+        int[] added = [.. NoiseFreeSeeds(regular._capabilities, regular.Count)];
+        byte[] prints = Render(regular._capabilities, added, renderer, progress);
+        return new StructureLibrary(regular._capabilities, [.. regular._seeds, .. added], [.. regular._prints, .. prints]);
+    }
+
+    private static byte[] Render(SynthesisCapabilities capabilities, int[] seeds, IOperatorMatrixRenderer renderer, IProgress<double>? progress)
+    {
+        var prints = new byte[seeds.Length * SpectralFingerprint.Length];
         int done = 0;
-        int step = Math.Max(1, size / 100);
-        Parallel.For(0, size, i =>
+        int step = Math.Max(1, seeds.Length / 100);
+        Parallel.For(0, seeds.Length, i =>
         {
-            int seed = FirstSeed + i;
-            OperatorMatrixPatch patch = Generate(capabilities, seed);
+            OperatorMatrixPatch patch = Generate(capabilities, seeds[i]);
             RenderedAudio audio = renderer.Render(patch, ReferenceRequest);
-            seeds[i] = seed;
             SpectralFingerprint.Of(audio.Samples, audio.SampleRate, ReferenceHz).CopyTo(prints, i * SpectralFingerprint.Length);
             int count = Interlocked.Increment(ref done);
-            if (count % step == 0 && count < size)
+            if (count % step == 0 && count < seeds.Length)
             {
-                progress?.Report((double)count / size);
+                progress?.Report((double)count / seeds.Length);
             }
         });
         progress?.Report(1.0);
-        return new StructureLibrary(capabilities, seeds, prints);
+        return prints;
     }
 
     /// <summary>The library patch of a seed.</summary>
@@ -168,10 +240,11 @@ public sealed class StructureLibrary
 
     /// <summary>
     /// The musical random patch of a seed: the seed picks one of three densities, and a patch that breaks the rules is
-    /// drawn again with a derived seed.
+    /// drawn again with a derived seed. From <see cref="NoiseFreeFirstSeed"/> on, no operator is noise or roughened.
     /// </summary>
     internal static OperatorMatrixPatch Generate(SynthesisCapabilities capabilities, int seed)
     {
+        bool noiseFree = seed >= NoiseFreeFirstSeed;
         int kind = ((seed % 3) + 3) % 3;
         var options = new RandomPatchOptions
         {
@@ -181,7 +254,8 @@ public sealed class StructureLibrary
             AllowCircularFeedback = false,
             FixedFrequencyProbability = 0,
             MaxEdgeAmount = 2.0,
-            RoughnessProbability = 0.2,
+            RoughnessProbability = noiseFree ? 0.0 : 0.2,
+            NoiseWaveformProbability = noiseFree ? 0.0 : null,
             FilterProbability = capabilities.SupportsOperatorFilters ? 0.3 : 0.0,
         };
         int heard = options.MinOperators;
@@ -219,14 +293,21 @@ public sealed class StructureLibrary
         return heard >= minimumHeard && onTheNote;
     }
 
-    private static StructureLibrary LoadOrBuild(SynthesisCapabilities capabilities, int version, int size, IOperatorMatrixRenderer renderer, string path, IProgress<double>? progress)
+    private static StructureLibrary LoadOrBuild(SynthesisProfile profile, int size, IOperatorMatrixRenderer renderer, string? directory, string path, IProgress<double> progress)
     {
-        if (TryLoad(capabilities, version, size, path) is { } loaded)
+        SynthesisCapabilities capabilities = profile.Capabilities;
+        int version = profile.StructureLibraryVersion;
+        int count = CountFor(capabilities, size);
+        if (TryLoad(capabilities, version, count, path) is { } loaded)
         {
             return loaded;
         }
 
-        StructureLibrary built = Build(capabilities, size, renderer, progress);
+        StructureLibrary built = count > size
+            && ReusedPathOf(profile, size, directory) is { } reusedPath
+            && TryLoad(capabilities, profile.StructureLibraryReusedVersion!.Value, size, reusedPath) is { } reused
+            ? Extend(reused, renderer, progress)
+            : Build(capabilities, size, renderer, progress);
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -234,7 +315,7 @@ public sealed class StructureLibrary
             using (var writer = new BinaryWriter(File.Create(temporary)))
             {
                 writer.Write(version);
-                writer.Write(size);
+                writer.Write(count);
                 writer.Write(SpectralFingerprint.Length);
                 foreach (int seed in built._seeds)
                 {
@@ -257,7 +338,7 @@ public sealed class StructureLibrary
         return built;
     }
 
-    private static StructureLibrary? TryLoad(SynthesisCapabilities capabilities, int version, int size, string path)
+    private static StructureLibrary? TryLoad(SynthesisCapabilities capabilities, int version, int count, string path)
     {
         try
         {
@@ -267,24 +348,66 @@ public sealed class StructureLibrary
             }
 
             using var reader = new BinaryReader(File.OpenRead(path));
-            if (reader.ReadInt32() != version || reader.ReadInt32() != size || reader.ReadInt32() != SpectralFingerprint.Length)
+            if (reader.ReadInt32() != version || reader.ReadInt32() != count || reader.ReadInt32() != SpectralFingerprint.Length)
             {
                 return null;
             }
 
-            var seeds = new int[size];
-            for (int i = 0; i < size; i++)
+            var seeds = new int[count];
+            for (int i = 0; i < count; i++)
             {
                 seeds[i] = reader.ReadInt32();
             }
 
-            byte[] prints = reader.ReadBytes(size * SpectralFingerprint.Length);
-            return prints.Length == size * SpectralFingerprint.Length ? new StructureLibrary(capabilities, seeds, prints) : null;
+            byte[] prints = reader.ReadBytes(count * SpectralFingerprint.Length);
+            return prints.Length == count * SpectralFingerprint.Length ? new StructureLibrary(capabilities, seeds, prints) : null;
         }
         catch (IOException)
         {
             // Also a truncated file (EndOfStreamException): it is rebuilt.
             return null;
+        }
+    }
+
+    /// <summary>Passes the progress of a build to every caller that waits for it.</summary>
+    private sealed class ProgressRelay : IProgress<double>
+    {
+        private readonly List<IProgress<double>> _listeners = [];
+
+        public void Add(IProgress<double>? listener)
+        {
+            if (listener is not null)
+            {
+                lock (_listeners)
+                {
+                    _listeners.Add(listener);
+                }
+            }
+        }
+
+        public void Remove(IProgress<double>? listener)
+        {
+            if (listener is not null)
+            {
+                lock (_listeners)
+                {
+                    _listeners.Remove(listener);
+                }
+            }
+        }
+
+        public void Report(double value)
+        {
+            IProgress<double>[] listeners;
+            lock (_listeners)
+            {
+                listeners = [.. _listeners];
+            }
+
+            foreach (IProgress<double> listener in listeners)
+            {
+                listener.Report(value);
+            }
         }
     }
 }
