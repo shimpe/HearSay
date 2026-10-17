@@ -71,6 +71,35 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
         Assert.True(with.AlternativePatches[0].AudioLoss < without.AlternativePatches[0].AudioLoss);
     }
 
+    private sealed class Collect(System.Collections.Concurrent.ConcurrentQueue<SearchProgress> into) : IProgress<SearchProgress>
+    {
+        public void Report(SearchProgress value) => into.Enqueue(value);
+    }
+
+    [Fact]
+    public void Search_ThatBuildsItsLibrary_ReportsTheShareDoneAndTheTimeLeft()
+    {
+        const int size = 2000;
+        SynthesisProfile profile = SynthesisProfiles.SuperColliderFm7 with { Name = "test-" + Guid.NewGuid().ToString("N") };
+        try
+        {
+            var reports = new System.Collections.Concurrent.ConcurrentQueue<SearchProgress>();
+            var options = new PatchMatchOptions { EvaluationBudget = 200, StructureLibrarySize = size, SynthesisProfile = profile };
+            new OperatorMatrixPatchMatcher().Match(TargetOf("simple-2op"), options, new Collect(reports));
+
+            SearchProgress[] building = [.. reports.Where(static p => p.Preparation is not null)];
+            Assert.NotEmpty(building);
+            Assert.StartsWith($"building the structure library of {profile.Name}: 2,000 sounds to render, once; ", building[0].Stage, StringComparison.Ordinal);
+            Assert.All(building, static p => Assert.Contains("% done, ", p.Stage, StringComparison.Ordinal));
+            Assert.Contains(building, static p => p.Preparation == 1.0);
+            Assert.All(reports.Where(static p => p.Preparation is null), static p => Assert.DoesNotContain("structure library", p.Stage, StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(StructureLibrary.FileOf(profile, size));
+        }
+    }
+
     [Fact]
     public void Search_IsReproducibleFromItsSeedAndIndependentOfParallelism()
     {

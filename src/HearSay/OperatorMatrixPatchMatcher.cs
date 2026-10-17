@@ -1,3 +1,4 @@
+using System.Globalization;
 using HearSay.Analysis;
 using HearSay.Audio;
 using HearSay.Comparison;
@@ -59,14 +60,17 @@ public static class SynthesisBackends
     /// Patches in the structure library whose nearest neighbours by sound become hypotheses, in a group of their own;
     /// 0 for none. Only profiles with a backend-exact renderer get one.
     /// </param>
-    public static IReadOnlyList<ISynthesisPriorProvider> PriorProvidersFor(SynthesisProfile profile, int structureLibrarySize = 0)
+    /// <param name="libraryProgress">Fraction of the structure library rendered, when it has to be built.</param>
+    public static IReadOnlyList<ISynthesisPriorProvider> PriorProvidersFor(SynthesisProfile profile, int structureLibrarySize = 0, IProgress<double>? libraryProgress = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         IReadOnlyList<ISynthesisPriorProvider> providers = ReadingProvidersFor(profile);
-        return structureLibrarySize > 0 && profile.RenderProfile == RenderProfile.BackendExact
-            ? [.. providers, new NearestStructurePriorProvider(StructureLibrary.For(profile, structureLibrarySize, RendererFor(profile)))]
+        return HasStructureLibrary(profile, structureLibrarySize)
+            ? [.. providers, new NearestStructurePriorProvider(StructureLibrary.For(profile, structureLibrarySize, RendererFor(profile), progress: libraryProgress))]
             : providers;
     }
+
+    internal static bool HasStructureLibrary(SynthesisProfile profile, int size) => size > 0 && profile.RenderProfile == RenderProfile.BackendExact;
 
     private static IReadOnlyList<ISynthesisPriorProvider> ReadingProvidersFor(SynthesisProfile profile)
     {
@@ -217,7 +221,7 @@ public sealed class OperatorMatrixPatchMatcher
             double previous = best?.AlternativePatches[0].Loss ?? double.NaN;
             IProgress<SearchProgress>? runProgress = progress is null
                 ? null
-                : new RelayProgress(p => progress.Report(p with { Run = run, RunCount = seedCount, BestLossOfPreviousRuns = previous }));
+                : new RelayProgress<SearchProgress>(p => progress.Report(p with { Run = run, RunCount = seedCount, BestLossOfPreviousRuns = previous }));
             PatchMatchResult result = Match(targets, options with { RandomSeed = seed }, runProgress, cancellationToken);
             runs.Add((seed, result));
             if (best is null || result.AlternativePatches[0].Loss < best.AlternativePatches[0].Loss)
@@ -277,12 +281,19 @@ public sealed class OperatorMatrixPatchMatcher
         ArgumentNullException.ThrowIfNull(targets);
         options ??= new PatchMatchOptions();
         IOperatorMatrixRenderer renderer = _renderer ?? SynthesisBackends.RendererFor(options.SynthesisProfile);
-        if (_providers is null && options.StructureLibrarySize > 0 && !StructureLibrary.IsAvailable(options.SynthesisProfile, options.StructureLibrarySize))
+        IProgress<double>? building = null;
+        if (_providers is null && progress is not null && SynthesisBackends.HasStructureLibrary(options.SynthesisProfile, options.StructureLibrarySize)
+            && StructureLibrary.SoundsToRender(options.SynthesisProfile, options.StructureLibrarySize) is int toRender and > 0)
         {
-            progress?.Report(new SearchProgress($"building the structure library of {options.SynthesisProfile.Name} ({options.StructureLibrarySize} patches, once; a few minutes)", 0, options.EvaluationBudget, double.NaN));
+            // Building takes minutes: say so, with the share done and the time left.
+            var clock = new RemainingTime();
+            string what = string.Create(CultureInfo.InvariantCulture, $"building the structure library of {options.SynthesisProfile.Name}: {toRender:N0} sounds to render, once; ");
+            int budget = options.EvaluationBudget;
+            building = new RelayProgress<double>(f => progress.Report(new SearchProgress(what + clock.Describe(f), 0, budget, double.NaN) { Preparation = f }));
+            building.Report(0.0);
         }
 
-        IReadOnlyList<ISynthesisPriorProvider> providers = _providers ?? SynthesisBackends.PriorProvidersFor(options.SynthesisProfile, options.StructureLibrarySize);
+        IReadOnlyList<ISynthesisPriorProvider> providers = _providers ?? SynthesisBackends.PriorProvidersFor(options.SynthesisProfile, options.StructureLibrarySize, building);
         var coordinator = new OperatorMatrixPatchSearchCoordinator(renderer, providers);
         SearchOutcome outcome = coordinator.Search(targets, options, progress, cancellationToken);
 
@@ -322,7 +333,7 @@ public sealed class OperatorMatrixPatchMatcher
 public sealed record NoteMatch(TargetAnalysis Analysis, RenderRequest Request, RenderedAudio Preview, ToneComparisonResult Comparison);
 
 /// <summary>Progress that forwards synchronously to a delegate.</summary>
-internal sealed class RelayProgress(Action<SearchProgress> report) : IProgress<SearchProgress>
+internal sealed class RelayProgress<T>(Action<T> report) : IProgress<T>
 {
-    public void Report(SearchProgress value) => report(value);
+    public void Report(T value) => report(value);
 }

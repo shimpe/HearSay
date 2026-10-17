@@ -27,6 +27,9 @@ public sealed record SearchProgress(string Stage, int EvaluationsUsed, int Evalu
     /// <summary>Best total loss of the runs that are already finished; NaN during the first run.</summary>
     public double BestLossOfPreviousRuns { get; init; } = double.NaN;
 
+    /// <summary>Share of the preparation before the search proper (building a structure library) that is done; null during the search.</summary>
+    public double? Preparation { get; init; }
+
     /// <summary>Share of the whole job that is done, all runs counted.</summary>
     public double Fraction => (Run - 1 + ((double)EvaluationsUsed / Math.Max(1, EvaluationBudget))) / Math.Max(1, RunCount);
 }

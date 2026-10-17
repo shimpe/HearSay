@@ -832,9 +832,16 @@ are closest to the target, each as it is and with the envelopes of the target, i
 - **Patches.** Musical random patches of the profile: a carrier on the note, every heard operator at or above it, no
   loops through several operators, no fixed operators, modulation up to 2 radians, in three densities (two or three,
   three or four, four to six operators). Only the seeds are stored; a patch is regenerated from its seed when needed.
-- **Building.** `PatchMatchOptions.StructureLibrarySize` (300 000 by default, 0 turns it off) patches are rendered once
-  per profile and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` (86 MB): about 90 s for FM7 and 340 s for
-  Nome6 on 24 threads. The first search of a profile reports the build as its first progress stage.
+  A profile with noise (FMX6, Nome6) has as many noise-free patches again, from seeds of their own: no noise waveform
+  and no roughening (see *Noise-free sounds* below).
+- **Building.** `PatchMatchOptions.StructureLibrarySize` (300 000 by default, 0 turns it off) regular patches are
+  rendered once per profile and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` (86 MB per 300 000 patches):
+  about 90 s for FM7; for FMX6 about 13 minutes for the 300 000 regular patches and 35 for the 300 000 noise-free ones,
+  whose band-limited waveforms cost more to render than noise; for Nome6 12 and 15 minutes (24 threads).
+  When the file of the previous library version (FMX6 v2, Nome6 v1) is on disk, its patches are read and only the
+  noise-free ones are rendered. The first search of a profile reports the build as its first progress stages, with
+  the share done and the time left (`RemainingTime`, from the pace since the first report); the Library tab does the
+  same in its graph.
 
 Results, budget 4000, two seeds, against the same targets without the library:
 
@@ -868,6 +875,28 @@ Two extra basins on top of six take a quarter of the budget of the others. At an
 on the reference patches, Extra is level with searching without the library (−0.002 ± 0.003, better on 4, worse on
 1) and Capped still loses (+0.004 ± 0.003, worse on 7). The library is worth its cost where a target has neighbours,
 and costs only budget where it has none.
+
+#### Noise-free sounds
+
+A random FMX6 patch draws each operator's waveform from all eight, three of them noise, so 77 % of the 300 000 regular
+FMX6 sounds have a noise operator that is heard (Nome6: 73 %, FM7: none). The search already models the noise of a
+target separately (`NoisePriorProvider` adds the measured noise to the structures read from the partials), and a
+tonal target found its neighbours mostly among noisy sounds. Library variants on FMX6, budget 4000, two seeds, paired
+against the 300 000 regular sounds (Δ mean loss ± one standard error, better / worse at 0.005):
+
+| Library | 16 tonal targets | 16 noisy targets | 13 reference patches |
+| --- | --- | --- | --- |
+| none | +0.017 ± 0.005 (2 / 9) | +0.018 ± 0.011 (4 / 8) | −0.001 ± 0.005 |
+| 300 000 noise-free sounds | −0.013 ± 0.010 (6 / 5) | +0.017 ± 0.011 (3 / 8) | −0.000 ± 0.002 |
+| the same, with the measured noise added to the neighbours | −0.015 ± 0.011 (6 / 5) | +0.012 ± 0.012 (4 / 8) | −0.000 ± 0.002 |
+| 300 000 sounds, 10 % noise waveforms (30 % noisy) | −0.016 ± 0.008 (8 / 4) | +0.010 ± 0.010 (3 / 8) | −0.003 ± 0.003 |
+| **the 300 000 regular sounds and 300 000 noise-free ones** | **−0.014 ± 0.010 (8 / 3)** | **−0.003 ± 0.003 (1 / 1)** | **−0.003 ± 0.002** |
+
+The targets are held-out random FMX6 patches, tonal and noisy, and the reference patches. Fewer noisy sounds help the
+tonal targets and lose the noisy ones; a library's own noise operators fit a noisy target better than measured noise
+added afterwards. Adding noise-free sounds keeps both, so FMX6 (library v3) and Nome6 (v2, not measured) have them.
+Part of the gain may be the larger library alone, but a 300 000-sound library with fewer noisy sounds gains as much
+on the tonal targets. The noisy targets come from the generator of the regular sounds, the favourable case for them.
 
 ## Performance
 
