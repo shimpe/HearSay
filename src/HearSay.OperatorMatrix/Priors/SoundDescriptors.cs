@@ -43,17 +43,66 @@ public static class SoundDescriptors
         return 10.0 * Math.Log10(decay / attack);
     }
 
+    /// <summary>Brightness class of a sound: the power-weighted mean of the body slice, as a multiple of the note.</summary>
+    /// <param name="print">Fingerprint.</param>
+    public static SoundBrightness BrightnessOf(ReadOnlySpan<byte> print)
+    {
+        double ratio = BrightnessRatio(print);
+        return ratio < 2 ? SoundBrightness.Dark : ratio < 4 ? SoundBrightness.Mellow : ratio < 8 ? SoundBrightness.Bright : SoundBrightness.VeryBright;
+    }
+
+    /// <summary>Envelope class of a sound: the decay slice against the attack slice.</summary>
+    /// <param name="print">Fingerprint.</param>
+    public static SoundEnvelope EnvelopeOf(ReadOnlySpan<byte> print)
+    {
+        double decay = DecayDb(print);
+        return decay <= -18 ? SoundEnvelope.Percussive : decay <= -6 ? SoundEnvelope.Decaying : decay <= 6 ? SoundEnvelope.Sustained : SoundEnvelope.Swelling;
+    }
+
+    /// <summary>The word for a brightness class.</summary>
+    /// <param name="brightness">Class.</param>
+    public static string Word(SoundBrightness brightness) => brightness switch
+    {
+        SoundBrightness.Dark => "dark",
+        SoundBrightness.Mellow => "mellow",
+        SoundBrightness.Bright => "bright",
+        _ => "very bright",
+    };
+
+    /// <summary>The word for an envelope class.</summary>
+    /// <param name="envelope">Class.</param>
+    public static string Word(SoundEnvelope envelope) => envelope switch
+    {
+        SoundEnvelope.Percussive => "percussive",
+        SoundEnvelope.Decaying => "decaying",
+        SoundEnvelope.Sustained => "sustained",
+        _ => "swelling",
+    };
+
+    /// <summary>True when an audible operator is a noise waveform or roughened by the shared noise.</summary>
+    /// <param name="patch">Patch.</param>
+    /// <param name="audible">Its audible operators, see <see cref="OperatorMatrixPatch.FindAudibleOperators"/>.</param>
+    internal static bool IsNoisy(OperatorMatrixPatch patch, bool[] audible)
+    {
+        for (int i = 0; i < patch.OperatorCount; i++)
+        {
+            OperatorPatch o = patch.Operators[i];
+            if (audible[i] && (o.Waveform.IsNoise() || o.NoisePhase != 0.0 || o.NoiseM != 0.0))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The words for a sound, in a fixed order.</summary>
     /// <param name="print">Fingerprint of the sound.</param>
     /// <param name="patch">Patch that plays it.</param>
     public static IReadOnlyList<string> Of(ReadOnlySpan<byte> print, OperatorMatrixPatch patch)
     {
         ArgumentNullException.ThrowIfNull(patch);
-        var words = new List<string>(5);
-        double ratio = BrightnessRatio(print);
-        words.Add(ratio < 2 ? "dark" : ratio < 4 ? "mellow" : ratio < 8 ? "bright" : "very bright");
-        double decay = DecayDb(print);
-        words.Add(decay <= -18 ? "percussive" : decay <= -6 ? "decaying" : decay <= 6 ? "sustained" : "swelling");
+        var words = new List<string>(5) { Word(BrightnessOf(print)), Word(EnvelopeOf(print)) };
 
         bool[] audible = patch.FindAudibleOperators();
         int loudest = -1;
@@ -70,13 +119,12 @@ public static class SoundDescriptors
             words.Add(WaveformWord(patch.Operators[loudest].Waveform));
         }
 
-        OperatorPatch[] heard = [.. Enumerable.Range(0, patch.OperatorCount).Where(i => audible[i]).Select(i => patch.Operators[i])];
-        if (heard.Any(static o => o.Filter is not null))
+        if (Enumerable.Range(0, patch.OperatorCount).Any(i => audible[i] && patch.Operators[i].Filter is not null))
         {
             words.Add("filtered");
         }
 
-        if (heard.Any(static o => IsNoise(o.Waveform) || o.NoisePhase != 0.0 || o.NoiseM != 0.0))
+        if (IsNoisy(patch, audible))
         {
             words.Add("noisy");
         }
@@ -92,8 +140,6 @@ public static class SoundDescriptors
         string.Join(" · ", Of(print, patch)) + " · " + (size == 1 ? "1 sound" : size.ToString("N0", CultureInfo.InvariantCulture) + " sounds");
 
     private static double Power(byte value) => Math.Pow(10.0, -value / 40.0);
-
-    private static bool IsNoise(OperatorWaveform waveform) => waveform is OperatorWaveform.Noise or OperatorWaveform.SampleHoldNoise or OperatorWaveform.FilteredNoise;
 
     private static string WaveformWord(OperatorWaveform waveform) => waveform switch
     {
