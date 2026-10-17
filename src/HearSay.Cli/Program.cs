@@ -5,6 +5,8 @@ using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 
+// Renders on every core at full clock, also when the console is not in the foreground.
+ProcessSpeed.RunAtFullSpeed();
 return Cli.Run(args);
 
 /// <summary>Command line of HearSay.</summary>

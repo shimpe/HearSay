@@ -836,8 +836,10 @@ are closest to the target, each as it is and with the envelopes of the target, i
   and no roughening (see *Noise-free sounds* below).
 - **Building.** `PatchMatchOptions.StructureLibrarySize` (300 000 by default, 0 turns it off) regular patches are
   rendered once per profile and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` (86 MB per 300 000 patches):
-  about 90 s for FM7; for FMX6 about 13 minutes for the 300 000 regular patches and 35 for the 300 000 noise-free ones,
-  whose band-limited waveforms cost more to render than noise; for Nome6 12 and 15 minutes (24 threads).
+  under a minute for FM7; for FMX6 about 8 minutes for the 300 000 regular patches and 12 for the 300 000 noise-free
+  ones, whose band-limited waveforms cost more to render than noise; for Nome6 5 and 6 minutes (24 threads). The CLI
+  and the Studio opt out of the Windows efficiency mode (`ProcessSpeed`), which otherwise runs a process that is not in
+  the foreground on the efficiency cores: the noise-free FMX6 patches took 36 minutes there.
   When the file of the previous library version (FMX6 v2, Nome6 v1) is on disk, its patches are read and only the
   noise-free ones are rendered. The first search of a profile reports the build as its first progress stages, with
   the share done and the time left (`RemainingTime`, from the pace since the first report); the Library tab does the

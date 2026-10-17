@@ -19,8 +19,8 @@ namespace HearSay.OperatorMatrix.Priors;
 /// target finds closer neighbours among sounds without noise.
 /// </para>
 /// <para>
-/// Building renders every patch once, minutes for 300 000 patches on 24 threads (FMX6: about 13 for the regular ones and
-/// 35 for the noise-free ones, whose band-limited waveforms cost more than noise), so a library is kept on disk and
+/// Building renders every patch once, minutes for 300 000 patches on 24 threads (FMX6: about 8 for the regular ones and
+/// 12 for the noise-free ones, whose band-limited waveforms cost more than noise), so a library is kept on disk and
 /// loaded in a second afterwards. Instances are immutable and thread-safe.
 /// </para>
 /// </remarks>

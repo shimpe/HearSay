@@ -311,7 +311,8 @@ dark (blue) to bright (yellow), and each is joined to its two nearest neighbours
 
 The first time a library is opened its top level is grouped (under a minute) and kept next to the library as
 `…-atlas-v1.bin`; a library missing on disk is built first, and the graph shows the share done and the time left
-(FMX6: about 50 minutes; when the older FMX6 library is on disk only its noise-free sounds are added, about 35).
+(FMX6: about 20 minutes on 24 threads; when the older FMX6 library is on disk only its noise-free sounds are added,
+about 12).
 
 ## 10. The command line
 
@@ -406,7 +407,7 @@ Threading: the matcher is thread-safe and stateless; evaluations run in parallel
 | `MaxRestartsPerBasin` [3] | topology-mutation rounds for a stuck basin | more for structures that need several additions |
 | `MaxActiveParameters` [32] | largest CMA-ES dimension; bigger patches are optimized group by group | rarely |
 | `ScreeningShare` [0.05], `SurvivorShare` [0.15], `DeepShare` [0.35], `FinalistShare` [0.75] | budget split | move budget towards the stage that still improves in the summary |
-| `StructureLibrarySize` [300 000] | random patches whose nearest neighbours by sound become hypotheses, plus as many noise-free ones for FMX6 and Nome6; built once per profile (FM7 about 90 s, Nome6 about 27 min, FMX6 about 50 min, less when the older library of the profile is on disk, with the share done and the time left in the progress) and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` | 0 to turn the lookup off, for example in quick tests; larger for closer neighbours |
+| `StructureLibrarySize` [300 000] | random patches whose nearest neighbours by sound become hypotheses, plus as many noise-free ones for FMX6 and Nome6; built once per profile (FM7 under a minute, Nome6 about 11 min, FMX6 about 20 min on 24 threads, less when the older library of the profile is on disk, with the share done and the time left in the progress) and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` | 0 to turn the lookup off, for example in quick tests; larger for closer neighbours |
 | `LibraryBasinMode` [Extra], `LibraryBasinCount` [2] | how library neighbours share the basins: Extra adds up to two basins on top of those of the read structures, Capped lets at most two compete, Free lets them compete for all | give about a third more budget with Extra; Free for sounds made like the library's random patches |
 
 The search keeps a hypothesis cut per prior provider (each provider's best in turn), so a provider with modest scores
