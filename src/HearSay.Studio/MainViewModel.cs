@@ -195,6 +195,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Status = $"Showing {patch.Title} from the library. The next search replaces it.";
     }
 
+    /// <summary>Shows the Library tab with the selected finalist placed among its neighbours, as an imported sound.</summary>
+    public async Task FindInLibraryAsync()
+    {
+        if (_result is not { } result || SelectedAlternative is not { } finalist)
+        {
+            return;
+        }
+
+        SelectedTab = 1;
+        string name = finalist.Rank == 1 ? "search best" : $"search {finalist.Label}";
+        await Library.FindAsync(name, finalist.Candidate.Origin, finalist.Candidate.Patch, result.Profile);
+    }
+
     /// <summary>Loaded target notes.</summary>
     public ObservableCollection<TargetItem> Targets { get; } = [];
 

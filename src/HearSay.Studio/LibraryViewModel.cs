@@ -26,6 +26,15 @@ public sealed record ImportedItem(ExportedSound Sound, byte[] Print)
 
     /// <summary>Profile it plays on, short.</summary>
     public string ProfileName => ProfileNameConverter.Short(Sound.Profile.Name);
+
+    /// <summary>For a finalist of the Search tab, where the search found it; null for a sound read from a folder.</summary>
+    public string? SearchOrigin { get; init; }
+
+    /// <summary>Where it came from, for the selection line and the header of its code.</summary>
+    public string Source => SearchOrigin is { } origin ? "from the search: " + origin : "imported from " + Sound.PatchFile;
+
+    /// <summary>The same key is the same sound: its file, or for a finalist its profile and patch.</summary>
+    public string Key => SearchOrigin is null ? Sound.PatchFile : $"search {Sound.Profile.Name} {Sound.Patch.ComputeHash()}";
 }
 
 /// <summary>A sound from the library, as it is handed to the Search tab.</summary>
@@ -54,6 +63,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private int _loadVersion;
     private int _navVersion;
     private bool _loaded;
+    private Task _loading = Task.CompletedTask;
     private IReadOnlyList<GraphNode>? _nodes;
     private IReadOnlyList<GraphEdge>? _edges;
     private int _selectedIndex = -1;
@@ -93,7 +103,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         {
             if (Set(ref _profile, value) && _loaded)
             {
-                _ = LoadAsync();
+                _loading = LoadAsync();
             }
         }
     }
@@ -317,7 +327,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
         scan = scan with { Skipped = [.. scan.Skipped, .. unplayable] };
         int added = 0;
-        foreach (ImportedItem item in items.Where(i => Imports.All(known => known.Sound.PatchFile != i.Sound.PatchFile)))
+        foreach (ImportedItem item in items.Where(i => Imports.All(known => known.Key != i.Key)))
         {
             Imports.Add(item);
             added++;
@@ -379,11 +389,52 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     {
         if (_loaded)
         {
-            return Task.CompletedTask;
+            return _loading;
         }
 
         _loaded = true;
-        return LoadAsync();
+        _loading = LoadAsync();
+        return _loading;
+    }
+
+    /// <summary>
+    /// Places a finalist of the Search tab among its neighbours, as an imported sound: the library of its profile is
+    /// shown (loaded or built first when needed), the finalist joins the imported sounds and is placed, selected and
+    /// played.
+    /// </summary>
+    /// <param name="name">Name in the list, for example <c>search #2</c>.</param>
+    /// <param name="origin">Where the search found it.</param>
+    /// <param name="patch">Patch.</param>
+    /// <param name="profile">Profile it was found for.</param>
+    public async Task FindAsync(string name, string origin, OperatorMatrixPatch patch, SynthesisProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(profile);
+        var sound = new ExportedSound(name, string.Empty, patch, profile);
+        var found = new ImportedItem(sound, []) { SearchOrigin = origin };
+        ImportedItem? item = Imports.FirstOrDefault(k => k.Key == found.Key);
+        if (item is null)
+        {
+            _status($"Rendering {name} to find its neighbours…");
+            byte[] print = await Task.Run(() => ExportedSounds.Fingerprint(sound));
+            item = found with { Print = print };
+            Imports.Add(item);
+        }
+
+        // Its own profile's library holds the neighbours the search drew on; a profile without one keeps the library shown.
+        if (Profiles.FirstOrDefault(p => p.Name == profile.Name) is { } own)
+        {
+            SelectedProfile = own;
+        }
+
+        // Placed in the library that is shown once loading settles, also when another profile was chosen meanwhile.
+        await EnsureLoadedAsync();
+        while (!_loading.IsCompleted)
+        {
+            await _loading;
+        }
+
+        await PlaceAsync(item);
     }
 
     /// <summary>Selects a node, shows its code and plays it at the reference note.</summary>
@@ -398,8 +449,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 item.Name,
                 item.Sound.Patch,
                 item.Sound.Profile,
-                $"{item.Name} · imported from {item.Sound.PatchFile}",
-                [$"Imported from {item.Sound.PatchFile}."]));
+                $"{item.Name} · {item.Source}",
+                [$"{char.ToUpperInvariant(item.Source[0])}{item.Source[1..]}."]));
             return;
         }
 

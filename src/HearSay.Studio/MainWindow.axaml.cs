@@ -110,6 +110,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnFindInLibrary(object? sender, RoutedEventArgs e) => await ViewModel.FindInLibraryAsync();
+
     private async void OnCopy(object? sender, RoutedEventArgs e)
     {
         if (Clipboard is not null && ViewModel.Scd.Length > 0)

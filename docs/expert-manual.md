@@ -280,7 +280,10 @@ note, the list of finalists, the keyboard, the modulation matrix and the routing
   Off operators leave their cells empty.
 
 **SuperCollider patch.** The code of the shown finalist. Copy puts it on the clipboard; Save result folder writes
-the whole folder of section 7 for the result.
+the whole folder of section 7 for the result. **Find in library** opens the Library tab on the library of the
+result's profile and places the shown finalist among the library sounds like it, as an imported sound: a star,
+selected and played, with its neighbours around it. It joins the imported sounds as *search best* or *search #2*, so
+several finalists can be compared there.
 
 Studio plays through OpenAL Soft. Without an audio device the keyboard is silent and a note says so; everything else
 works.

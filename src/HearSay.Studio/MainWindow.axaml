@@ -312,10 +312,11 @@
           <!-- Right column: SuperCollider code and block diagram -->
           <Border Grid.Column="1" Classes="card">
             <DockPanel>
-              <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+              <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
                 <TextBlock Grid.Column="0" Classes="title" Text="PATCH" Margin="0" VerticalAlignment="Center" />
                 <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasPatch}" ToolTip.Tip="Copy the SuperCollider code" />
                 <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasPatch}" />
+                <Button Grid.Column="3" Content="Find in library" Click="OnFindInLibrary" IsEnabled="{Binding HasResult}" ToolTip.Tip="Show the selected finalist in the Library tab, placed among the library sounds like it" />
               </Grid>
               <local:PatchView Code="{Binding Scd}" Watermark="{Binding ScdWatermark}" Patch="{Binding ShownPatch}" />
             </DockPanel>
