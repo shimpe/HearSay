@@ -104,6 +104,76 @@ public sealed class LibraryAtlasTests
         Assert.Equal(new[] { atlas.Root }, atlas.Locate(one));
     }
 
+    private static readonly int[] EveryThird = [.. Enumerable.Range(0, 3000).Where(static i => i % 3 == 0)];
+
+    [Fact]
+    public void Subset_ChildrenPartitionTheGivenMembers()
+    {
+        LibraryAtlas atlas = LibraryAtlas.Build(Library.Value, EveryThird);
+        Assert.Equal(EveryThird, atlas.Root.Members);
+        AssertPartition(atlas, atlas.Root);
+        LibraryFamily largest = atlas.Children(atlas.Root)[0];
+        Assert.True(largest.Size > LibraryAtlas.Branching);
+        AssertPartition(atlas, largest);
+    }
+
+    [Fact]
+    public void Subset_IsDeterministic()
+    {
+        LibraryAtlas a = LibraryAtlas.Build(Library.Value, EveryThird), b = LibraryAtlas.Build(Library.Value, EveryThird);
+        Assert.Equal(a.Children(a.Root).Select(static c => c.Medoid), b.Children(b.Root).Select(static c => c.Medoid));
+    }
+
+    [Fact]
+    public void Subset_LocateStaysInside()
+    {
+        LibraryAtlas atlas = LibraryAtlas.Build(Library.Value, EveryThird);
+        var inside = EveryThird.ToHashSet();
+        for (int i = 0; i < 3000; i += 101)
+        {
+            IReadOnlyList<LibraryFamily> path = atlas.Locate(atlas.Library.Fingerprint(i));
+            Assert.Same(atlas.Root, path[0]);
+            Assert.All(path, f => Assert.True(f.Members.All(inside.Contains)));
+        }
+    }
+
+    [Fact]
+    public void Subset_OfFewSounds_GivesLeaves()
+    {
+        LibraryAtlas atlas = LibraryAtlas.Build(Library.Value, [5, 17, 2999]);
+        IReadOnlyList<LibraryFamily> leaves = atlas.Children(atlas.Root);
+        Assert.Equal(new[] { 5, 17, 2999 }, leaves.Select(static l => l.Medoid));
+        Assert.All(leaves, static l => Assert.True(l.IsLeaf));
+    }
+
+    [Fact]
+    public void Subset_SingleMember_GivesOneLeaf()
+    {
+        LibraryAtlas atlas = LibraryAtlas.Build(Library.Value, [42]);
+        LibraryFamily leaf = Assert.Single(atlas.Children(atlas.Root));
+        Assert.Equal(42, leaf.Medoid);
+        Assert.Empty(atlas.Children(leaf));
+        Assert.Equal(new[] { atlas.Root }, atlas.Locate(atlas.Library.Fingerprint(42)));
+    }
+
+    [Fact]
+    public void Subset_Empty_HasNoChildren()
+    {
+        LibraryAtlas atlas = LibraryAtlas.Build(Library.Value, []);
+        Assert.Equal(0, atlas.Root.Size);
+        Assert.Equal(-1, atlas.Root.Medoid);
+        Assert.Empty(atlas.Children(atlas.Root));
+        Assert.Equal(new[] { atlas.Root }, atlas.Locate(atlas.Library.Fingerprint(0)));
+    }
+
+    [Theory]
+    [InlineData(new[] { 3, 1 })]
+    [InlineData(new[] { 1, 1 })]
+    [InlineData(new[] { 3000 })]
+    [InlineData(new[] { -1 })]
+    public void Subset_RejectsIndicesThatAreNotAscendingDistinctMembers(int[] members) =>
+        Assert.Throws<ArgumentException>(() => LibraryAtlas.Build(Library.Value, members));
+
     private static void AssertSameTopLevel(LibraryAtlas expected, LibraryAtlas actual)
     {
         IReadOnlyList<LibraryFamily> e = expected.Children(expected.Root), a = actual.Children(actual.Root);

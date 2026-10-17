@@ -25,7 +25,7 @@ public sealed class LibraryFamily
     /// <summary>Centroid of the members' fingerprints, in quarter-decibel steps.</summary>
     public IReadOnlyList<double> Centroid => CentroidArray;
 
-    /// <summary>Library index of the member whose sound stands for the family.</summary>
+    /// <summary>Library index of the member whose sound stands for the family; −1 for the root of an empty subset.</summary>
     public int Medoid { get; }
 
     /// <summary>Number of members.</summary>
@@ -74,6 +74,29 @@ public sealed class LibraryAtlas
     {
         ArgumentNullException.ThrowIfNull(library);
         return new LibraryAtlas(library, RootOf(library));
+    }
+
+    /// <summary>
+    /// The tree of some sounds of a library, in memory: its root holds the given members instead of every sound. The
+    /// same members always give the same tree. An empty set gives a root without children.
+    /// </summary>
+    /// <param name="library">Library.</param>
+    /// <param name="members">Library indices, ascending and distinct.</param>
+    /// <exception cref="ArgumentException">An index is out of range, or the indices are not ascending and distinct.</exception>
+    public static LibraryAtlas Build(StructureLibrary library, IReadOnlyList<int> members)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(members);
+        int[] sorted = [.. members];
+        for (int i = 0; i < sorted.Length; i++)
+        {
+            if ((uint)sorted[i] >= (uint)library.Count || (i > 0 && sorted[i] <= sorted[i - 1]))
+            {
+                throw new ArgumentException("Members are ascending, distinct indices of the library.", nameof(members));
+            }
+        }
+
+        return new LibraryAtlas(library, RootOf(library, sorted));
     }
 
     /// <summary>The children of a family, largest first; empty for a leaf.</summary>
@@ -262,9 +285,15 @@ public sealed class LibraryAtlas
         }
     }
 
-    internal static LibraryFamily RootOf(StructureLibrary library)
+    internal static LibraryFamily RootOf(StructureLibrary library) => RootOf(library, [.. Enumerable.Range(0, library.Count)]);
+
+    private static LibraryFamily RootOf(StructureLibrary library, int[] members)
     {
-        int[] members = [.. Enumerable.Range(0, library.Count)];
+        if (members.Length == 0)
+        {
+            return new LibraryFamily([], [], new double[SpectralFingerprint.Length], -1);
+        }
+
         double[] centroid = Mean(library, members);
         return new LibraryFamily([], members, centroid, MedoidOf(library, members, centroid));
     }
@@ -272,7 +301,8 @@ public sealed class LibraryAtlas
     internal static IReadOnlyList<LibraryFamily> Split(StructureLibrary library, LibraryFamily family)
     {
         int[] members = family.MemberArray;
-        if (members.Length <= 1)
+        // A single sound below the root is a leaf; a root of one sound shows it as its one leaf.
+        if (members.Length == 0 || (members.Length == 1 && family.PathArray.Length > 0))
         {
             return [];
         }
