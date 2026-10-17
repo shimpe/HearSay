@@ -181,4 +181,32 @@ public sealed class PatchModelTests
             Assert.Equal(patch.ComputeHash(), generator.Generate(seed).ComputeHash());
         }
     }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.15)]
+    [InlineData(1.0)]
+    public void RandomPatches_NoiseWaveformProbability_IsTheShareOfNoiseOperators(double probability)
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var generator = new RandomPatchGenerator(fmx6, new RandomPatchOptions { NoiseWaveformProbability = probability });
+        int enabled = 0, noise = 0;
+        for (int seed = 0; seed < 400; seed++)
+        {
+            OperatorMatrixPatch patch = generator.Generate(seed);
+            Assert.True(PatchCompatibilityValidator.Instance.Validate(patch, fmx6).IsCompatible);
+            enabled += patch.Operators.Count(static o => o.Enabled);
+            noise += patch.Operators.Count(static o => o.Enabled && o.Waveform.IsNoise());
+        }
+
+        Assert.InRange((double)noise / enabled, probability - 0.03, probability + 0.03);
+    }
+
+    [Fact]
+    public void RandomPatches_NoiseWaveformProbability_NeverGivesAWaveformTheProfileLacks()
+    {
+        SynthesisCapabilities fm7 = SynthesisProfiles.SuperColliderFm7.Capabilities;
+        var generator = new RandomPatchGenerator(fm7, new RandomPatchOptions { NoiseWaveformProbability = 1.0 });
+        Assert.All(Enumerable.Range(0, 50), seed => Assert.True(PatchCompatibilityValidator.Instance.Validate(generator.Generate(seed), fm7).IsCompatible));
+    }
 }

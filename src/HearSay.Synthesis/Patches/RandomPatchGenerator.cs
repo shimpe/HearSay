@@ -29,6 +29,12 @@ public sealed record RandomPatchOptions
     /// <summary>Probability that an edge has an amount envelope.</summary>
     public double EdgeEnvelopeProbability { get; init; } = 0.3;
 
+    /// <summary>
+    /// Probability that an enabled operator gets a noise waveform, for profiles that have both noise and tonal waveforms.
+    /// Null: every supported waveform is equally likely, which keeps the patches the seeds gave before this option.
+    /// </summary>
+    public double? NoiseWaveformProbability { get; init; }
+
     /// <summary>Probability that an operator is roughened by the shared noise, for profiles that have one.</summary>
     public double RoughnessProbability { get; init; }
 
@@ -73,6 +79,9 @@ public sealed class RandomPatchGenerator
         var random = new Random(seed);
         int n = _capabilities.OperatorCount;
         OperatorWaveform[] waveforms = [.. _capabilities.SupportedWaveforms.Order()];
+        OperatorWaveform[] noises = [.. waveforms.Where(static w => w.IsNoise())];
+        OperatorWaveform[] tones = [.. waveforms.Where(static w => !w.IsNoise())];
+        bool splitNoise = _options.NoiseWaveformProbability is not null && noises.Length > 0 && tones.Length > 0;
         OperatorMode[] modes = [.. _capabilities.SupportedModes.Order()];
         int enabledCount = random.Next(Math.Clamp(_options.MinOperators, 1, n), Math.Clamp(_options.MaxOperators, 1, n) + 1);
 
@@ -90,7 +99,7 @@ public sealed class RandomPatchGenerator
             operators[i] = new OperatorPatch(
                 enabled,
                 modes[random.Next(modes.Length)],
-                waveforms[random.Next(waveforms.Length)],
+                splitNoise ? PickWaveform(random, noises, tones) : waveforms[random.Next(waveforms.Length)],
                 frequency,
                 FineTuneCents: detuned ? Math.Round((random.NextDouble() * 20) - 10, 2) : 0,
                 DetuneHz: detuned ? Math.Round((random.NextDouble() * 4) - 2, 2) : 0,
@@ -199,6 +208,9 @@ public sealed class RandomPatchGenerator
 
         return new OperatorMatrixPatch(operators, new PhaseModulationMatrix(n, edges), levels, pitch) { Noise = noise };
     }
+
+    private OperatorWaveform PickWaveform(Random random, OperatorWaveform[] noises, OperatorWaveform[] tones) =>
+        random.NextDouble() < _options.NoiseWaveformProbability ? noises[random.Next(noises.Length)] : tones[random.Next(tones.Length)];
 
     private static OperatorFilter RandomFilter(Random random)
     {
