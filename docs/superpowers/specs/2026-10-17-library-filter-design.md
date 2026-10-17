@@ -14,7 +14,7 @@ Success criteria:
 
 1. Choosing a filter shows the top level of a tree built over exactly the matching sounds, within a few seconds for
    300 000 sounds; clearing it returns to the unfiltered tree at once.
-2. Every chip shows how many sounds the filter would hold with that chip added, so that empty results are visible
+2. Every chip shows how many sounds match the rest of the filter and have its value, so that empty results are visible
    before they are chosen.
 3. The same filter on the same library always gives the same tree.
 4. A "percussive" chip and a "percussive" label agree: both come from the same thresholds.
@@ -24,23 +24,26 @@ parameter ranges (ratios, levels, envelope times), keeping the position in the t
 
 ## The filter panel
 
-- A **Filter ▾** button next to **Import folder…** opens a flyout with four groups of toggle chips:
-  - **Waveform**: sine, triangle, saw, square, pulse, noise, sample-and-hold noise, filtered noise, elliptic,
-    additive, wavetable;
+- A **Filter ▾** button next to **Import folder…** opens a flyout with one labelled row of toggle chips per facet:
+  - **Waveform**: sine, triangle, saw, square, pulse, noise, S&H noise, filtered noise, elliptic, additive,
+    wavetable;
   - **Filter**: none, low-pass, high-pass, band-pass, notch, peak, formant;
-  - **Sound**: dark, mellow, bright, very bright; percussive, decaying, sustained, swelling; noisy;
-  - **Structure**: 2, 3, 4, 5, 6 audible operators; feedback, no feedback.
-- A chip is shown only when at least one sound of the unfiltered library has its value; a group with fewer than two
-  shown chips is hidden. So FM7 offers no waveform and no filter group, Nome6 offers sine, elliptic and noise.
-- Each chip shows the number of sounds the filter would hold with that chip's value added to its group, for a chosen
-  chip the number it holds now, for example `saw 12,408`. Chips at 0 are dimmed, and can still be chosen.
+  - **Brightness**: dark, mellow, bright, very bright;
+  - **Envelope**: percussive, decaying, sustained, swelling;
+  - **Noise**: noisy;
+  - **Audible operators**: 1 ops … 6 ops;
+  - **Feedback**: feedback, no feedback.
+- A chip is shown only when it splits the unfiltered library: some sounds have its value and some do not. A row
+  without chips is hidden. So FM7 offers no waveform and no filter row, Nome6 offers sine, elliptic and noise.
+- Each chip shows the number of sounds that match the other rows and have its value, for example `saw 12,408`: what
+  the filter holds with only that value chosen in its row. Chips at 0 are dimmed, and can still be chosen.
 - Below the breadcrumb, while a filter is set: `filter: saw or square · low-pass · percussive — 4,213 sounds` and a
   **Clear** link. Without a filter the line is hidden.
 
 ### Matching
 
-- Within a group the chosen values are alternatives (OR); groups are combined (AND). A group without a chosen value
-  does not filter.
+- Within a row the chosen values are alternatives (OR); rows are combined (AND). A row without a chosen value does
+  not filter.
 - Waveform: a sound matches when one of its audible operators (`OperatorMatrixPatch.FindAudibleOperators`) has the
   waveform. Filter: when one of its audible operators has a filter of the type; *none* when no audible operator has a
   filter. Feedback: when an audible operator has a self-feedback edge with a non-zero amount; *no feedback* otherwise.
@@ -82,19 +85,19 @@ and green.
 
 ### `SoundFilter`
 
-New, immutable record in `HearSay.OperatorMatrix/Priors`: per group the set of chosen values (`SoundFilter.None`
+New, immutable record in `HearSay.OperatorMatrix/Priors`: the set of chosen values, grouped by facet (`SoundFilter.None`
 chooses nothing).
 
 - `Matches(SoundTraits)`;
 - `Members(IReadOnlyList<SoundTraits>)`: indices of the matching sounds, ascending;
 - `With(value)`, `Without(value)`, `IsEmpty`;
-- `Count(IReadOnlyList<SoundTraits>, value)`: the number of sounds that match the filter with `value` added to its
-  group (for a chosen value: the filter as it is). One pass per change computes all chips: a sound is counted for a
-  value when it matches every other group and has the value.
-- `Describe()`: the summary text without the count, groups in panel order, values joined with ` or `, groups with
+- `Counts(IReadOnlyList<SoundTraits>, IReadOnlyList<TraitValue>)`: per value, the number of sounds that match every
+  other facet and have the value; one pass over the sounds for all chips.
+- `Describe()`: the summary text without the count, facets in panel order, values joined with ` or `, facets with
   ` · `.
 
-A value is one of the chip values of the four groups (a small `TraitValue` type: group plus value).
+A value is one chip: a `TraitValue` of facet (waveform, filter, brightness, envelope, noise, audible operators,
+feedback) and value, with its label.
 
 ### Atlas over a subset
 
@@ -108,10 +111,10 @@ filter 47 974, 0.5 s; all sounds, 3.1 s.
 
 ## Studio
 
-- `LibraryViewModel`: the traits of the loaded library, the filter, the chip view models (group, label, count, chosen)
+- `LibraryViewModel`: the traits of the loaded library, the filter, the chip rows (facet title; chips with label, count, chosen)
   and the summary; the debounced filtered build, under the existing `_loadVersion` / `_navVersion` latest-wins rules and
   the atlas identity check; clearing on profile switch; the placement messages above.
-- `LibraryView.axaml`: the Filter button with its flyout (four labelled `WrapPanel`s of toggle buttons) and the summary
+- `LibraryView.axaml`: the Filter button with its flyout (a labelled `WrapPanel` of toggle buttons per facet) and the summary
   line with Clear.
 
 ## Testing
@@ -121,10 +124,10 @@ filter 47 974, 0.5 s; all sounds, 3.1 s.
 - traits on synthetic patches: the waveform and filter of an inaudible operator do not count, those of an audible
   modulator do; *none*; noisy; feedback; number of audible operators; brightness and envelope agree with
   `SoundDescriptors`;
-- filter on synthetic traits: OR within a group, AND across groups, an empty filter matches all; every chip count
-  equals the number of members of the filter with that value added;
+- filter on synthetic traits: OR within a facet, AND across facets, an empty filter matches all; every chip count
+  equals the number of sounds that have the value and match the filter without that facet;
 - subset atlas on the 3 000-patch FM7 library: children partition the given members; building twice gives the same
-  tree; 40 or fewer members give leaves; an empty set gives a root without children; `Locate` ends in families of the
+  tree; 40 or fewer members give leaves, a single member one leaf; an empty set gives a root without children; `Locate` ends in families of the
   subset.
 
 UI: headless screenshot of the flyout and summary; a click-through by hand.
