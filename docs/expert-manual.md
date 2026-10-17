@@ -308,7 +308,7 @@ dark (blue) to bright (yellow), and each is joined to its two nearest neighbours
   star among the sounds like it. One level up, the family it fell in has a dashed ring. Placement is by sound, so an
   FM7 export can be placed in the FMX6 library.
 - **Filter ▾** shows only some sounds: by the waveforms and filter types of the operators you can hear, brightness,
-  envelope, noise, the number of audible operators and feedback. Values in a row are alternatives, rows must all hold
+  envelope, noise (*noisy* or *noise-free*), the number of audible operators and feedback. Values in a row are alternatives, rows must all hold
   (*saw or square*, and *low-pass*). Each chip shows how many sounds match the rest of the filter and have its value.
   The matching sounds are grouped into families of their own (a few seconds), so the screen stays full; **Clear**
   returns to all sounds. An imported sound is placed among the filtered sounds.

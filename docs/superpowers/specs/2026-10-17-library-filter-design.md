@@ -30,7 +30,7 @@ parameter ranges (ratios, levels, envelope times), keeping the position in the t
   - **Filter**: none, low-pass, high-pass, band-pass, notch, peak, formant;
   - **Brightness**: dark, mellow, bright, very bright;
   - **Envelope**: percussive, decaying, sustained, swelling;
-  - **Noise**: noisy;
+  - **Noise**: noisy, noise-free;
   - **Audible operators**: 1 ops … 6 ops;
   - **Feedback**: feedback, no feedback.
 - A chip is shown only when it splits the unfiltered library: some sounds have its value and some do not. A row
@@ -48,7 +48,7 @@ parameter ranges (ratios, levels, envelope times), keeping the position in the t
   waveform. Filter: when one of its audible operators has a filter of the type; *none* when no audible operator has a
   filter. Feedback: when an audible operator has a self-feedback edge with a non-zero amount; *no feedback* otherwise.
 - Sound words: the brightness and envelope words of `SoundDescriptors`, and *noisy* by its rule (an audible noise
-  waveform or shared noise roughening).
+  waveform or shared noise roughening); *noise-free* for the other sounds.
 - Audible operators: the number of audible operators.
 
 ### Applying

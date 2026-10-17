@@ -79,6 +79,7 @@ public readonly record struct TraitValue(TraitFacet Facet, int Value)
         .. Enum.GetValues<OperatorFilterType>().Select(static t => Filter(t)),
         .. Enum.GetValues<SoundBrightness>().Select(Of),
         .. Enum.GetValues<SoundEnvelope>().Select(Of),
+        NoiseFree,
         Noisy,
         .. Enumerable.Range(1, 6).Select(Operators),
         Feedback(false),
@@ -87,6 +88,9 @@ public readonly record struct TraitValue(TraitFacet Facet, int Value)
 
     /// <summary>Noisy.</summary>
     public static TraitValue Noisy => new(TraitFacet.Noise, 1);
+
+    /// <summary>Not noisy: no audible operator is noise or roughened by the shared noise.</summary>
+    public static TraitValue NoiseFree => new(TraitFacet.Noise, 0);
 
     /// <summary>An audible operator has this waveform.</summary>
     /// <param name="waveform">Waveform.</param>
@@ -143,7 +147,7 @@ public readonly record struct TraitValue(TraitFacet Facet, int Value)
         },
         TraitFacet.Brightness => SoundDescriptors.Word((SoundBrightness)Value),
         TraitFacet.Envelope => SoundDescriptors.Word((SoundEnvelope)Value),
-        TraitFacet.Noise => "noisy",
+        TraitFacet.Noise => Value == 1 ? "noisy" : "noise-free",
         TraitFacet.Operators => Value.ToString(CultureInfo.InvariantCulture) + " ops",
         _ => Value == 1 ? "feedback" : "no feedback",
     };

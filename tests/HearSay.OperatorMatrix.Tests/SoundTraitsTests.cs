@@ -60,6 +60,8 @@ public sealed class SoundTraitsTests
     {
         Assert.True(SoundTraits.Of(Print(30), Carrier(OperatorWaveform.Noise)).Has(TraitValue.Noisy));
         Assert.False(SoundTraits.Of(Print(30), Carrier()).Has(TraitValue.Noisy));
+        Assert.True(SoundTraits.Of(Print(30), Carrier()).Has(TraitValue.NoiseFree));
+        Assert.False(SoundTraits.Of(Print(30), Carrier(OperatorWaveform.Noise)).Has(TraitValue.NoiseFree));
     }
 
     [Fact]
@@ -110,12 +112,13 @@ public sealed class SoundTraitsTests
         Assert.Equal("very bright", TraitValue.Of(SoundBrightness.VeryBright).Label);
         Assert.Equal("percussive", TraitValue.Of(SoundEnvelope.Percussive).Label);
         Assert.Equal("noisy", TraitValue.Noisy.Label);
+        Assert.Equal("noise-free", TraitValue.NoiseFree.Label);
         Assert.Equal("3 ops", TraitValue.Operators(3).Label);
         Assert.Equal("no feedback", TraitValue.Feedback(false).Label);
         Assert.Equal("Audible operators", TraitValue.TitleOf(TraitFacet.Operators));
 
         IReadOnlyList<TraitValue> all = TraitValue.All;
-        Assert.Equal(11 + 7 + 4 + 4 + 1 + 6 + 2, all.Count);
+        Assert.Equal(11 + 7 + 4 + 4 + 2 + 6 + 2, all.Count);
         Assert.Equal(all.OrderBy(static v => v.Facet).ThenBy(static v => v.Value), all);
         Assert.Equal(all.Count, all.Distinct().Count());
     }

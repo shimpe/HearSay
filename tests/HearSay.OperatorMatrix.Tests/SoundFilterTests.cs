@@ -44,6 +44,7 @@ public sealed class SoundFilterTests
         Assert.Equal(new[] { 0, 1 }, filter.Members(Sounds));
         Assert.Equal(new[] { 1 }, filter.With(TraitValue.Of(SoundBrightness.Bright)).Members(Sounds));
         Assert.Equal(new[] { 2 }, SoundFilter.None.With(TraitValue.Noisy).Members(Sounds));
+        Assert.Equal(new[] { 0, 1, 3, 4 }, SoundFilter.None.With(TraitValue.NoiseFree).Members(Sounds));
         Assert.Equal(new[] { 0, 2 }, filter.Without(Square).Without(LowPass).Members(Sounds));
     }
 
