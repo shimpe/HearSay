@@ -60,6 +60,11 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private string? _graphMessage = "Open this tab to load the library.";
     private Selection? _selection;
     private string _playingText = string.Empty;
+    private LibraryAtlas? _fullAtlas;
+    private SoundTraits[]? _traits;
+    private SoundFilter _filter = SoundFilter.None;
+    private int _filterVersion;
+    private string? _filterSummary;
 
     /// <summary>Creates the view model.</summary>
     /// <param name="notes">Shared note player.</param>
@@ -145,6 +150,113 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>True when an audio device could be opened.</summary>
     public bool CanPlay => _notes.CanPlay;
 
+    /// <summary>Rows of the filter panel; empty until the library is read, and for a library nothing can filter.</summary>
+    public ObservableCollection<TraitRow> FilterRows { get; } = [];
+
+    /// <summary>The summary line under the breadcrumb while a filter is set.</summary>
+    public string? FilterSummary
+    {
+        get => _filterSummary;
+        private set => Set(ref _filterSummary, value);
+    }
+
+    /// <summary>True while a filter is set.</summary>
+    public bool HasFilter => !_filter.IsEmpty;
+
+    /// <summary>Releases every chip and shows all sounds again.</summary>
+    public void ClearFilter()
+    {
+        foreach (TraitChip chip in FilterRows.SelectMany(static r => r.Chips))
+        {
+            chip.Release();
+        }
+
+        SetFilter(SoundFilter.None);
+    }
+
+    private void OnChipToggled(TraitChip chip) => SetFilter(chip.IsChosen ? _filter.With(chip.Value) : _filter.Without(chip.Value));
+
+    private void SetFilter(SoundFilter filter)
+    {
+        _filter = filter;
+        OnPropertyChanged(nameof(HasFilter));
+        FilterSummary = filter.IsEmpty ? null : $"filter: {filter.Describe()} — counting…";
+        _ = ApplyFilterAsync(++_filterVersion);
+    }
+
+    /// <summary>
+    /// After 0.4 s without a further change: counts the chips, builds the tree of the matching sounds and shows its top
+    /// level. The latest filter wins; a library opened meanwhile drops the build.
+    /// </summary>
+    private async Task ApplyFilterAsync(int version)
+    {
+        await Task.Delay(400);
+        if (version != _filterVersion || _fullAtlas is not { } full || _traits is not { } traits)
+        {
+            return;
+        }
+
+        int load = _loadVersion;
+        bool Stale() => version != _filterVersion || load != _loadVersion || !ReferenceEquals(full, _fullAtlas);
+        SoundFilter filter = _filter;
+        TraitChip[] chips = [.. FilterRows.SelectMany(static r => r.Chips)];
+        TraitValue[] values = [.. chips.Select(static c => c.Value)];
+        (int[] counts, int[] members) = await Task.Run(() => (filter.Counts(traits, values), filter.IsEmpty ? [] : filter.Members(traits)));
+        if (Stale())
+        {
+            return;
+        }
+
+        for (int k = 0; k < chips.Length; k++)
+        {
+            chips[k].Count = counts[k];
+        }
+
+        if (filter.IsEmpty)
+        {
+            FilterSummary = null;
+            await ShowAtlasAsync(full);
+            return;
+        }
+
+        FilterSummary = string.Create(CultureInfo.InvariantCulture, $"filter: {filter.Describe()} — {members.Length:N0} sounds");
+        _navVersion++;
+        _placed = null;
+        Nodes = null;
+        Edges = null;
+        SelectedIndex = -1;
+        if (members.Length == 0)
+        {
+            _atlas = LibraryAtlas.Build(full.Library, []);
+            _family = _atlas.Root;
+            _children = [];
+            Crumbs.Clear();
+            GraphMessage = "No sounds match the filter.";
+            return;
+        }
+
+        GraphMessage = string.Create(CultureInfo.InvariantCulture, $"Grouping {members.Length:N0} sounds…");
+        LibraryAtlas atlas = await Task.Run(() =>
+        {
+            LibraryAtlas built = LibraryAtlas.Build(full.Library, members);
+            built.Children(built.Root);
+            return built;
+        });
+        if (Stale())
+        {
+            return;
+        }
+
+        await ShowAtlasAsync(atlas);
+    }
+
+    private async Task ShowAtlasAsync(LibraryAtlas atlas)
+    {
+        _atlas = atlas;
+        _placed = null;
+        await ShowFamilyAsync(atlas.Root, [new Crumb("all", atlas.Root)]);
+    }
+
     private (ImportedItem Item, IReadOnlyList<LibraryFamily> Path)? _placed;
 
     /// <summary>Sounds imported this session.</summary>
@@ -214,6 +326,12 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (atlas.Root.Size == 0)
+        {
+            _status("No sounds match the filter.");
+            return;
+        }
+
         int version = _loadVersion;
         IReadOnlyList<LibraryFamily> path = await Task.Run(() => atlas.Locate(item.Print));
         if (version != _loadVersion || !ReferenceEquals(atlas, _atlas))
@@ -230,7 +348,10 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
 
         Select(_children.Count);
-        _status($"{item.Name} placed among {_children.Count} {(path[^1].Size <= LibraryAtlas.Branching ? "sounds" : "families")} like it; one level up shows the neighbouring families.");
+        string outside = !_filter.IsEmpty && !_filter.Matches(SoundTraits.Of(item.Print, item.Sound.Patch))
+            ? " Placed among the filtered sounds; it does not match the filter itself."
+            : string.Empty;
+        _status($"{item.Name} placed among {_children.Count} {(path[^1].Size <= LibraryAtlas.Branching ? "sounds" : "families")} like it; one level up shows the neighbouring families.{outside}");
     }
 
     /// <summary>Loads the library the first time the tab is shown.</summary>
@@ -361,6 +482,13 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         Nodes = null;
         Edges = null;
         SelectedIndex = -1;
+        _fullAtlas = null;
+        _traits = null;
+        _filter = SoundFilter.None;
+        _filterVersion++;
+        FilterRows.Clear();
+        FilterSummary = null;
+        OnPropertyChanged(nameof(HasFilter));
         bool onDisk = StructureLibrary.IsAvailable(profile, _size);
         GraphMessage = onDisk
             ? $"Loading the {name} library…"
@@ -381,7 +509,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         });
         try
         {
-            LibraryAtlas atlas = await Task.Run(() =>
+            (LibraryAtlas atlas, SoundTraits[] traits, int[] counts) = await Task.Run(() =>
             {
                 StructureLibrary library = StructureLibrary.For(profile, _size, SynthesisBackends.RendererFor(profile), progress: progress);
                 string cache = LibraryAtlas.CacheFileOf(StructureLibrary.FileOf(profile, _size));
@@ -390,13 +518,19 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                     ((IProgress<string>)stage).Report($"Grouping the {name} sounds into families (once, under a minute)…");
                 }
 
-                return LibraryAtlas.Open(library, cache);
+                LibraryAtlas opened = LibraryAtlas.Open(library, cache);
+                ((IProgress<string>)stage).Report($"Reading the {name} sounds…");
+                SoundTraits[] t = SoundTraits.Of(library);
+                return (opened, t, SoundFilter.None.Counts(t, TraitValue.All));
             });
             if (version != _loadVersion)
             {
                 return;
             }
 
+            _fullAtlas = atlas;
+            _traits = traits;
+            BuildFilterRows(counts, traits.Length);
             _atlas = atlas;
             if (!await ShowFamilyAsync(atlas.Root, [new Crumb("all", atlas.Root)]) || version != _loadVersion)
             {
@@ -506,6 +640,20 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     }
 
     private static double Brightness(byte[] print) => Math.Clamp(Math.Log2(SoundDescriptors.BrightnessRatio(print)) / 4.0, 0.0, 1.0);
+
+    /// <summary>The chips that split the library: some sounds have the value and some do not.</summary>
+    private void BuildFilterRows(int[] counts, int size)
+    {
+        FilterRows.Clear();
+        IEnumerable<IGrouping<TraitFacet, (TraitValue Value, int Count)>> facets = TraitValue.All
+            .Select((v, k) => (Value: v, Count: counts[k]))
+            .Where(x => x.Count > 0 && x.Count < size)
+            .GroupBy(static x => x.Value.Facet);
+        foreach (IGrouping<TraitFacet, (TraitValue Value, int Count)> facet in facets)
+        {
+            FilterRows.Add(new TraitRow(TraitValue.TitleOf(facet.Key), [.. facet.Select(x => new TraitChip(x.Value, x.Count, OnChipToggled))]));
+        }
+    }
 
     private static string CrumbLabel(LibraryAtlas atlas, LibraryFamily family, int index)
     {

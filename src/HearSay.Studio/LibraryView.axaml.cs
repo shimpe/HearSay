@@ -59,6 +59,8 @@ public sealed partial class LibraryView : UserControl
 
     private void OnShowInSearch(object? sender, RoutedEventArgs e) => ViewModel.ShowInSearch();
 
+    private void OnClearFilter(object? sender, RoutedEventArgs e) => ViewModel.ClearFilter();
+
     private async void OnImport(object? sender, RoutedEventArgs e)
     {
         if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
