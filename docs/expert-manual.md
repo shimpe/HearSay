@@ -292,9 +292,10 @@ exits, for packaging.
 ### The Library tab
 
 The Library tab shows the structure library of FM7, FMX6 or Nome6 as sound families: k-means on the spectral
-fingerprints splits the 300 000 sounds into 40 families, each family into 40 more, down to single sounds. Every node is
-a real sound, the member closest to its family's centre; nodes are sized by the number of sounds and coloured from
-dark (blue) to bright (yellow), and each is joined to its two nearest neighbours.
+fingerprints splits the 300 000 sounds (600 000 for FMX6 and Nome6, half of them noise-free) into 40 families, each
+family into 40 more, down to single sounds. Every node is a real sound, the member closest to its family's centre;
+nodes are sized by the number of sounds and coloured from dark (blue) to bright (yellow), and each is joined to its two
+nearest neighbours.
 
 - Click a node to hear it at A3 (the note the library was rendered at) and see its code and block diagram; the
   keyboard plays the last clicked sound at any pitch. Double-click a family, or click the plus, to open it; the
@@ -308,13 +309,15 @@ dark (blue) to bright (yellow), and each is joined to its two nearest neighbours
   star among the sounds like it. One level up, the family it fell in has a dashed ring. Placement is by sound, so an
   FM7 export can be placed in the FMX6 library.
 - **Filter ▾** shows only some sounds: by the waveforms and filter types of the operators you can hear, brightness,
-  envelope, noise (*noisy* or *noise-free*), the number of audible operators and feedback. Values in a row are alternatives, rows must all hold
-  (*saw or square*, and *low-pass*). Each chip shows how many sounds match the rest of the filter and have its value.
-  The matching sounds are grouped into families of their own (a few seconds), so the screen stays full; **Clear**
-  returns to all sounds. An imported sound is placed among the filtered sounds.
+  envelope, noise (*noisy* or *noise-free*), the number of audible operators and feedback. Values in a row are
+  alternatives, rows must all hold (*saw or square*, and *low-pass*). Each chip shows how many sounds match the rest of
+  the filter and have its value. The matching sounds are grouped into families of their own (a few seconds), so the
+  screen stays full; **Clear** returns to all sounds. An imported sound is placed among the filtered sounds.
 
 The first time a library is opened its top level is grouped (under a minute) and kept next to the library as
-`…-atlas-v1.bin`; a library missing on disk is built first (FMX6: about 17 minutes).
+`…-atlas-v1.bin`; a library missing on disk is built first, and the graph shows the share done and the time left
+(FMX6: about 20 minutes on 24 threads; when the older FMX6 library is on disk only its noise-free sounds are added,
+about 12).
 
 ## 10. The command line
 
@@ -409,7 +412,7 @@ Threading: the matcher is thread-safe and stateless; evaluations run in parallel
 | `MaxRestartsPerBasin` [3] | topology-mutation rounds for a stuck basin | more for structures that need several additions |
 | `MaxActiveParameters` [32] | largest CMA-ES dimension; bigger patches are optimized group by group | rarely |
 | `ScreeningShare` [0.05], `SurvivorShare` [0.15], `DeepShare` [0.35], `FinalistShare` [0.75] | budget split | move budget towards the stage that still improves in the summary |
-| `StructureLibrarySize` [300 000] | random patches whose nearest neighbours by sound become hypotheses; built once per profile (FM7 about 90 s, Nome6 about 6 min) and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` | 0 to turn the lookup off, for example in quick tests; larger for closer neighbours |
+| `StructureLibrarySize` [300 000] | random patches whose nearest neighbours by sound become hypotheses, plus as many noise-free ones for FMX6 and Nome6; built once per profile (FM7 under a minute, Nome6 about 11 min, FMX6 about 20 min on 24 threads, less when the older library of the profile is on disk, with the share done and the time left in the progress) and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` | 0 to turn the lookup off, for example in quick tests; larger for closer neighbours |
 | `LibraryBasinMode` [Extra], `LibraryBasinCount` [2] | how library neighbours share the basins: Extra adds up to two basins on top of those of the read structures, Capped lets at most two compete, Free lets them compete for all | give about a third more budget with Extra; Free for sounds made like the library's random patches |
 
 The search keeps a hypothesis cut per prior provider (each provider's best in turn), so a provider with modest scores

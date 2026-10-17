@@ -509,6 +509,20 @@ public sealed class SearchComponentTests
     }
 
     [Fact]
+    public void Evaluator_WithAudio_ScoresAPatchTheBackendCannotPlayAsUnusable()
+    {
+        // 30 rad into one carrier is past the 24 rad limit: the renderer refuses the patch.
+        PatchEvaluator evaluator = Evaluator(budget: 5);
+
+        (PatchEvaluation Evaluation, RenderedAudio? Audio)? measured = evaluator.EvaluateWithAudio(ParameterTests.Stack(30.0), EvaluationLevel.Normal);
+
+        Assert.NotNull(measured);
+        Assert.Null(measured.Value.Audio);
+        Assert.Equal(StackTarget.Value.Options.UnusableLoss, measured.Value.Evaluation.AudioLoss);
+        Assert.Equal(1, evaluator.Used);
+    }
+
+    [Fact]
     public void Evaluator_ResultsDoNotDependOnParallelism()
     {
         OperatorMatrixPatch[] patches = [.. Enumerable.Range(0, 12).Select(static i => ParameterTests.Stack(0.5 + (0.4 * i)))];

@@ -247,11 +247,12 @@ public sealed class PatchEvaluator
 
     /// <summary>
     /// Evaluates one patch and also returns its render at the reference note, for callers that need more than the loss
-    /// from the same audio. Counts as one evaluation; null when the budget is used up. Not cached.
+    /// from the same audio. Counts as one evaluation; null when the budget is used up. Not cached. The audio is null when
+    /// the backend cannot play the patch; the evaluation then carries the unusable loss.
     /// </summary>
     /// <param name="patch">Patch to evaluate.</param>
     /// <param name="level">Evaluation level.</param>
-    public (PatchEvaluation Evaluation, RenderedAudio Audio)? EvaluateWithAudio(OperatorMatrixPatch patch, EvaluationLevel level)
+    public (PatchEvaluation Evaluation, RenderedAudio? Audio)? EvaluateWithAudio(OperatorMatrixPatch patch, EvaluationLevel level)
     {
         ArgumentNullException.ThrowIfNull(patch);
         if (Interlocked.Increment(ref _counter.Used) > Budget)
@@ -260,15 +261,18 @@ public sealed class PatchEvaluator
             return null;
         }
 
-        (PatchEvaluation evaluation, RenderedAudio? audio) = Measure(patch, level);
+        (PatchEvaluation evaluation, RenderedAudio? audio, bool playable) = Measure(patch, level);
         _cache[(patch.ComputeHash(), level)] = evaluation;
-        return (evaluation, audio ?? _renderer.Render(patch, Request));
+        return (evaluation, playable ? audio ?? _renderer.Render(patch, Request) : null);
     }
 
     private PatchEvaluation EvaluateOne(OperatorMatrixPatch patch, EvaluationLevel level) => Measure(patch, level).Evaluation;
 
-    /// <summary>Renders the patch at every note and combines the losses; the render of the reference note is returned with them.</summary>
-    private (PatchEvaluation Evaluation, RenderedAudio? Reference) Measure(OperatorMatrixPatch patch, EvaluationLevel level)
+    /// <summary>
+    /// Renders the patch at every note and combines the losses; the render of the reference note is returned with them. Not
+    /// playable: the backend refused the patch, which gets the unusable loss.
+    /// </summary>
+    private (PatchEvaluation Evaluation, RenderedAudio? Reference, bool Playable) Measure(OperatorMatrixPatch patch, EvaluationLevel level)
     {
         double complexity = PatchComplexity.Measure(patch, _complexity);
         double loss = 0;
@@ -298,7 +302,7 @@ public sealed class PatchEvaluator
         {
             // A search must not propose such patches; if one slips through it simply loses.
             var unusable = new ObjectiveTerms(1, 1, 1, 1, 1, 1, 1, 1);
-            return (new PatchEvaluation(patch, Target.Options.UnusableLoss + (_complexityWeight * complexity), Target.Options.UnusableLoss, complexity, unusable, level), null);
+            return (new PatchEvaluation(patch, Target.Options.UnusableLoss + (_complexityWeight * complexity), Target.Options.UnusableLoss, complexity, unusable, level), null, false);
         }
 
         var combined = new ObjectiveTerms(
@@ -310,7 +314,7 @@ public sealed class PatchEvaluator
             Mean(terms, termWeights, 5),
             Mean(terms, termWeights, 6),
             Mean(terms, termWeights, 7));
-        return (new PatchEvaluation(patch, loss + (_complexityWeight * complexity), loss, complexity, combined, level), reference);
+        return (new PatchEvaluation(patch, loss + (_complexityWeight * complexity), loss, complexity, combined, level), reference, true);
     }
 
     private static void Accumulate(double[] sums, double[] weights, ObjectiveTerms t, double w)

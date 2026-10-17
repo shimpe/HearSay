@@ -5,6 +5,8 @@ using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 
+// Renders on every core at full clock, also when the console is not in the foreground.
+ProcessSpeed.RunAtFullSpeed();
 return Cli.Run(args);
 
 /// <summary>Command line of HearSay.</summary>
@@ -177,13 +179,18 @@ internal static class Cli
         string lastStage = string.Empty;
         var progress = new SynchronousProgress(p =>
         {
-            string key = p.Run + ":" + p.Stage;
-            if (!quiet && key != lastStage)
+            // A structure library build reports every percent; a line per tenth is enough.
+            string key = p.Preparation is double f ? p.Run + ":build:" + Math.Floor(f * 10) : p.Run + ":" + p.Stage;
+            if (quiet || key == lastStage)
             {
-                lastStage = key;
-                string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run}/{p.RunCount} ") : string.Empty;
-                Console.Error.WriteLine(FormattableString.Invariant($"{run}[{p.EvaluationsUsed,6}/{p.EvaluationBudget}] {p.Stage,-32} best loss {p.BestLoss:F4}"));
+                return;
             }
+
+            lastStage = key;
+            string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run}/{p.RunCount} ") : string.Empty;
+            Console.Error.WriteLine(p.Preparation is not null
+                ? p.Stage
+                : FormattableString.Invariant($"{run}[{p.EvaluationsUsed,6}/{p.EvaluationBudget}] {p.Stage,-32} best loss {p.BestLoss:F4}"));
         });
 
         int seeds = (int)(Number(options, "seeds") ?? 1);

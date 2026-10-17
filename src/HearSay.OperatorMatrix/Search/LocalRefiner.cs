@@ -149,7 +149,8 @@ public sealed class LocalRefiner
         int accepted = 0;
         long iteration = history.Count;
 
-        (PatchEvaluation Evaluation, ToneComparisonResult Comparison)? Measure(double[] at, OptimizationStepType type)
+        // Comparison is null when the backend cannot play the candidate: it costs an evaluation, loses, and teaches nothing.
+        (PatchEvaluation Evaluation, ToneComparisonResult? Comparison)? Measure(double[] at, OptimizationStepType type)
         {
             if (spent >= evaluations || _evaluator.Remaining == 0)
             {
@@ -157,7 +158,7 @@ public sealed class LocalRefiner
             }
 
             OperatorMatrixPatch candidate = set.Apply(patch, at);
-            (PatchEvaluation Evaluation, RenderedAudio Audio)? measured = _evaluator.EvaluateWithAudio(candidate, level);
+            (PatchEvaluation Evaluation, RenderedAudio? Audio)? measured = _evaluator.EvaluateWithAudio(candidate, level);
             if (measured is null)
             {
                 return null;
@@ -166,6 +167,11 @@ public sealed class LocalRefiner
             // Loss and diagnostic vector come from the same render.
             spent++;
             PatchEvaluation evaluation = measured.Value.Evaluation;
+            if (measured.Value.Audio is null)
+            {
+                return (evaluation, null);
+            }
+
             ToneComparisonResult comparison = _comparer.Compare(_target, measured.Value.Audio.ToAudioNote(_target.FundamentalHz));
             var observation = new OptimizationObservation(
                 iteration++,
@@ -182,8 +188,9 @@ public sealed class LocalRefiner
         }
 
         var current = Measure(position, OptimizationStepType.Exploitation);
-        if (current is null)
+        if (current?.Comparison is null)
         {
+            basin.Evaluations += spent;
             return 0;
         }
 
@@ -198,7 +205,7 @@ public sealed class LocalRefiner
                 break;
             }
 
-            if (result.Value.Evaluation.Loss < current.Value.Evaluation.Loss)
+            if (result.Value.Comparison is not null && result.Value.Evaluation.Loss < current.Value.Evaluation.Loss)
             {
                 position = probe;
                 current = result;
@@ -241,7 +248,7 @@ public sealed class LocalRefiner
             }
 
             // The diagnostic vector proposes, the audio objective decides.
-            if (result.Value.Evaluation.Loss < current.Value.Evaluation.Loss)
+            if (result.Value.Comparison is not null && result.Value.Evaluation.Loss < current.Value.Evaluation.Loss)
             {
                 position = next;
                 current = result;

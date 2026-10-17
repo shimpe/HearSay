@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using HearSay.Analysis;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.Synthesis.Fm7Compatible.Rendering;
+using HearSay.Synthesis.Fmx6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -14,9 +15,12 @@ public sealed class StructureLibraryTests
     private static readonly Fm7CompatibleOperatorMatrixRenderer Renderer = new();
     private static readonly Lazy<StructureLibrary> Small = new(() => StructureLibrary.Build(Fm7, 600, Renderer));
 
-    private static byte[] Print(OperatorMatrixPatch patch, double hz)
+    private static readonly SynthesisProfile Fmx6 = SynthesisProfiles.SuperColliderFmx6;
+    private static readonly Fmx6CompatibleOperatorMatrixRenderer Fmx6Renderer = new();
+
+    private static byte[] Print(OperatorMatrixPatch patch, double hz, IOperatorMatrixRenderer? renderer = null)
     {
-        RenderedAudio audio = Renderer.Render(patch, RenderRequest.Create(hz, 1.0, 0.3));
+        RenderedAudio audio = (renderer ?? Renderer).Render(patch, RenderRequest.Create(hz, 1.0, 0.3));
         return SpectralFingerprint.Of(audio.Samples, audio.SampleRate, hz);
     }
 
@@ -112,14 +116,14 @@ public sealed class StructureLibraryTests
             StructureLibrary library = StructureLibrary.For(fmx6, 120, new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer(), directory);
 
             Assert.Single(Directory.GetFiles(directory, $"{fm7.Name}-v1-30.bin"));
-            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v2-120.bin"));
+            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v3-120.bin"));
             int filtered = 0;
-            foreach ((int seed, long _) in library.Nearest(new byte[SpectralFingerprint.Length], 120))
+            foreach ((int seed, long _) in library.Nearest(new byte[SpectralFingerprint.Length], 240))
             {
                 filtered += library.Patch(seed).Operators.Any(static o => o.Filter is not null) ? 1 : 0;
             }
 
-            Assert.InRange(filtered, 30, 110);
+            Assert.InRange(filtered, 60, 220);
         }
         finally
         {
@@ -142,5 +146,107 @@ public sealed class StructureLibraryTests
         Assert.Contains("with the envelopes of the target", hypotheses[1].Origin, StringComparison.Ordinal);
         Assert.Equal(hypotheses[0].Patch.ModulationMatrix, hypotheses[1].Patch.ModulationMatrix);
         Assert.True(hypotheses[0].PriorScore > hypotheses[2].PriorScore);
+    }
+
+    private static bool HasNoise(OperatorMatrixPatch patch) =>
+        patch.Operators.Any(static o => o.Enabled && (o.Waveform.IsNoise() || o.NoisePhase != 0.0 || o.NoiseM != 0.0));
+
+    [Fact]
+    public void Library_OfAProfileWithNoise_HasAsManyNoiseFreeSoundsAgain()
+    {
+        StructureLibrary library = StructureLibrary.Build(Fmx6.Capabilities, 60, Fmx6Renderer);
+
+        Assert.Equal(120, library.Count);
+        Assert.Equal(120, StructureLibrary.CountFor(Fmx6.Capabilities, 60));
+        Assert.Equal(60, StructureLibrary.CountFor(Fm7, 60));
+        Assert.Equal(Enumerable.Range(50_000_000, 60), Enumerable.Range(0, 60).Select(library.Seed));
+        Assert.Contains(Enumerable.Range(0, 60), i => HasNoise(library.Patch(library.Seed(i))));
+        Assert.All(Enumerable.Range(60, 60), i => Assert.False(HasNoise(library.Patch(library.Seed(i))), $"sound {i}"));
+        Assert.Equal(Print(library.Patch(library.Seed(90)), StructureLibrary.ReferenceHz, Fmx6Renderer), library.Fingerprint(90).ToArray());
+    }
+
+    [Fact]
+    public void NoiseFreeSounds_OfNome6_AreNotRoughenedEither()
+    {
+        SynthesisCapabilities nome6 = SynthesisProfiles.SuperColliderNome6.Capabilities;
+        Assert.Contains(Enumerable.Range(0, 200), i => HasNoise(StructureLibrary.Generate(nome6, 50_000_000 + i)));
+        Assert.All(Enumerable.Range(0, 200), i => Assert.False(HasNoise(StructureLibrary.Generate(nome6, StructureLibrary.NoiseFreeFirstSeed + i))));
+    }
+
+    [Fact]
+    public void ProfilesWithNoise_HaveANewLibraryVersionThatReusesTheOldOne()
+    {
+        Assert.Equal((3, 2), (Fmx6.StructureLibraryVersion, Fmx6.StructureLibraryReusedVersion));
+        Assert.Equal((2, 1), (SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion, SynthesisProfiles.SuperColliderNome6.StructureLibraryReusedVersion));
+        Assert.Equal((1, (int?)null), (SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion, SynthesisProfiles.SuperColliderFm7.StructureLibraryReusedVersion));
+    }
+
+    /// <summary>Writes a library file of an older version by hand: every fingerprint byte is <paramref name="marker"/>.</summary>
+    private static void WriteOldLibrary(string file, int version, int size, byte marker)
+    {
+        using var writer = new BinaryWriter(File.Create(file));
+        writer.Write(version);
+        writer.Write(size);
+        writer.Write(SpectralFingerprint.Length);
+        for (int i = 0; i < size; i++)
+        {
+            writer.Write(50_000_000 + i);
+        }
+
+        writer.Write(Enumerable.Repeat(marker, size * SpectralFingerprint.Length).ToArray());
+    }
+
+    [Fact]
+    public void NewVersion_ReusesTheSoundsOfTheOldFile_AndRendersOnlyTheNoiseFreeOnes()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "hearsay-library-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            SynthesisProfile profile = Fmx6 with { Name = "test-fmx6-" + Guid.NewGuid().ToString("N") };
+            SynthesisProfile old = profile with { StructureLibraryVersion = 2, StructureLibraryReusedVersion = null };
+            Assert.Equal(80, StructureLibrary.SoundsToRender(profile, 40, directory));
+            WriteOldLibrary(StructureLibrary.FileOf(old, 40, directory), 2, 40, marker: 7);
+            Assert.Equal(40, StructureLibrary.SoundsToRender(profile, 40, directory));
+
+            var recorder = new Recorder();
+            StructureLibrary library = StructureLibrary.For(profile, 40, Fmx6Renderer, directory, recorder);
+
+            Assert.Equal(80, library.Count);
+            Assert.All(library.Fingerprint(0).ToArray(), static b => Assert.Equal(7, b));
+            Assert.Equal(Print(library.Patch(library.Seed(50)), StructureLibrary.ReferenceHz, Fmx6Renderer), library.Fingerprint(50).ToArray());
+            Assert.Contains(1.0, recorder.Values);
+            Assert.Equal(0, StructureLibrary.SoundsToRender(profile, 40, directory));
+
+            // Saved whole: another process loads all 80 sounds from the new file.
+            Assert.True(File.Exists(StructureLibrary.FileOf(profile, 40, directory)));
+            Assert.True(new FileInfo(StructureLibrary.FileOf(profile, 40, directory)).Length > 80 * SpectralFingerprint.Length);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ABuildInProgress_ReportsToEveryCallerThatWaitsForIt()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "hearsay-library-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            SynthesisProfile profile = SynthesisProfiles.SuperColliderFm7 with { Name = "test-" + Guid.NewGuid().ToString("N") };
+            var first = new Recorder();
+            var second = new Recorder();
+            Task<StructureLibrary> building = Task.Run(() => StructureLibrary.For(profile, 2000, Renderer, directory, first));
+            SpinWait.SpinUntil(() => !first.Values.IsEmpty, TimeSpan.FromSeconds(30));
+            StructureLibrary waited = StructureLibrary.For(profile, 2000, Renderer, directory, second);
+
+            Assert.Same(await building, waited);
+            Assert.Contains(1.0, second.Values);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 }

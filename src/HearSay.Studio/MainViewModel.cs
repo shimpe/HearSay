@@ -471,7 +471,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = profile, StructureLibrarySize = UseStructureLibrary ? new PatchMatchOptions().StructureLibrarySize : 0 };
                 var progress = new Progress<SearchProgress>(p =>
                 {
-                    Progress = (index + p.Fraction) / profiles.Count;
+                    // While a structure library is built, the bar shows the build, then the search.
+                    Progress = (index + (p.Preparation ?? p.Fraction)) / profiles.Count;
                     string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run} of {p.RunCount} (seed {Seed + p.Run - 1}) · ") : string.Empty;
                     string previous = double.IsNaN(p.BestLossOfPreviousRuns) ? string.Empty : FormattableString.Invariant($" · best of earlier seeds {p.BestLossOfPreviousRuns:F4}");
                     // Before the search proper (building a structure library) there is no loss yet.

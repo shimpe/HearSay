@@ -510,15 +510,20 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         FilterRows.Clear();
         FilterSummary = null;
         OnPropertyChanged(nameof(HasFilter));
-        bool onDisk = StructureLibrary.IsAvailable(profile, _size);
-        GraphMessage = onDisk
-            ? $"Loading the {name} library…"
-            : string.Create(CultureInfo.InvariantCulture, $"Building the {name} library ({_size:N0} sounds, once; FMX6 takes about 17 minutes)…");
+
+        // Building takes minutes: the graph says what is rendered, the share done and the time left.
+        int toRender = StructureLibrary.SoundsToRender(profile, _size);
+        string building = toRender < StructureLibrary.CountFor(profile.Capabilities, _size)
+            ? string.Create(CultureInfo.InvariantCulture, $"Adding {toRender:N0} noise-free sounds to the {name} library, once")
+            : string.Create(CultureInfo.InvariantCulture, $"Building the {name} library: {toRender:N0} sounds to render, once");
+        var clock = new RemainingTime();
+        GraphMessage = toRender == 0 ? $"Loading the {name} library…" : $"{building}; {clock.Describe(0.0)}…";
         var progress = new Progress<double>(f =>
         {
             if (version == _loadVersion)
             {
                 _progress(f);
+                GraphMessage = $"{building}; {clock.Describe(f)}…";
             }
         });
         var stage = new Progress<string>(s =>

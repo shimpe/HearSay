@@ -92,6 +92,12 @@ public sealed record SynthesisProfile(
     /// layout or the fingerprint changes.
     /// </summary>
     public int StructureLibraryVersion { get; init; } = 1;
+
+    /// <summary>
+    /// An older structure library version whose sounds are the first part of this version: when its file is on disk, it
+    /// is read instead of rendered again, and only the sounds this version adds are rendered. Null: none.
+    /// </summary>
+    public int? StructureLibraryReusedVersion { get; init; }
 }
 
 /// <summary>Built-in synthesis profiles.</summary>
@@ -146,7 +152,8 @@ public static class SynthesisProfiles
         ControlBlockSize: 64,
         "Six operators with sine, triangle, saw, square, pulse, noise and filtered-noise waveforms and a filter per operator, full 6x6 matrix, SuperCollider FMX6 UGen.")
     {
-        StructureLibraryVersion = 2,
+        StructureLibraryVersion = 3,
+        StructureLibraryReusedVersion = 2,
     };
 
     /// <summary>
@@ -164,7 +171,11 @@ public static class SynthesisProfiles
         },
         RenderProfile.BackendExact,
         ControlBlockSize: 64,
-        "Six Jacobi elliptic phase-modulation operators (sine at m = 0) and a shared filtered noise source, full 6x6 matrix, 2x oversampled, SuperCollider Nome6 UGen.");
+        "Six Jacobi elliptic phase-modulation operators (sine at m = 0) and a shared filtered noise source, full 6x6 matrix, 2x oversampled, SuperCollider Nome6 UGen.")
+    {
+        StructureLibraryVersion = 2,
+        StructureLibraryReusedVersion = 1,
+    };
 
     /// <summary>
     /// Experimental profile that adds triangle operators. It exists to prove that waveform is a structural search
