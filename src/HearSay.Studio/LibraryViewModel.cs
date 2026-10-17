@@ -64,6 +64,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private SoundTraits[]? _traits;
     private SoundFilter _filter = SoundFilter.None;
     private int _filterVersion;
+    private SoundFilter _shownFilter = SoundFilter.None;
     private string? _filterSummary;
 
     /// <summary>Creates the view model.</summary>
@@ -181,7 +182,14 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         _filter = filter;
         OnPropertyChanged(nameof(HasFilter));
         FilterSummary = filter.IsEmpty ? null : $"filter: {filter.Describe()} — counting…";
-        _ = ApplyFilterAsync(++_filterVersion);
+        int version = ++_filterVersion;
+        if (filter.IsEmpty && !_shownFilter.IsEmpty && _fullAtlas is { } full)
+        {
+            // The unfiltered tree is at hand: show it at once; only the chip counts wait.
+            _ = ShowAtlasAsync(full, SoundFilter.None);
+        }
+
+        _ = ApplyFilterAsync(version);
     }
 
     /// <summary>
@@ -212,16 +220,26 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             chips[k].Count = counts[k];
         }
 
-        if (filter.IsEmpty)
+        FilterSummary = filter.IsEmpty ? null : string.Create(CultureInfo.InvariantCulture, $"filter: {filter.Describe()} — {members.Length:N0} sounds");
+        if (SameChoice(filter, _shownFilter))
         {
-            FilterSummary = null;
-            await ShowAtlasAsync(full);
+            // The tree shown is already this filter's (a chip chosen and released again): keep the place in it.
             return;
         }
 
-        FilterSummary = string.Create(CultureInfo.InvariantCulture, $"filter: {filter.Describe()} — {members.Length:N0} sounds");
+        if (filter.IsEmpty)
+        {
+            await ShowAtlasAsync(full, filter);
+            return;
+        }
+
+        // The outgoing tree can no longer be browsed or placed into: its breadcrumb goes with it.
         _navVersion++;
         _placed = null;
+        _atlas = null;
+        _family = null;
+        _children = [];
+        Crumbs.Clear();
         Nodes = null;
         Edges = null;
         SelectedIndex = -1;
@@ -229,8 +247,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         {
             _atlas = LibraryAtlas.Build(full.Library, []);
             _family = _atlas.Root;
-            _children = [];
-            Crumbs.Clear();
+            _shownFilter = filter;
             GraphMessage = "No sounds match the filter.";
             return;
         }
@@ -247,15 +264,18 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             return;
         }
 
-        await ShowAtlasAsync(atlas);
+        await ShowAtlasAsync(atlas, filter);
     }
 
-    private async Task ShowAtlasAsync(LibraryAtlas atlas)
+    private async Task ShowAtlasAsync(LibraryAtlas atlas, SoundFilter filter)
     {
         _atlas = atlas;
+        _shownFilter = filter;
         _placed = null;
         await ShowFamilyAsync(atlas.Root, [new Crumb("all", atlas.Root)]);
     }
+
+    private static bool SameChoice(SoundFilter a, SoundFilter b) => a.Chosen.Count == b.Chosen.Count && a.Chosen.All(b.Contains);
 
     private (ImportedItem Item, IReadOnlyList<LibraryFamily> Path)? _placed;
 
@@ -322,7 +342,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(item);
         if (_atlas is not { } atlas)
         {
-            _status("The library is not ready yet; place the sound when it is.");
+            _status(_fullAtlas is null ? "The library is not ready yet; place the sound when it is." : "The filtered sounds are being grouped; place the sound when they are shown.");
             return;
         }
 
@@ -486,6 +506,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         _traits = null;
         _filter = SoundFilter.None;
         _filterVersion++;
+        _shownFilter = SoundFilter.None;
         FilterRows.Clear();
         FilterSummary = null;
         OnPropertyChanged(nameof(HasFilter));

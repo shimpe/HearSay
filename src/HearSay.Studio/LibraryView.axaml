@@ -63,10 +63,10 @@
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFilter}">
-          <TextBlock Text="{Binding FilterSummary}" FontSize="11" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-          <Button Content="Clear" Click="OnClearFilter" Padding="6,2" FontSize="11" Background="Transparent" Foreground="{StaticResource AccentBrush}" />
-        </StackPanel>
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="6" IsVisible="{Binding HasFilter}">
+          <TextBlock Grid.Column="0" Text="{Binding FilterSummary}" FontSize="11" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FilterSummary}" />
+          <Button Grid.Column="1" Content="Clear" Click="OnClearFilter" Padding="6,2" FontSize="11" Background="Transparent" Foreground="{StaticResource AccentBrush}" />
+        </Grid>
         <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="8">
           <ListBox Grid.Column="0" Width="170" ItemsSource="{Binding Imports}" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6" IsVisible="{Binding Imports.Count}" Tapped="OnImportTapped">
             <ListBox.ItemTemplate>
