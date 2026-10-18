@@ -1,3 +1,4 @@
+using HearSay.Playing;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -17,10 +18,6 @@ public sealed class NotePlayer(AudioPlayer player)
     /// <summary>True when an audio device could be opened.</summary>
     public bool CanPlay => player.IsAvailable;
 
-    /// <summary>True when the patch reacts to key velocity; otherwise the keyboard applies it as volume.</summary>
-    /// <param name="patch">Patch.</param>
-    public static bool RespondsToVelocity(OperatorMatrixPatch patch) => patch.Operators.Any(static o => o.Enabled && o.VelocitySensitivity > 0);
-
     /// <summary>Renders a note and plays it, unless another note was asked for meanwhile.</summary>
     /// <param name="patch">Patch.</param>
     /// <param name="profile">Profile whose renderer plays it.</param>
@@ -39,7 +36,7 @@ public sealed class NotePlayer(AudioPlayer player)
             if (!known)
             {
                 RenderedAudio full = renderer.Render(patch, gainReference with { Velocity = 1.0 });
-                g = full.Peak > 0 ? 0.5f / full.Peak : 1f;
+                g = PlaybackLevel.GainFor(full.Peak);
             }
 
             return (renderer.Render(patch, note), g);
@@ -50,7 +47,7 @@ public sealed class NotePlayer(AudioPlayer player)
         }
 
         (_gainPatch, _gain) = (patch, gain);
-        float level = gain * (RespondsToVelocity(patch) ? 1f : (float)note.Velocity);
+        float level = gain * PlaybackLevel.VelocityVolume(patch, note.Velocity);
         player.Play(Scale(audio, Math.Min(level, 0.98f / Math.Max(1e-6f, audio.Peak))));
         return true;
     }

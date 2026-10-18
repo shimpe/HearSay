@@ -380,6 +380,43 @@ public sealed class VoiceMixerTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void PrepareAsync_DoesNotWaitForABusyThreadPool()
+    {
+        // A search keeps every pool thread busy; the gain of a newly shown sound must not queue behind its work.
+        // Not disposed: work items still queued when the test ends pass through it once it is set.
+        var gate = new ManualResetEventSlim(false);
+        try
+        {
+            for (int i = 0; i < 2000; i++)
+            {
+                ThreadPool.UnsafeQueueUserWorkItem(static g => ((ManualResetEventSlim)g!).Wait(), gate);
+            }
+
+            Sound sound = SoundOf(Other());
+            var mixer = new VoiceMixer();
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            Task prepared = mixer.PrepareAsync(sound);
+
+            // Polled, not awaited or waited on: a wait could run a queued task inline, and a continuation needs the pool.
+            while (!prepared.IsCompleted && watch.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                Thread.Sleep(5);
+            }
+
+            output.WriteLine($"Gain ready after {watch.Elapsed.TotalMilliseconds:F0} ms with the pool busy.");
+            Assert.True(prepared.IsCompletedSuccessfully, "The gain waited for the busy thread pool.");
+            Assert.True(mixer.NoteOn(60, 0.8, sound, Midi));
+            var buffer = new float[Chunk];
+            mixer.Render(buffer);
+            Assert.True(Peak(buffer) > 0f);
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [Fact]
     public async Task NoteMethods_FromOtherThreads_WhileRendering()
     {
         Sound sound = SoundOf(Sustaining());

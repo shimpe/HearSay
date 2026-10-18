@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
+using HearSay.Playing;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
@@ -732,7 +733,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         var note = new RenderRequest(hz, midiNote, velocity, reference.NoteDuration, reference.ReleaseDuration, reference.SampleRate);
         if (await _notes.PlayAsync(selection.Patch, selection.Profile, reference, note))
         {
-            PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (NotePlayer.RespondsToVelocity(selection.Patch) ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
+            PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (PlaybackLevel.RespondsToVelocity(selection.Patch) ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
         }
     }
 

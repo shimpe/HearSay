@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using HearSay.Analysis;
 using HearSay.OperatorMatrix.Search;
+using HearSay.Playing;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
@@ -702,7 +703,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var note = new RenderRequest(hz, midiNote, velocity, TimeSpan.FromSeconds(held), TimeSpan.FromSeconds(tail), result.Request.SampleRate);
         if (await Notes.PlayAsync(patch, result.Profile, result.Request, note))
         {
-            PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (NotePlayer.RespondsToVelocity(patch) ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
+            PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (PlaybackLevel.RespondsToVelocity(patch) ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
         }
     }
 
@@ -734,7 +735,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return audio;
         }
 
-        float gain = 0.5f / peak;
+        float gain = PlaybackLevel.GainFor(peak);
         var samples = new float[audio.Samples.Length];
         for (int i = 0; i < samples.Length; i++)
         {

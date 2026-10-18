@@ -12,20 +12,17 @@ namespace HearSay.Playing;
 /// <param name="Patch">Patch.</param>
 /// <param name="Profile">Profile whose renderer plays the patch.</param>
 /// <param name="GainReference">
-/// Request rendered once, at full velocity and at its own sample rate, to find the gain: 0.5 over its peak.
+/// Request rendered once, at full velocity and at its own sample rate, to find the gain (<see cref="PlaybackLevel.GainFor"/>).
 /// </param>
 public sealed record Sound(OperatorMatrixPatch Patch, SynthesisProfile Profile, RenderRequest GainReference)
 {
     /// <summary>True when the patch reacts to key velocity; otherwise the velocity of a note is applied as volume.</summary>
-    public bool RespondsToVelocity => Patch.Operators.Any(static o => o.Enabled && o.VelocitySensitivity > 0);
+    public bool RespondsToVelocity => PlaybackLevel.RespondsToVelocity(Patch);
 
-    /// <summary>The gain of the sound: 0.5 over the peak of <see cref="GainReference"/> at full velocity, 1 when it is silent.</summary>
+    /// <summary>The gain of the sound: <see cref="PlaybackLevel.GainFor"/> the peak of <see cref="GainReference"/> at full velocity.</summary>
     /// <remarks>Renders the reference note; seconds for a slow profile, so not on an interface or audio thread.</remarks>
     /// <exception cref="NotSupportedException">No renderer implements the profile.</exception>
     /// <exception cref="PatchNotSupportedException">The profile's renderer cannot play the patch.</exception>
-    public float ComputeGain()
-    {
-        RenderedAudio full = SynthesisBackends.RendererFor(Profile).Render(Patch, GainReference with { Velocity = 1.0 });
-        return full.Peak > 0 ? 0.5f / full.Peak : 1f;
-    }
+    public float ComputeGain() =>
+        PlaybackLevel.GainFor(SynthesisBackends.RendererFor(Profile).Render(Patch, GainReference with { Velocity = 1.0 }).Peak);
 }

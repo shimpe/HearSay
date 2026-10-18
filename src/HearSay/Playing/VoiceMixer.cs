@@ -9,9 +9,9 @@ namespace HearSay.Playing;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Levels are those of a single note played today: every sound has one gain, 0.5 over the peak of its reference note
-/// at full velocity (<see cref="PrepareAsync"/>), and a patch without velocity sensitivity gets the velocity as
-/// volume. The sum of the voices passes a soft limiter that leaves everything up to 0.9 unchanged and bends what is
+/// Levels are those of a single note played today (<see cref="PlaybackLevel"/>): every sound has one gain, 0.5 over the
+/// peak of its reference note at full velocity (<see cref="PrepareAsync"/>), and a patch without velocity sensitivity
+/// gets the velocity as volume. The sum of the voices passes a soft limiter that leaves everything up to 0.9 unchanged and bends what is
 /// above towards 1 with <c>tanh</c>, so that one note sounds as before and sixteen loud ones do not clip.
 /// </para>
 /// <para>
@@ -123,8 +123,9 @@ public sealed class VoiceMixer
     }
 
     /// <summary>
-    /// Computes the gain of a sound on a thread-pool thread and keeps it, so that its first note starts at once. A
-    /// note of a sound that is not prepared yet prepares it and waits for it.
+    /// Computes the gain of a sound on a thread of its own, not on the thread pool, and keeps it, so that its first note
+    /// starts at once, even while a search keeps the pool busy. A note of a sound that is not prepared yet prepares it
+    /// and waits for it.
     /// </summary>
     /// <param name="sound">Sound.</param>
     /// <returns>
@@ -176,7 +177,7 @@ public sealed class VoiceMixer
             return false;
         }
 
-        var voice = new Voice(played, note, source, prepared, prepared.RespondsToVelocity ? 1f : (float)velocity, ChunkSize);
+        var voice = new Voice(played, note, source, prepared, PlaybackLevel.VelocityVolume(sound.Patch, velocity), ChunkSize);
         lock (_lock)
         {
             int playing = 0;
@@ -532,18 +533,46 @@ public sealed class VoiceMixer
 
         if (renderer is null)
         {
-            return new PreparedSound(null, Task.FromResult(1f), false, null, 0, 0);
+            return new PreparedSound(null, Task.FromResult(1f), null, 0, 0);
         }
 
         long? afterGateOff = PatchLifetime.SecondsAfterGateOff(sound.Patch) is double seconds ? Samples(seconds) : null;
         long afterStart = afterGateOff is null ? Samples(PatchLifetime.SecondsAfterStart(sound.Patch)) : long.MaxValue;
         return new PreparedSound(
             renderer,
-            Task.Run(sound.ComputeGain),
-            sound.RespondsToVelocity,
+            ComputeGainOnItsOwnThread(sound),
             afterGateOff,
             afterStart,
             afterGateOff is null ? afterStart - _silenceSamples : long.MaxValue);
+    }
+
+    /// <summary>
+    /// Computes the gain of a sound on a thread of its own, above normal priority: not on the thread pool, which a
+    /// running search keeps busy for as long as it runs, so that the first note of a newly shown sound does not wait
+    /// for it. Continuations of the task run asynchronously, never on that thread.
+    /// </summary>
+    private static Task<float> ComputeGainOnItsOwnThread(Sound sound)
+    {
+        var gain = new TaskCompletionSource<float>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                gain.SetResult(sound.ComputeGain());
+            }
+            catch (Exception e)
+            {
+                // Reported through the task: PrepareAsync rethrows it, NoteOn declines the sound.
+                gain.SetException(e);
+            }
+        })
+        {
+            IsBackground = true,
+            Priority = ThreadPriority.AboveNormal,
+            Name = "HearSay sound gain",
+        };
+        thread.Start();
+        return gain.Task;
     }
 
     private long Samples(double seconds) => (long)Math.Round(seconds * SampleRate);
@@ -551,14 +580,13 @@ public sealed class VoiceMixer
     /// <summary>What every note of a sound shares.</summary>
     /// <param name="Renderer">Renderer that starts the voices; null when the profile has none.</param>
     /// <param name="Gain">Gain of the sound, computed off the calling thread.</param>
-    /// <param name="RespondsToVelocity">True when the voices play the velocity themselves.</param>
     /// <param name="SamplesAfterGateOff">Lifetime after the gate closes for a sustaining patch; null for a one-shot one.</param>
     /// <param name="SamplesAfterStart">Lifetime from the start for a one-shot patch; <see cref="long.MaxValue"/> for a sustaining one.</param>
     /// <param name="SilentFrom">
     /// Sample from which silence ends a voice that is still held: the end of the envelopes of a one-shot patch, 50 ms
     /// before its lifetime; <see cref="long.MaxValue"/> for a sustaining one.
     /// </param>
-    private sealed record PreparedSound(IVoiceRenderer? Renderer, Task<float> Gain, bool RespondsToVelocity, long? SamplesAfterGateOff, long SamplesAfterStart, long SilentFrom);
+    private sealed record PreparedSound(IVoiceRenderer? Renderer, Task<float> Gain, long? SamplesAfterGateOff, long SamplesAfterStart, long SilentFrom);
 
     /// <summary>One note: the voice that plays it and the state of its end.</summary>
     private sealed class Voice(IOperatorMatrixVoice played, int note, object source, PreparedSound sound, float volume, int chunkSize)
