@@ -355,7 +355,10 @@ follows every edit at once, the code a moment later, with the line *Edited in He
 - **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
   original's origin; the favourite of the original stays as it was. In the Library tab the edit then moves to the new
   favourite: it is shown and selected, and the sound it was made from goes back to its original, without the edit's
-  history, so that the old favourite reads as before when it is chosen again. The edit plays at the loudness of the original (its
+  history, so that the old favourite reads as before when it is chosen again. To change the favourite itself instead,
+  ☆ on an edit of a favourite offers *Update "name"*; after *Overwrite* the favourite keeps its nickname and origin and
+  holds the edit (its old version is gone). In the Library tab it is then shown as it now is, with no history; in the
+  Search tab the edit stays shown, now as that favourite. The edit plays at the loudness of the original (its
   gain is not normalised again, so a lower output level really is softer), and its favourite keeps that loudness: the
   gain is stored in `favourite.json` as `gain`. Favourites without it are normalised as before.
 - **Limits of the profile.** An edit always stays playable by the sound's backend. Values are clamped to the profile's

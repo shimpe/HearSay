@@ -305,6 +305,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>The favourite the edit shown here was made from, which it can update; null when no edit of a favourite is shown.</summary>
+    public FavouriteItem? EditedFavourite() => Library.EditedFavourite(Edits, ShownSound()?.Profile);
+
+    /// <summary>
+    /// Puts the edit shown here in the place of the favourite it was made from; the edit stays shown, and now is that
+    /// favourite.
+    /// </summary>
+    public async Task UpdateEditedFavouriteAsync()
+    {
+        if (ShownSound() is { } shown)
+        {
+            await Library.UpdateEditedFavouriteAsync(Edits, shown.Profile, showUpdated: false);
+        }
+    }
+
     /// <summary>Removes the shown patch from the favourites.</summary>
     public void RemoveShownFavourite()
     {

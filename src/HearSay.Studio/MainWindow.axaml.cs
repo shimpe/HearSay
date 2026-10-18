@@ -199,7 +199,14 @@ public sealed partial class MainWindow : Window
     private void OnFavouriteOpening(object? sender, EventArgs e)
     {
         ViewModel.PrepareFavouriteName();
+        UpdatePanel.ShowFor(ViewModel.EditedFavourite()?.Name);
         Avalonia.Threading.Dispatcher.UIThread.Post(() => { FavouriteBox.Focus(); FavouriteBox.SelectAll(); });
+    }
+
+    private async void OnUpdateFavourite(object? sender, EventArgs e)
+    {
+        FavouriteButton.Flyout?.Hide();
+        await ViewModel.UpdateEditedFavouriteAsync();
     }
 
     private async void OnSaveFavourite(object? sender, RoutedEventArgs e)

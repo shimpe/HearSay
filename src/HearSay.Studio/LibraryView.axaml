@@ -157,6 +157,7 @@
                     <Button Content="Remove" Click="OnRemoveShownFavourite" IsVisible="{Binding IsShownFavourite}" Foreground="{StaticResource AmberBrush}" />
                     <Button Content="Save" Click="OnSaveFavourite" />
                   </StackPanel>
+                  <local:FavouriteUpdatePanel x:Name="UpdatePanel" Update="OnUpdateFavourite" />
                 </StackPanel>
               </Flyout>
             </Button.Flyout>

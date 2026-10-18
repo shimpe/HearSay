@@ -458,6 +458,65 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>The favourite the shown edit was made from, which it can update; null when no edit of a favourite is shown.</summary>
+    public FavouriteItem? EditedFavourite() => _selection is { } s ? EditedFavourite(Edits, s.Profile) : null;
+
+    /// <summary>The favourite an edit shown in a tab was made from; null when that tab shows no edit of a favourite.</summary>
+    /// <param name="edits">The tab's editing state.</param>
+    /// <param name="profile">The profile of the sound it shows.</param>
+    public FavouriteItem? EditedFavourite(PatchEditorViewModel edits, SynthesisProfile? profile)
+    {
+        ArgumentNullException.ThrowIfNull(edits);
+        return edits.ShowsEdit && edits.Editor is { } editor && profile is not null ? FindFavourite(editor.Original, profile) : null;
+    }
+
+    /// <summary>
+    /// Puts the shown edit in the place of the favourite it was made from, which is then shown as it now is: the edit is
+    /// its sound, with no history of its own.
+    /// </summary>
+    public Task UpdateEditedFavouriteAsync() =>
+        _selection is { } s ? UpdateEditedFavouriteAsync(Edits, s.Profile, showUpdated: true) : Task.CompletedTask;
+
+    /// <summary>
+    /// Puts the edit a tab shows in the place of the favourite it was made from: same nickname and origin, the edit's
+    /// patch, played at the original's gain. The favourite's old version is gone.
+    /// </summary>
+    /// <param name="edits">The tab's editing state.</param>
+    /// <param name="profile">The profile of the sound it shows.</param>
+    /// <param name="showUpdated">
+    /// True to show the updated favourite here, as a sound of its own, and forget the edit of its old version; false to
+    /// keep showing the edit, which now is the favourite.
+    /// </param>
+    public async Task UpdateEditedFavouriteAsync(PatchEditorViewModel edits, SynthesisProfile profile, bool showUpdated)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (EditedFavourite(edits, profile) is not { } item || edits.Editor is not { } editor || edits.DisplayedPatch is not { } patch)
+        {
+            return;
+        }
+
+        float? gain = await edits.FavouriteGainAsync();
+        try
+        {
+            Favourite updated = await Task.Run(() => _favouriteStore.Update(item.Favourite, patch, profile, gain));
+            ReloadFavourites();
+            _status($"★ {updated.Nickname} now holds the edited version.");
+            if (showUpdated)
+            {
+                editor.Revert();
+                if (Favourites.FirstOrDefault(f => f.Favourite.Directory == updated.Directory) is { } fresh)
+                {
+                    SelectedFavourite = fresh;
+                    await PlaceFavouriteAsync(fresh);
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _status("The favourite could not be updated: " + e.Message);
+        }
+    }
+
     /// <summary>Removes the version of the shown sound the switch shows from the favourites.</summary>
     public void RemoveShownFavourite()
     {

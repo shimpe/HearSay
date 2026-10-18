@@ -87,6 +87,50 @@ public sealed class FavouriteSounds
         return new Favourite(name, folder, new ExportedSound(name, Path.Combine(folder, "patch.json"), patch, profile), origin, gain);
     }
 
+    /// <summary>
+    /// Replaces the sound of a favourite with another patch, such as an edit of it: same nickname, folder and origin, new
+    /// patch, code and preview, and the given gain. The new files are written aside first (in <c>.staging</c>, which is no
+    /// favourite), so that a failure leaves the favourite as it was.
+    /// </summary>
+    /// <param name="favourite">Favourite.</param>
+    /// <param name="patch">Its new patch.</param>
+    /// <param name="profile">Profile it plays on.</param>
+    /// <param name="gain">Gain to play it at, kept in <c>favourite.json</c>; null to normalise it as usual.</param>
+    public Favourite Update(Favourite favourite, OperatorMatrixPatch patch, SynthesisProfile profile, float? gain = null)
+    {
+        ArgumentNullException.ThrowIfNull(favourite);
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(profile);
+        string folder = favourite.Directory;
+        string staging = Path.Combine(DirectoryPath, ".staging");
+        string suffix = Guid.NewGuid().ToString("N");
+        string written = Path.Combine(staging, "new-" + suffix), replaced = Path.Combine(staging, "old-" + suffix);
+        try
+        {
+            LibrarySoundWriter.Write(patch, profile, written, Header(favourite.Nickname, favourite.Origin));
+            File.WriteAllText(Path.Combine(written, OriginFile), HearSayJson.Serialize(new FavouriteFile(favourite.Origin, gain)));
+        }
+        catch
+        {
+            if (System.IO.Directory.Exists(written))
+            {
+                System.IO.Directory.Delete(written, recursive: true);
+            }
+
+            throw;
+        }
+
+        System.IO.Directory.Move(folder, replaced);
+        System.IO.Directory.Move(written, folder);
+        System.IO.Directory.Delete(replaced, recursive: true);
+        if (!System.IO.Directory.EnumerateFileSystemEntries(staging).Any())
+        {
+            System.IO.Directory.Delete(staging);
+        }
+
+        return favourite with { Sound = new ExportedSound(favourite.Nickname, Path.Combine(folder, "patch.json"), patch, profile), Gain = gain };
+    }
+
     /// <summary>Gives a favourite another nickname: its folder is renamed and its code says the new name.</summary>
     /// <param name="favourite">Favourite.</param>
     /// <param name="nickname">New name; a name that is taken gets a number.</param>

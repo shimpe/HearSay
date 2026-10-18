@@ -103,6 +103,39 @@ public sealed class FavouriteSoundsTests : IDisposable
     }
 
     [Fact]
+    public void Update_ReplacesThePatch_KeepsTheNameAndOrigin_AndStoresTheGain()
+    {
+        var favourites = new FavouriteSounds(_directory);
+        Favourite original = favourites.Add("bell", Bell, SynthesisProfiles.SuperColliderFm7, "search best");
+        byte[] oldPreview = File.ReadAllBytes(Path.Combine(original.Directory, "preview.wav"));
+
+        Favourite updated = favourites.Update(original, Piano, SynthesisProfiles.SuperColliderFm7, gain: 0.4f);
+
+        Favourite loaded = Assert.Single(new FavouriteSounds(_directory).Load());
+        Assert.Equal("bell", loaded.Nickname);
+        Assert.Equal(original.Directory, loaded.Directory);
+        Assert.Equal(updated.Directory, loaded.Directory);
+        Assert.Equal("search best", loaded.Origin);
+        Assert.Equal(0.4f, loaded.Gain);
+        Assert.Equal(Piano.ComputeHash(), loaded.Sound.Patch.ComputeHash());
+        Assert.Equal(Piano.ComputeHash(), updated.Sound.Patch.ComputeHash());
+        Assert.NotEqual(oldPreview, File.ReadAllBytes(Path.Combine(loaded.Directory, "preview.wav")));
+        Assert.Contains("HearSay favourite: bell.", File.ReadAllText(Path.Combine(loaded.Directory, "patch.scd")));
+        Assert.Equal([loaded.Directory], Directory.GetDirectories(_directory));
+    }
+
+    [Fact]
+    public void Update_WithoutAGain_ForgetsTheOldOne()
+    {
+        var favourites = new FavouriteSounds(_directory);
+        Favourite original = favourites.Add("bell", Bell, SynthesisProfiles.SuperColliderFm7, "edited from search best", gain: 0.3f);
+
+        favourites.Update(original, Piano, SynthesisProfiles.SuperColliderFm7, gain: null);
+
+        Assert.Null(Assert.Single(new FavouriteSounds(_directory).Load()).Gain);
+    }
+
+    [Fact]
     public void Load_IsInNicknameOrder_AndAnEmptyOrMissingFolderHasNone()
     {
         var favourites = new FavouriteSounds(_directory);
