@@ -143,6 +143,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>The last result of every synthesis target, by profile name, so that the targets can be compared by ear.</summary>
     private readonly Dictionary<string, PatchMatchResult> _results = new(StringComparer.Ordinal);
 
+    /// <summary>What each kept result was searched with (<see cref="SearchInputs"/>); a search with the same inputs reuses it.</summary>
+    private readonly Dictionary<string, string> _resultInputs = new(StringComparer.Ordinal);
+
     public MainViewModel()
     {
         Notes = new NotePlayer(_player);
@@ -442,6 +445,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Status = analysis.IsUsable ? $"{Targets.Count} target(s). Press Run." : "This file cannot be matched: " + string.Join(", ", analysis.Issues);
             // Another target set makes every kept result stale.
             _results.Clear();
+            _resultInputs.Clear();
             OnPropertyChanged(nameof(ResultsKept));
             SetResult(null);
         }
@@ -467,6 +471,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Everything a search result depends on besides the profile, as one string: every target file (path, size and
+    /// modification time, so that a file changed on disk counts) with its typed pitch and velocity, the budget, the
+    /// seed, the number of seeds and whether the structure library is used.
+    /// </summary>
+    private string SearchInputs()
+    {
+        var text = new System.Text.StringBuilder();
+        foreach (TargetItem t in Targets)
+        {
+            var file = new FileInfo(t.Path);
+            text.Append(CultureInfo.InvariantCulture, $"{t.Path}|{(file.Exists ? file.Length : -1)}|{(file.Exists ? file.LastWriteTimeUtc.Ticks : 0)}|{t.Pitch}|{t.Velocity};");
+        }
+
+        text.Append(CultureInfo.InvariantCulture, $"budget {Budget}, seed {Seed}, seeds {Seeds}, library {UseStructureLibrary}");
+        return text.ToString();
+    }
+
     /// <summary>Runs the search with the current options.</summary>
     public async Task RunAsync()
     {
@@ -484,13 +506,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             List<AudioTarget> targets = [.. Targets.Select(static t => t.ToTarget())];
             int seeds = Seeds;
+            string inputs = SearchInputs();
             CancellationToken token = _cancellation.Token;
             var done = new List<PatchMatchResult>();
+            int searched = 0;
             for (int i = 0; i < profiles.Count && !token.IsCancellationRequested; i++)
             {
                 SynthesisProfile profile = profiles[i];
                 int index = i;
                 string prefix = profiles.Count > 1 ? ProfileNameConverter.Short(profile.Name) + " · " : string.Empty;
+
+                // The search is reproducible: the same inputs would give the same result again, so the kept one is shown.
+                if (_results.TryGetValue(profile.Name, out PatchMatchResult? kept) && _resultInputs.GetValueOrDefault(profile.Name) == inputs)
+                {
+                    done.Add(kept);
+                    SetResult(kept);
+                    Progress = (index + 1.0) / profiles.Count;
+                    Status = prefix + "kept from the earlier search with the same targets, budget, seed and library";
+                    continue;
+                }
+
                 var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = profile, StructureLibrarySize = UseStructureLibrary ? new PatchMatchOptions().StructureLibrarySize : 0 };
                 var progress = new Progress<SearchProgress>(p =>
                 {
@@ -504,7 +539,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         : FormattableString.Invariant($"{prefix}{run}{p.Stage}: {p.EvaluationsUsed} of {p.EvaluationBudget} evaluations, best loss {p.BestLoss:F4}{previous}");
                 });
                 PatchMatchResult result = await Task.Run(() => _matcher.MatchBestOf(targets, seeds, options, progress, token), CancellationToken.None);
+                searched++;
                 _results[result.Profile.Name] = result;
+                if (token.IsCancellationRequested)
+                {
+                    // Stopped early: kept for listening, but not as the result of these inputs.
+                    _resultInputs.Remove(result.Profile.Name);
+                }
+                else
+                {
+                    _resultInputs[result.Profile.Name] = inputs;
+                }
+
                 done.Add(result);
                 OnPropertyChanged(nameof(ResultsKept));
                 SetResult(result);
@@ -515,11 +561,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 // All targets: the best one is shown, the status line has every one.
                 ShowKeptResult();
-                Status = (token.IsCancellationRequested ? "Stopped. " : "Done. ") + Status;
+                string kept = searched < done.Count ? $" ({done.Count - searched} kept from the earlier search)" : string.Empty;
+                Status = (token.IsCancellationRequested ? "Stopped" : "Done") + kept + ". " + Status;
             }
             else
             {
-                Status = token.IsCancellationRequested ? "Stopped; showing the best patch found so far." : "Done.";
+                Status = token.IsCancellationRequested ? "Stopped; showing the best patch found so far." : searched == 0 ? "Nothing changed since the last search of this target; its result is shown." : "Done.";
             }
         }
         catch (Exception e) when (e is IOException or InvalidDataException or ArgumentException or NotSupportedException)

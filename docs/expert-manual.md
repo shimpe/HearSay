@@ -260,7 +260,11 @@ Every target keeps its last result for the current target set: search under FM7,
 FMX6, search again, and switch back and forth to compare the two by ear on the keyboard, in the matrix and in the
 code. "All" runs the three searches one after the other with the full budget and seeds each, keeps every result
 and shows the one with the lowest loss; the status line has all losses and similarities, and selecting a single
-target shows that one. The result header says which results are kept; adding a target file discards them all.
+target shows that one. The result header says which results are kept; adding a target file discards them all. A search
+is reproducible, so a target whose kept result was searched with the same inputs (the same target files, unchanged on
+disk, with the same pitch and velocity, budget, seed, number of seeds and library setting) is not searched again: after
+a Nome6 search, "All" searches only FM7 and FMX6, and the status line says how many results were kept. A search that
+was stopped early is always searched again.
 
 **Target notes.** Add one or more WAV files; each is analysed at once and shows its fundamental, length, note-off,
 partial count and inharmonicity. Override the pitch (MIDI note or Hz) and the velocity per note when known. The play
