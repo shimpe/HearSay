@@ -156,7 +156,7 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
             	signal = (operators * [{{levels}}]).sum;
 
             	// Frees the synth when the note is over.
-            	{{Lifetime(patch, audible)}}
+            	{{Lifetime(patch)}}
             	Out.ar(out, (signal * amp) ! 2);
             })
             """;
@@ -264,44 +264,11 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
         return $"EnvGen.kr(Env([{levels}], [{times}], [{curves}]{sustain}), gate{scale})";
     }
 
-    private static string Lifetime(OperatorMatrixPatch patch, bool[] audible)
-    {
-        bool sustaining = false;
-        double release = 0;
-        double oneShot = 0;
-        for (int i = 0; i < patch.OperatorCount; i++)
-        {
-            if (!audible[i] || patch.OutputLevels[i] == 0.0)
-            {
-                continue;
-            }
-
-            OperatorPatch op = patch.Operators[i];
-            OperatorEnvelope envelope = op.AmplitudeEnvelope;
-
-            // Key scaling can stretch envelopes; four octaves below the reference note is a generous bound.
-            double stretch = Math.Max(1.0, Math.Pow(2.0, Math.Abs(op.KeyScaling.RatePerOctave) * 4.0));
-            if (envelope.SustainPoint is null)
-            {
-                double total = 0;
-                for (int p = 1; p < envelope.Points.Count; p++)
-                {
-                    total += envelope.Points[p].TimeSeconds;
-                }
-
-                oneShot = Math.Max(oneShot, total * stretch);
-            }
-            else
-            {
-                sustaining = true;
-                release = Math.Max(release, envelope.ReleaseSeconds * stretch);
-            }
-        }
-
-        return sustaining
-            ? $"EnvGen.kr(Env.asr(0, 1, {Number(Math.Max(release, oneShot) + 0.05)}, \\lin), gate, doneAction: Done.freeSelf);"
-            : $"Line.kr(0, 1, {Number(oneShot + 0.05)}, doneAction: Done.freeSelf);";
-    }
+    /// <summary>The statement that frees the synth when the note is over, at the <see cref="PatchLifetime"/> of the patch.</summary>
+    private static string Lifetime(OperatorMatrixPatch patch) =>
+        PatchLifetime.SecondsAfterGateOff(patch) is double afterGateOff
+            ? $"EnvGen.kr(Env.asr(0, 1, {Number(afterGateOff)}, \\lin), gate, doneAction: Done.freeSelf);"
+            : $"Line.kr(0, 1, {Number(PatchLifetime.SecondsAfterStart(patch))}, doneAction: Done.freeSelf);";
 
     /// <summary>Formats a number as a SuperCollider float literal that reads back as the same 32-bit value.</summary>
     internal static string Number(double value)
