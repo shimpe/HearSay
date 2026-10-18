@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using HearSay.Analysis;
+using HearSay.Editing;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Playing;
 using HearSay.Synthesis.Export;
@@ -140,7 +141,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly object _keyboard = new();
     private string _playingText = string.Empty;
     private AlternativeItem? _selectedAlternative;
-    private OperatorMatrixPatch? _shownPatch;
+    private PatchCandidateResult? _candidate;
+    private bool _statsShowEdit;
+    private bool _detailsPending;
     private string _favouriteNickname = string.Empty;
 
     /// <summary>The last result of every synthesis target, by profile name, so that the targets can be compared by ear.</summary>
@@ -154,6 +157,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null)
     {
         Live = new LivePlayer(studioSettingsPath) { CurrentSound = VisibleSound };
+
+        // Both tabs share the edits of a sound: the same patch shown in both has one edited copy and one history.
+        var sessions = new EditSessions();
+        Edits = new PatchEditorViewModel(sessions, Live.Mixer.GainAsync);
+        Edits.PropertyChanged += OnEditsChanged;
         Live.NotePlayed += OnNotePlayed;
         Live.StatusChanged += (_, line) => Status = line;
         Live.PropertyChanged += (_, args) =>
@@ -168,10 +176,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
         };
         Notes = new NotePlayer(Live.Device);
-        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites);
+        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites, sessions);
         Library.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(LibraryViewModel.ShownPatch))
+            if (args.PropertyName is nameof(LibraryViewModel.ShownPatch) or nameof(LibraryViewModel.CurrentSound))
             {
                 // Its gain is computed while it is shown, also behind the Search tab, so that its first note need not wait.
                 Live.Prepare(Library.CurrentSound);
@@ -207,6 +215,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>The Library tab.</summary>
     public LibraryViewModel Library { get; }
 
+    /// <summary>The editing of the patch the Search tab shows: what its diagram, code and keyboard get, undo and redo.</summary>
+    public PatchEditorViewModel Edits { get; }
+
+    /// <summary>The editing of the visible tab, which Undo and Redo on the keyboard act on.</summary>
+    public PatchEditorViewModel VisibleEdits => SelectedTab == 1 ? Library.Edits : Edits;
+
     /// <summary>Selected tab: 0 Search, 1 Library. Showing the Library tab loads its library the first time.</summary>
     public int SelectedTab
     {
@@ -227,30 +241,32 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(patch);
         SetResult(null);
         _libraryPatch = patch;
-        _shownPatch = patch.Patch;
+        Edits.Show(patch.Patch, patch.Profile, HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest, string.Join(" ", patch.HeaderComments), patch.Gain);
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
-        OnFavouriteChanged();
-        Scd = patch.Scd;
-        string routing = PatchDescription.Routing(patch.Patch);
-        int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
-        ResultSummary = $"from the library: {patch.Title}\n\n{(matrixAt > 0 ? routing[..matrixAt].TrimEnd() : routing)}";
+        ShowDetails();
         OnPropertyChanged(nameof(HasPatch));
         SelectedTab = 0;
         Status = $"Showing {patch.Title} from the library. The next search replaces it.";
     }
 
-    /// <summary>Shows the Library tab with the selected finalist placed among its neighbours, as an imported sound.</summary>
+    /// <summary>
+    /// Shows the Library tab with the selected finalist placed among its neighbours, as an imported sound: the version the
+    /// Original ⇄ Edited switch shows, an edit at the original's gain.
+    /// </summary>
     public async Task FindInLibraryAsync()
     {
-        if (_result is not { } result || SelectedAlternative is not { } finalist)
+        if (_result is not { } result || SelectedAlternative is not { } finalist || Edits.DisplayedPatch is not { } patch)
         {
             return;
         }
 
+        bool edited = Edits.ShowsEdit;
+        float? gain = edited ? await Edits.FavouriteGainAsync() : null;
         SelectedTab = 1;
-        string name = finalist.Rank == 1 ? "search best" : $"search {finalist.Label}";
-        await Library.FindAsync(name, finalist.Candidate.Origin, finalist.Candidate.Patch, result.Profile);
+        string name = (finalist.Rank == 1 ? "search best" : $"search {finalist.Label}") + (edited ? " edited" : string.Empty);
+        string origin = edited ? "edited from " + finalist.Candidate.Origin : finalist.Candidate.Origin;
+        await Library.FindAsync(name, origin, patch, result.Profile, gain);
     }
 
     /// <summary>The nickname typed in the favourite box.</summary>
@@ -275,12 +291,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    /// <summary>Keeps the shown patch as a favourite with the typed nickname, or renames it when it is one already.</summary>
+    /// <summary>
+    /// Keeps the shown version as a favourite with the typed nickname, or renames it when it is one already. An edit that
+    /// is not a favourite yet becomes a new one, <c>edited from …</c>, at the original's gain; the original's own
+    /// favourite is left as it is.
+    /// </summary>
     public async Task SaveFavouriteAsync()
     {
         if (ShownSound() is { } shown)
         {
-            await Library.SaveFavouriteAsync(FavouriteNickname, shown.Patch, shown.Profile, shown.Origin);
+            float? gain = await Edits.FavouriteGainAsync();
+            await Library.SaveFavouriteAsync(FavouriteNickname, shown.Patch, shown.Profile, shown.Origin, gain);
         }
     }
 
@@ -294,26 +315,38 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// The patch shown in the Search tab, with a suggested nickname and where it came from: the selected finalist (named
-    /// after the first target, for example <c>piano-c4 best</c>), or a library sound shown here.
+    /// The version shown in the Search tab (the original or the edit), with a suggested nickname and where it came from:
+    /// the selected finalist (named after the first target, for example <c>piano-c4 best</c>), or a library sound shown
+    /// here; an edit's origin reads <c>edited from …</c>.
     /// </summary>
     private (OperatorMatrixPatch Patch, SynthesisProfile Profile, string Suggestion, string Origin)? ShownSound()
     {
+        if (Edits.DisplayedPatch is not { } patch)
+        {
+            return null;
+        }
+
+        string edited = Edits.ShowsEdit ? " edited" : string.Empty;
         if (_libraryPatch is { } library)
         {
-            return (library.Patch, library.Profile, library.Title, string.Join(" ", library.HeaderComments));
+            return (patch, library.Profile, library.Title + edited, Edits.FavouriteOrigin);
         }
 
         if (_result is { } result && SelectedAlternative is { } finalist)
         {
             string target = Targets.Count > 0 ? System.IO.Path.GetFileNameWithoutExtension(Targets[0].Path) : "search";
-            string suggestion = $"{target} {(finalist.Rank == 1 ? "best" : finalist.Label)}";
-            string targets = string.Join(", ", Targets.Select(static t => t.Name));
-            string origin = string.Create(CultureInfo.InvariantCulture, $"From the search for {targets}, seed {result.SearchSummary.RandomSeed}: {finalist.Candidate.Origin}");
-            return (finalist.Candidate.Patch, result.Profile, suggestion, origin);
+            string suggestion = $"{target} {(finalist.Rank == 1 ? "best" : finalist.Label)}{edited}";
+            return (patch, result.Profile, suggestion, Edits.FavouriteOrigin);
         }
 
         return null;
+    }
+
+    /// <summary>Where a finalist came from, as its favourite says: the targets, the seed and the finalist's own origin.</summary>
+    private string FinalistOrigin(PatchMatchResult result, PatchCandidateResult candidate)
+    {
+        string targets = string.Join(", ", Targets.Select(static t => t.Name));
+        return string.Create(CultureInfo.InvariantCulture, $"From the search for {targets}, seed {result.SearchSummary.RandomSeed}: {candidate.Origin}");
     }
 
     private void OnFavouriteChanged()
@@ -495,8 +528,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _resultSummary, value);
     }
 
-    /// <summary>The patch that is shown: the selected finalist; drawn as a block diagram.</summary>
-    public OperatorMatrixPatch? ShownPatch => _shownPatch;
+    /// <summary>
+    /// The patch that is shown, drawn as a block diagram: the selected finalist or the library sound shown here, as the
+    /// Original ⇄ Edited switch has it.
+    /// </summary>
+    public OperatorMatrixPatch? ShownPatch => Edits.DisplayedPatch;
 
     /// <summary>Whether the profile of the shown patch has a shared noise source, which the block diagram then draws.</summary>
     public bool ShownPatchSharesNoise => (_libraryPatch?.Profile ?? _result?.Profile)?.Capabilities.SupportsSharedNoise == true;
@@ -722,11 +758,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// The sound the Search tab plays: the shown finalist, at the gain of the searched note, or a library sound shown
-    /// here, at the gain of the library's reference note; null when nothing is shown.
+    /// here, at the gain of the library's reference note; an edit of either at the original's gain; null when nothing is
+    /// shown.
     /// </summary>
-    private Sound? SearchSound() => _libraryPatch is { } library
-        ? new Sound(library.Patch, library.Profile, HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest)
-        : _result is { } result && _shownPatch is { } patch ? new Sound(patch, result.Profile, result.Request) : null;
+    private Sound? SearchSound() => Edits.DisplayedSound;
 
     /// <summary>The sound of the visible tab, which a new note plays.</summary>
     private Sound? VisibleSound() => SelectedTab == 1 ? Library.CurrentSound : SearchSound();
@@ -811,19 +846,33 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         Status = "Stopping after the current step…";
     }
 
-    /// <summary>Writes the result folder.</summary>
+    /// <summary>
+    /// Writes the result folder; while an edit is shown, the edited sound alone, as a folder that imports again, with
+    /// <see cref="PatchEditorViewModel.EditedHeaderLine"/> in its code.
+    /// </summary>
     /// <param name="directory">Destination folder.</param>
     public async Task SaveAsync(string directory)
     {
         if (_libraryPatch is { } library)
         {
-            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(library.Patch, library.Profile, directory, library.HeaderComments));
+            OperatorMatrixPatch patch = Edits.DisplayedPatch ?? library.Patch;
+            IReadOnlyList<string> header = Edits.ShowsEdit ? [.. library.HeaderComments, PatchEditorViewModel.EditedHeaderLine] : library.HeaderComments;
+            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(patch, library.Profile, directory, header));
             Status = $"{written.Count} files written to {directory}.";
             return;
         }
 
         if (_result is null)
         {
+            return;
+        }
+
+        if (Edits.ShowsEdit && Edits.DisplayedPatch is { } edited && _candidate is { } candidate)
+        {
+            PatchMatchResult shown = _result;
+            IReadOnlyList<string> header = [.. FinalistHeader(shown, candidate), PatchEditorViewModel.EditedHeaderLine];
+            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(edited, shown.Profile, directory, header));
+            Status = $"{written.Count} files of the edited sound written to {directory}.";
             return;
         }
 
@@ -854,7 +903,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _libraryPatch = null;
         _result = result;
         _selectedAlternative = null;
-        _shownPatch = null;
+        _candidate = null;
+        Edits.Show(null, null, null, string.Empty);
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
         OnFavouriteChanged();
@@ -870,12 +920,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            SearchSummary s = result.SearchSummary;
-            Stats.Clear();
-            Stats.Add(new StatTile("initial loss", FormattableString.Invariant($"{s.InitialAudioLoss:F3}"), "best untouched hypothesis"));
-            Stats.Add(new StatTile("final loss", FormattableString.Invariant($"{s.FinalAudioLoss:F3}"), FormattableString.Invariant($"{s.InitialAudioLoss / Math.Max(1e-9, s.FinalAudioLoss):F1}× better")));
-            Stats.Add(new StatTile("similarity", FormattableString.Invariant($"{result.Comparison.Scores.Similarity:F2}"), "1 = identical"));
-            Stats.Add(new StatTile("renders", s.RendersUsed.ToString("N0", CultureInfo.InvariantCulture), FormattableString.Invariant($"{s.Elapsed.TotalSeconds:F0} s, seed {s.RandomSeed}")));
+            ShowStats(result, edited: false);
             NoteRows.Clear();
             foreach (NoteMatch n in result.Notes)
             {
@@ -906,14 +951,134 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(HasPatch));
     }
 
-    /// <summary>Shows one finalist: its matrix, routing, code, and what the keyboard plays.</summary>
+    /// <summary>Shows one finalist (its edit, when it has one): its matrix, routing, code, and what the keyboard plays.</summary>
     private void ShowCandidate(PatchMatchResult result, PatchCandidateResult candidate)
     {
-        OperatorMatrixPatch patch = candidate.Patch;
-        _shownPatch = patch;
+        _candidate = candidate;
+        Edits.Show(candidate.Patch, result.Profile, result.Request, FinalistOrigin(result, candidate));
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
+        ShowDetails();
+        PlayingText = string.Empty;
+    }
+
+    /// <summary>The headline numbers of a result; while an edit is shown, the loss and the similarity say they are the original's.</summary>
+    private void ShowStats(PatchMatchResult result, bool edited)
+    {
+        _statsShowEdit = edited;
+        string of = edited ? " (original)" : string.Empty;
+        SearchSummary s = result.SearchSummary;
+        Stats.Clear();
+        Stats.Add(new StatTile("initial loss", FormattableString.Invariant($"{s.InitialAudioLoss:F3}"), "best untouched hypothesis"));
+        Stats.Add(new StatTile("final loss" + of, FormattableString.Invariant($"{s.FinalAudioLoss:F3}"), FormattableString.Invariant($"{s.InitialAudioLoss / Math.Max(1e-9, s.FinalAudioLoss):F1}× better")));
+        Stats.Add(new StatTile("similarity" + of, FormattableString.Invariant($"{result.Comparison.Scores.Similarity:F2}"), "1 = identical"));
+        Stats.Add(new StatTile("renders", s.RendersUsed.ToString("N0", CultureInfo.InvariantCulture), FormattableString.Invariant($"{s.Elapsed.TotalSeconds:F0} s, seed {s.RandomSeed}")));
+    }
+
+    /// <summary>
+    /// What follows the patch shown, edited or not: the diagram at once; the code, the routing, the matrix, the labels of
+    /// the numbers and the star a moment later, once per burst of changes, so that a drag stays smooth.
+    /// </summary>
+    private void OnEditsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(PatchEditorViewModel.DisplayedPatch):
+                OnPropertyChanged(nameof(ShownPatch));
+                ScheduleDetails();
+                break;
+            case nameof(PatchEditorViewModel.DisplayedSound):
+                Live.SoundChanged();
+                break;
+            case nameof(PatchEditorViewModel.LastRefusal) when Edits.LastRefusal is { } refusal:
+                Status = refusal;
+                break;
+        }
+    }
+
+    private void ScheduleDetails()
+    {
+        if (_detailsPending)
+        {
+            return;
+        }
+
+        _detailsPending = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            () =>
+            {
+                _detailsPending = false;
+                ShowDetails();
+            },
+            Avalonia.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Shows the code, the routing and the matrix of the version shown, and the result's numbers labelled as the
+    /// original's while it is an edit: they are not computed again.
+    /// </summary>
+    private void ShowDetails()
+    {
+        if (Edits.DisplayedPatch is not { } patch)
+        {
+            return;
+        }
+
+        bool edited = Edits.ShowsEdit;
+        if (_libraryPatch is { } library)
+        {
+            ResultSummary = $"from the library: {library.Title}{(edited ? ", edited" : string.Empty)}\n\n{Routing(patch)}";
+            Scd = edited ? Export(library.Profile, patch, [.. library.HeaderComments, PatchEditorViewModel.EditedHeaderLine]) : library.Scd;
+        }
+        else if (_result is { } result && _candidate is { } candidate)
+        {
+            ShowMatrix(patch);
+            string of = edited ? " (original)" : string.Empty;
+            ResultSummary = FormattableString.Invariant(
+                $"""
+                audio loss  {candidate.AudioLoss:F4}{of}
+                origin      {candidate.Origin}{(edited ? ", edited" : string.Empty)}
+                structure   {candidate.Regime.Value}
+
+                {Routing(patch)}
+                """);
+            IReadOnlyList<string> header = FinalistHeader(result, candidate);
+            Scd = Export(result.Profile, patch, edited ? [.. header, PatchEditorViewModel.EditedHeaderLine] : header);
+            if (_statsShowEdit != edited)
+            {
+                ShowStats(result, edited);
+            }
+        }
+
         OnFavouriteChanged();
+    }
+
+    /// <summary>The header of a finalist's code: what it was matched to, and where it came from.</summary>
+    private IReadOnlyList<string> FinalistHeader(PatchMatchResult result, PatchCandidateResult candidate)
+    {
+        bool isBest = ReferenceEquals(candidate, result.AlternativePatches[0]);
+        string comparison = isBest ? FormattableString.Invariant($", similarity {result.Comparison.Scores.Similarity:F3}") : string.Empty;
+        return
+        [
+            string.Create(CultureInfo.InvariantCulture, $"Matched to {result.Notes.Count} note(s) of {string.Join(", ", Targets.Select(static t => t.Name))}; audio loss {candidate.AudioLoss:F4}{comparison} at {result.Analysis.FundamentalHz:F2} Hz."),
+            string.Create(CultureInfo.InvariantCulture, $"{(isBest ? "Best patch" : "Alternative")}: {candidate.Origin}"),
+        ];
+    }
+
+    private static string Export(SynthesisProfile profile, OperatorMatrixPatch patch, IReadOnlyList<string> headerComments) =>
+        SynthesisBackends.ExporterFor(profile)?.Export(patch, new PatchExportOptions { HeaderComments = headerComments }) ?? "This profile has no export backend.";
+
+    /// <summary>The routing of a patch, without the matrix the Search tab draws.</summary>
+    private static string Routing(OperatorMatrixPatch patch)
+    {
+        string routing = PatchDescription.Routing(patch);
+        int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
+        return matrixAt > 0 ? routing[..matrixAt].TrimEnd() : routing;
+    }
+
+    /// <summary>The modulation matrix of the version shown.</summary>
+    private void ShowMatrix(OperatorMatrixPatch patch)
+    {
         bool[] audible = patch.FindAudibleOperators();
         OperatorNames.Clear();
         MatrixCells.Clear();
@@ -930,33 +1095,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 MatrixCells.Add(new MatrixCell(amount, src == d));
             }
         }
-
-        string routing = PatchDescription.Routing(patch);
-        int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
-        if (matrixAt > 0)
-        {
-            routing = routing[..matrixAt].TrimEnd();
-        }
-
-        ResultSummary = FormattableString.Invariant(
-            $"""
-            audio loss  {candidate.AudioLoss:F4}
-            origin      {candidate.Origin}
-            structure   {candidate.Regime.Value}
-
-            {routing}
-            """);
-        bool isBest = ReferenceEquals(candidate, result.AlternativePatches[0]);
-        string comparison = isBest ? FormattableString.Invariant($", similarity {result.Comparison.Scores.Similarity:F3}") : string.Empty;
-        Scd = SynthesisBackends.ExporterFor(result.Profile)?.Export(patch, new PatchExportOptions
-        {
-            HeaderComments =
-            [
-                string.Create(CultureInfo.InvariantCulture, $"Matched to {result.Notes.Count} note(s) of {string.Join(", ", Targets.Select(static t => t.Name))}; audio loss {candidate.AudioLoss:F4}{comparison} at {result.Analysis.FundamentalHz:F2} Hz."),
-                string.Create(CultureInfo.InvariantCulture, $"{(isBest ? "Best patch" : "Alternative")}: {candidate.Origin}"),
-            ],
-        }) ?? "This profile has no export backend.";
-        PlayingText = string.Empty;
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

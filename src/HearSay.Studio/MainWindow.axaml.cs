@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 
@@ -43,6 +44,31 @@ public sealed partial class MainWindow : Window
                     Avalonia.Threading.Dispatcher.UIThread.Post(CentreKeyboard, Avalonia.Threading.DispatcherPriority.Loaded);
                 }
             };
+        }
+    }
+
+    /// <summary>
+    /// Ctrl+Z undoes the last edit of the visible tab's sound, Ctrl+Y and Ctrl+Shift+Z redo it (Cmd on macOS). A text box
+    /// that can be typed in keeps them for its own text.
+    /// </summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Handled || DataContext is not MainViewModel viewModel || FocusManager?.GetFocusedElement() is TextBox { IsReadOnly: false })
+        {
+            return;
+        }
+
+        KeyModifiers command = PlatformSettings?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+        if (e.Key == Key.Z && e.KeyModifiers == command)
+        {
+            viewModel.VisibleEdits.Undo();
+            e.Handled = true;
+        }
+        else if ((e.Key == Key.Y && e.KeyModifiers == command) || (e.Key == Key.Z && e.KeyModifiers == (command | KeyModifiers.Shift)))
+        {
+            viewModel.VisibleEdits.Redo();
+            e.Handled = true;
         }
     }
 

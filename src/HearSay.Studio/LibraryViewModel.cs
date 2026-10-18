@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using HearSay.Editing;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Playing;
@@ -61,7 +62,11 @@ public sealed record FavouriteItem(Favourite Favourite)
 /// <param name="Profile">Profile it plays on.</param>
 /// <param name="Scd">Its SuperCollider code.</param>
 /// <param name="HeaderComments">Header lines of the code, for Save.</param>
-public sealed record LibraryPatch(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Scd, IReadOnlyList<string> HeaderComments);
+public sealed record LibraryPatch(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Scd, IReadOnlyList<string> HeaderComments)
+{
+    /// <summary>The gain to play it at, for an edit or a favourite that kept one; null to normalise it as usual.</summary>
+    public float? Gain { get; init; }
+}
 
 /// <summary>
 /// State of the Library tab: the profile whose library is shown, the family opened, its children as graph nodes, the
@@ -99,6 +104,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private bool _showFavourites = true;
     private FavouriteItem? _selectedFavourite;
     private string _favouriteNickname = string.Empty;
+    private string _scd = string.Empty;
+    private bool _codePending;
 
     /// <summary>Creates the view model.</summary>
     /// <param name="live">The live notes, shared with the Search tab.</param>
@@ -106,8 +113,12 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="progress">Sets the progress bar of the window, 0..1.</param>
     /// <param name="showInSearch">Shows a sound in the Search tab.</param>
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
-    public LibraryViewModel(LivePlayer live, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null)
+    /// <param name="sessions">The edits of every sound, shared with the Search tab; edits of this tab alone when null.</param>
+    public LibraryViewModel(LivePlayer live, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null, EditSessions? sessions = null)
     {
+        ArgumentNullException.ThrowIfNull(live);
+        Edits = new PatchEditorViewModel(sessions ?? new EditSessions(), live.Mixer.GainAsync);
+        Edits.PropertyChanged += OnEditsChanged;
         _favouriteStore = favourites ?? new FavouriteSounds();
         Imports.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSideList));
         Favourites.CollectionChanged += (_, _) =>
@@ -183,17 +194,22 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         private set => Set(ref _graphMessage, value);
     }
 
-    /// <summary>The last clicked sound's patch.</summary>
-    public OperatorMatrixPatch? ShownPatch => _selection?.Patch;
+    /// <summary>The editing of the last clicked sound: what its diagram, code and keyboard get, undo and redo.</summary>
+    public PatchEditorViewModel Edits { get; }
+
+    /// <summary>The last clicked sound's patch, as the Original ⇄ Edited switch has it.</summary>
+    public OperatorMatrixPatch? ShownPatch => Edits.DisplayedPatch;
 
     /// <summary>Whether its profile has a shared noise source, which the block diagram then draws.</summary>
     public bool ShownPatchSharesNoise => _selection?.Profile.Capabilities.SupportsSharedNoise == true;
 
-    /// <summary>Its SuperCollider code.</summary>
-    public string Scd => _selection?.Scd ?? string.Empty;
+    /// <summary>Its SuperCollider code; an edit's says so in its header.</summary>
+    public string Scd => _scd;
 
     /// <summary>One line about it.</summary>
-    public string SelectionText => _selection?.Description ?? "Click a node to hear it; double-click a family to open it.";
+    public string SelectionText => _selection is { } s
+        ? s.Description + (Edits.ShowsEdit ? " · edited" : string.Empty)
+        : "Click a node to hear it; double-click a family to open it.";
 
     /// <summary>True once a sound was clicked.</summary>
     public bool HasSelection => _selection is not null;
@@ -388,8 +404,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         set => Set(ref _favouriteNickname, value ?? string.Empty);
     }
 
-    /// <summary>True when the shown sound is a favourite.</summary>
-    public bool IsShownFavourite => _selection is { } s && FindFavourite(s.Patch, s.Profile) is not null;
+    /// <summary>True when the version of the shown sound the switch shows is a favourite.</summary>
+    public bool IsShownFavourite => _selection is { } s && Edits.DisplayedPatch is { } patch && FindFavourite(patch, s.Profile) is not null;
 
     /// <summary>The star of the favourite button: filled for a favourite.</summary>
     public string FavouriteStar => IsShownFavourite ? "★" : "☆";
@@ -405,25 +421,31 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>Fills the favourite box: the nickname of the shown sound when it is a favourite, else a suggestion.</summary>
     public void PrepareFavouriteName()
     {
-        if (_selection is { } s)
+        if (_selection is { } s && Edits.DisplayedPatch is { } patch)
         {
-            FavouriteNickname = FindFavourite(s.Patch, s.Profile)?.Name ?? s.Title;
+            FavouriteNickname = FindFavourite(patch, s.Profile)?.Name ?? s.Title + (Edits.ShowsEdit ? " edited" : string.Empty);
         }
     }
 
-    /// <summary>Keeps the shown sound as a favourite with the typed nickname, or renames it when it is one already.</summary>
+    /// <summary>
+    /// Keeps the version of the shown sound the switch shows as a favourite with the typed nickname, or renames it when it
+    /// is one already. An edit that is not a favourite yet becomes a new one, <c>edited from …</c>, at the original's
+    /// gain; the original's own favourite is left as it is.
+    /// </summary>
     public async Task SaveShownFavouriteAsync()
     {
-        if (_selection is { } s)
+        if (_selection is { } s && Edits.DisplayedPatch is { } patch)
         {
-            await SaveFavouriteAsync(FavouriteNickname, s.Patch, s.Profile, string.Join(" ", s.HeaderComments));
+            string origin = Edits.FavouriteOrigin;
+            float? gain = await Edits.FavouriteGainAsync();
+            await SaveFavouriteAsync(FavouriteNickname, patch, s.Profile, origin, gain);
         }
     }
 
-    /// <summary>Removes the shown sound from the favourites.</summary>
+    /// <summary>Removes the version of the shown sound the switch shows from the favourites.</summary>
     public void RemoveShownFavourite()
     {
-        if (_selection is { } s && FindFavourite(s.Patch, s.Profile) is { } item)
+        if (_selection is { } s && Edits.DisplayedPatch is { } patch && FindFavourite(patch, s.Profile) is { } item)
         {
             RemoveFavourite(item);
         }
@@ -437,7 +459,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="patch">Patch.</param>
     /// <param name="profile">Profile it plays on.</param>
     /// <param name="origin">Where it came from.</param>
-    public async Task SaveFavouriteAsync(string nickname, OperatorMatrixPatch patch, SynthesisProfile profile, string origin)
+    /// <param name="gain">Gain a new favourite plays at, for an edit the original's; null to normalise it as usual.</param>
+    public async Task SaveFavouriteAsync(string nickname, OperatorMatrixPatch patch, SynthesisProfile profile, string origin, float? gain = null)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(profile);
@@ -449,7 +472,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 return;
             }
 
-            Favourite added = await Task.Run(() => _favouriteStore.Add(nickname, patch, profile, origin));
+            Favourite added = await Task.Run(() => _favouriteStore.Add(nickname, patch, profile, origin, gain));
             ReloadFavourites();
             _status($"\u2605 {added.Nickname} is a favourite; the Favourites list of the Library tab has it.");
         }
@@ -634,12 +657,13 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="origin">Where the search found it.</param>
     /// <param name="patch">Patch.</param>
     /// <param name="profile">Profile it was found for.</param>
-    public async Task FindAsync(string name, string origin, OperatorMatrixPatch patch, SynthesisProfile profile)
+    /// <param name="gain">Gain to play it at, for an edit the original's; null to normalise it as usual.</param>
+    public async Task FindAsync(string name, string origin, OperatorMatrixPatch patch, SynthesisProfile profile, float? gain = null)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(profile);
         var sound = new ExportedSound(name, string.Empty, patch, profile);
-        var found = new ImportedItem(sound, []) { SearchOrigin = origin };
+        var found = new ImportedItem(sound, []) { SearchOrigin = origin, Gain = gain };
         ImportedItem? item = Imports.FirstOrDefault(k => k.Key == found.Key);
         if (item is null)
         {
@@ -734,8 +758,11 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         await ShowFamilyAsync(crumb.Family, [.. Crumbs.Take(at + 1)]);
     }
 
-    /// <summary>The sound the keyboard plays: the last clicked one, at the gain of the library's reference note; null before a click.</summary>
-    public Sound? CurrentSound => _selection is { } s ? new Sound(s.Patch, s.Profile, StructureLibrary.ReferenceRequest) { FixedGain = s.Gain } : null;
+    /// <summary>
+    /// The sound the keyboard plays: the last clicked one, at the gain of the library's reference note, or its edit at the
+    /// original's gain; null before a click.
+    /// </summary>
+    public Sound? CurrentSound => Edits.DisplayedSound;
 
     /// <summary>The notes that sound now, lit on the keyboard.</summary>
     public IReadOnlyCollection<int> SoundingNotes => _live.SoundingNotes;
@@ -753,26 +780,91 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="text">For example <c>C4 (261.6 Hz), velocity 0.80</c>.</param>
     internal void ShowPlaying(string text) => PlayingText = text;
 
-    /// <summary>Writes the selected sound as a folder that imports again.</summary>
+    /// <summary>Writes the version of the selected sound the switch shows as a folder that imports again.</summary>
     /// <param name="directory">Destination folder.</param>
     public async Task SaveAsync(string directory)
     {
-        if (_selection is not { } selection)
+        if (_selection is not { } selection || Edits.DisplayedPatch is not { } patch)
         {
             return;
         }
 
-        IReadOnlyList<string> files = await Task.Run(() => LibrarySoundWriter.Write(selection.Patch, selection.Profile, directory, selection.HeaderComments));
+        IReadOnlyList<string> header = ShownHeader(selection);
+        IReadOnlyList<string> files = await Task.Run(() => LibrarySoundWriter.Write(patch, selection.Profile, directory, header));
         _status($"{files.Count} files written to {directory}.");
     }
 
-    /// <summary>Shows the selected sound in the Search tab.</summary>
-    public void ShowInSearch()
+    /// <summary>
+    /// Shows the version of the selected sound the switch shows in the Search tab, at the gain it plays at here: an edit
+    /// at the original's.
+    /// </summary>
+    public async Task ShowInSearchAsync()
     {
-        if (_selection is { } selection)
+        if (_selection is not { } selection || Edits.DisplayedPatch is not { } patch)
         {
-            _showInSearch(new LibraryPatch(selection.Title, selection.Patch, selection.Profile, selection.Scd, selection.HeaderComments));
+            return;
         }
+
+        bool edited = Edits.ShowsEdit;
+        float? gain = await Edits.FavouriteGainAsync();
+        IReadOnlyList<string> header = edited ? [.. selection.HeaderComments, PatchEditorViewModel.EditedHeaderLine] : selection.HeaderComments;
+        string scd = edited ? Export(patch, selection.Profile, header) : selection.Scd;
+        _showInSearch(new LibraryPatch(selection.Title + (edited ? " edited" : string.Empty), patch, selection.Profile, scd, header) { Gain = gain });
+    }
+
+    /// <summary>The header of the shown version's code: an edit's says so.</summary>
+    private IReadOnlyList<string> ShownHeader(Selection selection) =>
+        Edits.ShowsEdit ? [.. selection.HeaderComments, PatchEditorViewModel.EditedHeaderLine] : selection.HeaderComments;
+
+    private static string Export(OperatorMatrixPatch patch, SynthesisProfile profile, IReadOnlyList<string> headerComments) =>
+        SynthesisBackends.ExporterFor(profile)?.Export(patch, new PatchExportOptions { HeaderComments = headerComments }) ?? "This profile has no export backend.";
+
+    /// <summary>What follows an edit of the shown sound: the diagram and the keyboard at once, the code a moment later.</summary>
+    private void OnEditsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(PatchEditorViewModel.DisplayedPatch):
+                OnPropertyChanged(nameof(ShownPatch));
+                ScheduleCode();
+                break;
+            case nameof(PatchEditorViewModel.DisplayedSound):
+                OnPropertyChanged(nameof(CurrentSound));
+                break;
+            case nameof(PatchEditorViewModel.LastRefusal) when Edits.LastRefusal is { } refusal:
+                _status(refusal);
+                break;
+        }
+    }
+
+    /// <summary>Shows the code of the version shown once per burst of changes, so that a drag stays smooth.</summary>
+    private void ScheduleCode()
+    {
+        if (_codePending)
+        {
+            return;
+        }
+
+        _codePending = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            () =>
+            {
+                _codePending = false;
+                ShowCode();
+            },
+            Avalonia.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>The code of the version shown, the selection line and the star.</summary>
+    private void ShowCode()
+    {
+        _scd = _selection is not { } s
+            ? string.Empty
+            : Edits.ShowsEdit && Edits.DisplayedPatch is { } patch ? Export(patch, s.Profile, ShownHeader(s)) : s.Scd;
+        OnPropertyChanged(nameof(Scd));
+        OnPropertyChanged(nameof(SelectionText));
+        OnPropertyChanged(nameof(IsShownFavourite));
+        OnPropertyChanged(nameof(FavouriteStar));
     }
 
     private async Task LoadAsync()
@@ -978,19 +1070,18 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private void SetSelection(Selection selection)
     {
         _selection = selection;
+        Edits.Show(selection.Patch, selection.Profile, StructureLibrary.ReferenceRequest, string.Join(" ", selection.HeaderComments), selection.Gain);
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
-        OnPropertyChanged(nameof(Scd));
-        OnPropertyChanged(nameof(SelectionText));
         OnPropertyChanged(nameof(HasSelection));
-        OnPropertyChanged(nameof(IsShownFavourite));
-        OnPropertyChanged(nameof(FavouriteStar));
+        ShowCode();
         _ = PlayReferenceAsync(selection);
     }
 
     /// <summary>
-    /// Plays the library's reference note once, as the library rendered it: held for its note duration from when the
-    /// sound's gain is known, then released, through the live voices. Every click is a note of its own.
+    /// Plays the library's reference note once, as the library rendered it, or the sound's edit when it is shown: held for
+    /// its note duration from when the sound's gain is known, then released, through the live voices. Every click is a
+    /// note of its own.
     /// </summary>
     private async Task PlayReferenceAsync(Selection selection)
     {
@@ -999,8 +1090,18 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (Edits.ShowsEdit)
+        {
+            // The edit plays at the original's gain, once it is known.
+            await Edits.WhenGainKnownAsync();
+            if (!ReferenceEquals(selection, _selection))
+            {
+                return;
+            }
+        }
+
         RenderRequest reference = StructureLibrary.ReferenceRequest;
-        var sound = new Sound(selection.Patch, selection.Profile, reference) { FixedGain = selection.Gain };
+        Sound sound = CurrentSound ?? new Sound(selection.Patch, selection.Profile, reference) { FixedGain = selection.Gain };
         int note = reference.MidiNote ?? (int)Math.Round(reference.EffectiveMidiNote);
         var click = new object();
         if (!_live.Play(sound, note, reference.Velocity, click))

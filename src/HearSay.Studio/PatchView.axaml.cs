@@ -1,10 +1,14 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using HearSay.Synthesis.Patches;
 
 namespace HearSay.Studio;
 
-/// <summary>A patch as SuperCollider code and as a block diagram, in two tabs; used by the Search and Library tabs.</summary>
+/// <summary>
+/// A patch as SuperCollider code and as a block diagram, in two tabs, with the toolbar of its editing (undo, redo,
+/// Original ⇄ Edited); used by the Search and Library tabs.
+/// </summary>
 public sealed partial class PatchView : UserControl
 {
     /// <summary>The generated code.</summary>
@@ -22,10 +26,24 @@ public sealed partial class PatchView : UserControl
     /// <summary>Header of the code tab.</summary>
     public static readonly StyledProperty<string> CodeHeaderProperty = AvaloniaProperty.Register<PatchView, string>(nameof(CodeHeader), "SuperCollider · patch.scd");
 
+    /// <summary>The editing of the shown sound: undo, redo and the Original ⇄ Edited switch of the toolbar.</summary>
+    public static readonly StyledProperty<PatchEditorViewModel?> EditorProperty = AvaloniaProperty.Register<PatchView, PatchEditorViewModel?>(nameof(Editor));
+
     public PatchView()
     {
         InitializeComponent();
     }
+
+    /// <inheritdoc cref="EditorProperty"/>
+    public PatchEditorViewModel? Editor
+    {
+        get => GetValue(EditorProperty);
+        set => SetValue(EditorProperty, value);
+    }
+
+    private void OnUndo(object? sender, RoutedEventArgs e) => Editor?.Undo();
+
+    private void OnRedo(object? sender, RoutedEventArgs e) => Editor?.Redo();
 
     /// <inheritdoc cref="CodeProperty"/>
     public string Code

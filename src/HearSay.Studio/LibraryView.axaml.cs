@@ -59,7 +59,7 @@ public sealed partial class LibraryView : UserControl
         }
     }
 
-    private void OnShowInSearch(object? sender, RoutedEventArgs e) => ViewModel.ShowInSearch();
+    private async void OnShowInSearch(object? sender, RoutedEventArgs e) => await ViewModel.ShowInSearchAsync();
 
     private void OnClearFilter(object? sender, RoutedEventArgs e) => ViewModel.ClearFilter();
 

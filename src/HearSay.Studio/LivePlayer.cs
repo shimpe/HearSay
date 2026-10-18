@@ -195,11 +195,15 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         Prepare(sound);
     }
 
-    /// <summary>Computes the gain of a sound ahead of its first note, off the interface thread; nothing for null.</summary>
+    /// <summary>
+    /// Computes the gain of a sound ahead of its first note, off the interface thread; nothing for null, nor for a sound
+    /// whose gain is fixed: there is nothing to compute, and every step of a drag on an edited sound would otherwise
+    /// push the gains of the sounds shown before out of the mixer's memory.
+    /// </summary>
     /// <param name="sound">Sound, for example one shown in a tab that is not visible.</param>
     public void Prepare(Sound? sound)
     {
-        if (sound is null || !CanPlay)
+        if (sound is null || sound.FixedGain is not null || !CanPlay)
         {
             return;
         }
