@@ -209,6 +209,49 @@ public sealed class EnvelopeEditsTests
     }
 
     [Fact]
+    public void SetCurve_ExponentialOnPitch_IsRefused()
+    {
+        // An exponential segment floors every level of its envelope at 1e-5, which would silence negative cents.
+        OperatorMatrixPatch patch = Done(Done(TwoOperators(), PatchEdits.SetPitchEnvelope(true)), EnvelopeEdits.MovePoint(Pitch, 0, 0, -300));
+        Assert.False(EnvelopeEdits.AllowsExponential(Envelope(patch, Pitch), EnvelopeKind.Pitch));
+        string why = Refused(patch, EnvelopeEdits.SetCurve(Pitch, 1, EnvelopeCurve.Exponential));
+        Assert.Contains("pitch", why, StringComparison.OrdinalIgnoreCase);
+
+        // Also with no negative cents at all, and the other curves stay.
+        Refused(Done(TwoOperators(), PatchEdits.SetPitchEnvelope(true)), EnvelopeEdits.SetCurve(Pitch, 1, EnvelopeCurve.Exponential));
+        Assert.Equal(EnvelopeCurve.Step, Envelope(Done(patch, EnvelopeEdits.SetCurve(Pitch, 1, EnvelopeCurve.Step)), Pitch).Points[1].Curve);
+
+        // Another envelope with a level below 0, as a patch file can have it: refused as well.
+        OperatorMatrixPatch negative = TwoOperators().WithOperator(0, TwoOperators().Operators[0] with
+        {
+            AmplitudeEnvelope = new OperatorEnvelope([new EnvelopePoint(0, -0.2), new EnvelopePoint(0.1, 1.0), new EnvelopePoint(0.1, 0)], SustainPoint: 1, ReleasePoint: 2),
+        });
+        Assert.False(EnvelopeEdits.AllowsExponential(Envelope(negative, Amplitude), EnvelopeKind.Amplitude));
+        Assert.Contains("below 0", Refused(negative, EnvelopeEdits.SetCurve(Amplitude, 2, EnvelopeCurve.Exponential)), StringComparison.Ordinal);
+
+        // A level of 0 is fine: the floor keeps it at -100 dB, as on every ADSR. Linear and back to exponential.
+        OperatorMatrixPatch linear = Done(TwoOperators(), EnvelopeEdits.SetCurve(Amplitude, 3, EnvelopeCurve.Linear));
+        Assert.True(EnvelopeEdits.AllowsExponential(Envelope(linear, Amplitude), EnvelopeKind.Amplitude));
+        Assert.Equal(EnvelopeCurve.Exponential, Envelope(Done(linear, EnvelopeEdits.SetCurve(Amplitude, 3, EnvelopeCurve.Exponential)), Amplitude).Points[3].Curve);
+    }
+
+    [Fact]
+    public void AddPoint_ExponentialWithNegativeLevel_UsesTheLinearMidpoint()
+    {
+        // An exponential segment from 0.6 down to -0.2, as a patch file can have it: halfway in level.
+        var envelope = new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(0.01, 0.6), new EnvelopePoint(0.2, -0.2, EnvelopeCurve.Exponential)], SustainPoint: null, ReleasePoint: 3);
+        OperatorMatrixPatch patch = TwoOperators().WithOperator(0, TwoOperators().Operators[0] with { AmplitudeEnvelope = envelope });
+        OperatorEnvelope split = Envelope(Done(patch, EnvelopeEdits.AddPoint(Amplitude, 1)), Amplitude);
+        Assert.Equal(0.1, split.Points[2].TimeSeconds, 12);
+        Assert.Equal(0.2, split.Points[2].Level, 12);
+        Assert.Equal(EnvelopeCurve.Exponential, split.Points[2].Curve);
+
+        // Down to 0, the floor's -100 dB: on the curve as it sounds, the geometric mean of 0.5 and 1e-5.
+        OperatorEnvelope release = Envelope(Done(TwoOperators(), EnvelopeEdits.AddPoint(Amplitude, 2)), Amplitude);
+        Assert.Equal(Math.Sqrt(0.5 * OperatorEnvelope.ExponentialLevelFloor), release.Points[3].Level, 12);
+    }
+
+    [Fact]
     public void PitchEnvelope_LevelsAreCents()
     {
         Assert.Equal((-1200.0, 1200.0), EnvelopeEdits.LevelRange(EnvelopeKind.Pitch));

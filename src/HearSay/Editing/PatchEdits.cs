@@ -209,8 +209,9 @@ public static class PatchEdits
 
     /// <summary>
     /// Switches an operator between following the note (a ratio) and a fixed frequency, keeping its pitch on A4
-    /// (440 Hz): a ratio r becomes 440 r Hz and f Hz becomes the ratio f / 440. Refused for a mode the profile does not
-    /// have, and for a fixed frequency of 0 Hz, which is no multiple of the note.
+    /// (440 Hz): a ratio r with a fine tune of c cents becomes 440 r 2^(c/1200) Hz and f Hz becomes the ratio
+    /// f / 440 / 2^(c/1200); the fine tune is kept, unheard while the frequency is fixed. Refused for a mode the profile
+    /// does not have, and for a fixed frequency of 0 Hz, which is no multiple of the note.
     /// </summary>
     /// <param name="op">The operator.</param>
     /// <param name="mode">The new frequency mode.</param>
@@ -239,9 +240,12 @@ public static class PatchEdits
             return EditOutcome.Refused(patch, $"OP{op + 1} runs at 0 Hz, which is no multiple of the note; give it a frequency first.");
         }
 
+        // The fine tune stays on the operator: a fixed operator is heard without it, and a ratio takes it back, so that
+        // switching there and back gives the same ratio again.
+        double fine = Math.Pow(2.0, patch.Operators[op].FineTuneCents / 1200.0);
         OperatorFrequency changed = mode == OperatorFrequencyMode.Fixed
-            ? OperatorFrequency.AtFixed(440.0 * frequency.Ratio)
-            : OperatorFrequency.AtRatio(frequency.FixedFrequencyHz / 440.0);
+            ? OperatorFrequency.AtFixed(440.0 * frequency.Ratio * fine)
+            : OperatorFrequency.AtRatio(frequency.FixedFrequencyHz / 440.0 / fine);
         return EditOutcome.Done(patch.WithOperator(op, patch.Operators[op] with { Frequency = changed }));
     };
 

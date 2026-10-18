@@ -59,6 +59,29 @@ public sealed class FavouriteSoundsTests : IDisposable
         Assert.Equal("old", old.Origin);
     }
 
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("0")]
+    [InlineData("1e9")]
+    [InlineData("100.5")]
+    public void Favourite_WithAGainOutOfReason_IsNormalised(string gain)
+    {
+        Favourite added = new FavouriteSounds(_directory).Add("odd", Bell, SynthesisProfiles.SuperColliderFm7, "edited", gain: 0.3f);
+        File.WriteAllText(Path.Combine(added.Directory, "favourite.json"), "{\"origin\":\"edited\",\"gain\":" + gain + "}");
+
+        Favourite loaded = Assert.Single(new FavouriteSounds(_directory).Load());
+        Assert.Null(loaded.Gain);
+        Assert.Equal("edited", loaded.Origin);
+    }
+
+    [Fact]
+    public void Favourite_WithAGainOfUpTo100_KeepsIt()
+    {
+        Favourite added = new FavouriteSounds(_directory).Add("loud", Bell, SynthesisProfiles.SuperColliderFm7, "edited", gain: 0.3f);
+        File.WriteAllText(Path.Combine(added.Directory, "favourite.json"), "{\"origin\":\"edited\",\"gain\":100}");
+        Assert.Equal(100f, Assert.Single(new FavouriteSounds(_directory).Load()).Gain);
+    }
+
     [Fact]
     public void EditedFavourite_IsANewFavourite()
     {

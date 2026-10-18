@@ -25,6 +25,9 @@ public sealed class FavouriteSounds
 {
     private const string OriginFile = "favourite.json";
 
+    /// <summary>The highest gain a favourite is played at from its <c>favourite.json</c>.</summary>
+    private const float MaxGain = 100f;
+
     private static readonly HashSet<string> ReservedNames = new(
         ["CON", "PRN", "AUX", "NUL", .. Enumerable.Range(1, 9).SelectMany(static i => new[] { $"COM{i}", $"LPT{i}" })],
         StringComparer.OrdinalIgnoreCase);
@@ -59,7 +62,7 @@ public sealed class FavouriteSounds
             if (sound is not null)
             {
                 FavouriteFile file = ReadFile(folder);
-                favourites.Add(new Favourite(Path.GetFileName(folder), folder, sound, file.Origin ?? string.Empty, file.Gain));
+                favourites.Add(new Favourite(Path.GetFileName(folder), folder, sound, file.Origin ?? string.Empty, SaneGain(file.Gain)));
             }
         }
 
@@ -168,6 +171,12 @@ public sealed class FavouriteSounds
             return System.IO.Directory.Exists(folder) && !string.Equals(folder, except, StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    /// <summary>
+    /// A gain read from <c>favourite.json</c>, or null (normalise as usual) for one that is no number, not above 0 or
+    /// above <see cref="MaxGain"/>, which no edit of a sound needs and which an edited file could otherwise make deafening.
+    /// </summary>
+    private static float? SaneGain(float? gain) => gain is float g && float.IsFinite(g) && g > 0f && g <= MaxGain ? g : null;
 
     private static FavouriteFile ReadFile(string folder)
     {

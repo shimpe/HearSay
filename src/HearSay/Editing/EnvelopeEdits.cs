@@ -93,7 +93,8 @@ public static class EnvelopeEdits
 
     /// <summary>
     /// Adds a point in the middle of the segment after a point: halfway in time, on the segment's curve, so that the
-    /// envelope sounds as before. The sustain point stays at its point.
+    /// envelope sounds as before; halfway in level on an exponential segment to or from a level below 0. The sustain
+    /// point stays at its point.
     /// </summary>
     /// <param name="r">The envelope.</param>
     /// <param name="afterIndex">The point at the start of the segment to split.</param>
@@ -113,9 +114,11 @@ public static class EnvelopeEdits
         EnvelopePoint start = envelope.Points[afterIndex];
         EnvelopePoint end = envelope.Points[afterIndex + 1];
         double half = end.TimeSeconds / 2.0;
+        // An exponential segment to or from a level below 0, which the exponential floor does not render as drawn,
+        // is split halfway in level.
         double level = end.Curve switch
         {
-            EnvelopeCurve.Exponential => Math.Sqrt(envelope.EffectiveLevel(afterIndex) * envelope.EffectiveLevel(afterIndex + 1)),
+            EnvelopeCurve.Exponential when start.Level >= 0.0 && end.Level >= 0.0 => Math.Sqrt(envelope.EffectiveLevel(afterIndex) * envelope.EffectiveLevel(afterIndex + 1)),
             EnvelopeCurve.Step => end.Level,
             _ => (start.Level + end.Level) / 2.0,
         };
@@ -193,7 +196,20 @@ public static class EnvelopeEdits
         return With(patch, r, Shaped([.. envelope.Points], index));
     };
 
-    /// <summary>Changes the curve of the segment that ends at a point. Refused for the first point, which ends none.</summary>
+    /// <summary>
+    /// Whether a segment of the envelope can be made exponential. An exponential segment floors every level of its
+    /// envelope at <see cref="OperatorEnvelope.ExponentialLevelFloor"/>: harmless for a level of 0, which stays at
+    /// -100 dB, but a level below 0 would be heard above 0. So no exponential segments on the pitch, whose levels are
+    /// cents either way of the note, nor on an envelope with a level below 0.
+    /// </summary>
+    /// <param name="envelope">The envelope.</param>
+    /// <param name="kind">Which envelope.</param>
+    public static bool AllowsExponential(OperatorEnvelope envelope, EnvelopeKind kind) => ExponentialRefusal(envelope, kind) is null;
+
+    /// <summary>
+    /// Changes the curve of the segment that ends at a point. Refused for the first point, which ends none, and for an
+    /// exponential curve where <see cref="AllowsExponential"/> says no.
+    /// </summary>
     /// <param name="r">The envelope.</param>
     /// <param name="index">The point the segment ends at.</param>
     /// <param name="curve">The new curve.</param>
@@ -215,8 +231,27 @@ public static class EnvelopeEdits
         }
 
         OperatorEnvelope envelope = Get(patch, r)!;
+        if (curve == EnvelopeCurve.Exponential && envelope.Points[index].Curve != curve && ExponentialRefusal(envelope, r.Kind) is { } why)
+        {
+            return EditOutcome.Refused(patch, why);
+        }
+
         return With(patch, r, envelope with { Points = Replaced(envelope.Points, index, envelope.Points[index] with { Curve = curve }) });
     };
+
+    /// <summary>Why no segment of the envelope can be made exponential; null when one can (see <see cref="AllowsExponential"/>).</summary>
+    private static string? ExponentialRefusal(OperatorEnvelope envelope, EnvelopeKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        if (kind == EnvelopeKind.Pitch)
+        {
+            return "The pitch envelope has no exponential curves: they would floor its cents at 0 and lose every bend below the note.";
+        }
+
+        return envelope.Points.Any(static p => p.Level < 0.0)
+            ? "An envelope with a level below 0 has no exponential curves: they would floor that level at 0."
+            : null;
+    }
 
     /// <summary>
     /// The highest level a connection's envelope can reach before the connection brings its destination over the

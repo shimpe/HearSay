@@ -178,20 +178,32 @@ public sealed class PatchEditsTests
     [Fact]
     public void SetFrequencyMode_KeepsThePitchAtA4()
     {
-        OperatorMatrixPatch patch = TwoOperators();
+        // OP2 at ratio 2, tuned up by 7 cents: it plays at 880 Hz × 2^(7/1200) on A4.
+        OperatorMatrixPatch patch = WithOperator(TwoOperators(), 1, static op => op with { FineTuneCents = 7.0 });
         double before = patch.Operators[1].FrequencyHz(440.0);
+        Assert.Equal(880.0 * Math.Pow(2.0, 7.0 / 1200.0), before, 9);
 
         OperatorMatrixPatch fixedHz = Done(patch, Fmx6, PatchEdits.SetFrequencyMode(1, OperatorFrequencyMode.Fixed));
         Assert.Equal(OperatorFrequencyMode.Fixed, fixedHz.Operators[1].Frequency.Mode);
-        Assert.Equal(880.0, fixedHz.Operators[1].Frequency.FixedFrequencyHz, 9);
+        Assert.Equal(before, fixedHz.Operators[1].Frequency.FixedFrequencyHz, 9);
         Assert.Equal(before, fixedHz.Operators[1].FrequencyHz(440.0), 9);
 
+        // Back to a ratio: the same pitch, the same ratio and the same fine tune.
         OperatorMatrixPatch back = Done(fixedHz, Fmx6, PatchEdits.SetFrequencyMode(1, OperatorFrequencyMode.Ratio));
         Assert.Equal(OperatorFrequencyMode.Ratio, back.Operators[1].Frequency.Mode);
         Assert.Equal(2.0, back.Operators[1].Frequency.Ratio, 9);
+        Assert.Equal(7.0, back.Operators[1].FineTuneCents);
+        Assert.Equal(before, back.Operators[1].FrequencyHz(440.0), 9);
 
+        // A fixed operator with a fine tune left on it (heard without it) keeps its pitch as a ratio too.
         OperatorMatrixPatch at330 = WithOperator(patch, 1, static op => op with { Frequency = OperatorFrequency.AtFixed(330) });
-        Assert.Equal(0.75, Done(at330, Fmx6, PatchEdits.SetFrequencyMode(1, OperatorFrequencyMode.Ratio)).Operators[1].Frequency.Ratio, 9);
+        OperatorMatrixPatch fromFixed = Done(at330, Fmx6, PatchEdits.SetFrequencyMode(1, OperatorFrequencyMode.Ratio));
+        Assert.Equal(330.0, fromFixed.Operators[1].FrequencyHz(440.0), 9);
+        Assert.Equal(0.75 / Math.Pow(2.0, 7.0 / 1200.0), fromFixed.Operators[1].Frequency.Ratio, 9);
+
+        // Without a fine tune, 330 Hz is ratio 0.75.
+        OperatorMatrixPatch plain330 = WithOperator(TwoOperators(), 1, static op => op with { Frequency = OperatorFrequency.AtFixed(330) });
+        Assert.Equal(0.75, Done(plain330, Fmx6, PatchEdits.SetFrequencyMode(1, OperatorFrequencyMode.Ratio)).Operators[1].Frequency.Ratio, 9);
     }
 
     [Fact]
