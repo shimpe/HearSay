@@ -53,7 +53,7 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// Ctrl+Z undoes the last edit of the visible tab's sound, Ctrl+Y and Ctrl+Shift+Z redo it (Cmd on macOS), wherever
     /// the focus is. A text box that can be typed in keeps them for its own text; a number box of the inspector only
-    /// while it holds typed text.
+    /// while it holds typed text. During a drag they do nothing: the drag becomes its step when it ends.
     /// </summary>
     private void OnUndoKeys(object? sender, KeyEventArgs e)
     {
@@ -64,15 +64,27 @@ public sealed partial class MainWindow : Window
         }
 
         KeyModifiers command = PlatformSettings?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
-        if (e.Key == Key.Z && e.KeyModifiers == command)
+        bool undo = e.Key == Key.Z && e.KeyModifiers == command;
+        bool redo = (e.Key == Key.Y && e.KeyModifiers == command) || (e.Key == Key.Z && e.KeyModifiers == (command | KeyModifiers.Shift));
+        if (!undo && !redo)
         {
-            viewModel.VisibleEdits.Undo();
-            e.Handled = true;
+            return;
         }
-        else if ((e.Key == Key.Y && e.KeyModifiers == command) || (e.Key == Key.Z && e.KeyModifiers == (command | KeyModifiers.Shift)))
+
+        e.Handled = true;
+        PatchEditorViewModel edits = viewModel.VisibleEdits;
+        if (edits.InGesture)
         {
-            viewModel.VisibleEdits.Redo();
-            e.Handled = true;
+            return;
+        }
+
+        if (undo)
+        {
+            edits.Undo();
+        }
+        else
+        {
+            edits.Redo();
         }
     }
 

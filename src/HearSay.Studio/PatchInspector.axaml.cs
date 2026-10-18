@@ -156,6 +156,12 @@ public sealed partial class PatchInspector : UserControl
 
     private void Rebuild()
     {
+        // Typed text first becomes its step, on the value it was typed for, before its box goes.
+        foreach (NumberBox box in _boxes.ToList())
+        {
+            box.Commit();
+        }
+
         _rebuildPending = false;
         _shape = Shape();
         _building = true;
@@ -329,12 +335,15 @@ public sealed partial class PatchInspector : UserControl
     {
         foreach (EditableValue value in values)
         {
+            // The latest instance of the value, or, once another part is selected, the one the row was made for: typed
+            // text committed then still goes to the value it was typed for.
             string id = value.Id;
+            EditableValue Current() => _values.GetValueOrDefault(id) ?? value;
             var box = new NumberBox(
                 _editor!,
-                p => _values.TryGetValue(id, out EditableValue? v) ? v.Get(p) : double.NaN,
-                x => _values.TryGetValue(id, out EditableValue? v) ? v.Set(x) : (p, _) => EditOutcome.Refused(p, "This value is gone."),
-                (from, pixels, fine, snap) => _values.TryGetValue(id, out EditableValue? v) ? v.Nudge(from, pixels, fine, snap) : from)
+                p => Current().Get(p),
+                x => Current().Set(x),
+                (from, pixels, fine, snap) => Current().Nudge(from, pixels, fine, snap))
             {
                 Name = "value:" + id,
             };
@@ -544,6 +553,9 @@ public sealed class NumberBox : TextBox
     private const double DragThreshold = 3;
 
     private readonly PatchEditorViewModel _editor;
+
+    /// <summary>The edit model of the sound the box was made for.</summary>
+    private readonly PatchEditor? _owner;
     private readonly Func<OperatorMatrixPatch, double> _read;
     private readonly Func<double, PatchEdit> _write;
     private readonly Func<double, double, bool, bool, double> _nudge;
@@ -563,6 +575,7 @@ public sealed class NumberBox : TextBox
     public NumberBox(PatchEditorViewModel editor, Func<OperatorMatrixPatch, double> read, Func<double, PatchEdit> write, Func<double, double, bool, bool, double> nudge)
     {
         _editor = editor;
+        _owner = editor.Editor;
         _read = read;
         _write = write;
         _nudge = nudge;
@@ -639,8 +652,11 @@ public sealed class NumberBox : TextBox
         base.OnLostFocus(e);
     }
 
-    /// <summary>Makes the typed number one step; text that is no number puts the shown value back.</summary>
-    private void Commit()
+    /// <summary>
+    /// Makes the typed number one step; text that is no number puts the shown value back. Typed text for a sound that is
+    /// no longer shown is dropped: the edit would go to the sound shown now.
+    /// </summary>
+    public void Commit()
     {
         if (!IsEditing)
         {
@@ -649,7 +665,8 @@ public sealed class NumberBox : TextBox
 
         string typed = Text ?? string.Empty;
         Text = _shown;
-        if (double.TryParse(typed.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) && _editor.HasSound)
+        if (double.TryParse(typed.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value)
+            && _editor.Editor is { } shown && ReferenceEquals(shown, _owner))
         {
             _editor.Apply(_write(value));
         }
@@ -692,6 +709,12 @@ public sealed class NumberBox : TextBox
             _escapeSource = TopLevel.GetTopLevel(this);
             _escapeSource?.AddHandler(KeyDownEvent, OnEscape, RoutingStrategies.Tunnel);
         }
+        else if (!_editor.InGesture)
+        {
+            // An undo, a redo or the switch ended the gesture underneath: the drag ends with it.
+            EndDrag(cancel: false, gestureEnded: true);
+            return;
+        }
 
         _editor.Preview(_write(_nudge(_from, pixels, e.KeyModifiers.HasFlag(KeyModifiers.Shift), e.KeyModifiers.HasFlag(KeyModifiers.Control))));
         e.Handled = true;
@@ -724,7 +747,8 @@ public sealed class NumberBox : TextBox
         }
     }
 
-    private void EndDrag(bool cancel)
+    /// <summary>Stops a press or drag: the drag's gesture becomes one step, or is cancelled, unless it already ended underneath.</summary>
+    private void EndDrag(bool cancel, bool gestureEnded = false)
     {
         bool dragging = _dragging;
         _pressedOn = null;
@@ -734,7 +758,7 @@ public sealed class NumberBox : TextBox
         IPointer? pointer = _pointer;
         _pointer = null;
         pointer?.Capture(null);
-        if (!dragging)
+        if (!dragging || gestureEnded)
         {
             return;
         }

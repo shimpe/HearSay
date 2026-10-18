@@ -97,6 +97,12 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     /// <summary>True when there is an undone step to redo.</summary>
     public bool CanRedo => _editor?.CanRedo ?? false;
 
+    /// <summary>
+    /// True while a gesture, such as a drag, is under way: from <see cref="BeginGesture"/> until it ends, or until an
+    /// undo, a redo or the Original ⇄ Edited switch ends it underneath the control that began it.
+    /// </summary>
+    public bool InGesture => _editor?.InGesture ?? false;
+
     /// <summary>The part of the patch selected for the inspector; null for none.</summary>
     public PatchPart? Selected
     {
@@ -210,13 +216,22 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         Refresh();
     }
 
-    /// <summary>Shows an edit of the patch as it was when the gesture began.</summary>
+    /// <summary>
+    /// Shows an edit of the patch as it was when the gesture began. Without a gesture under way (it was never begun, or
+    /// an undo, a redo or the switch ended it) nothing changes and the outcome is a refusal, not shown in the status line.
+    /// </summary>
     /// <param name="e">The change.</param>
-    /// <returns>The outcome; a refusal is also in <see cref="LastRefusal"/>.</returns>
-    /// <exception cref="InvalidOperationException">No sound is shown, or no gesture was begun.</exception>
+    /// <returns>The outcome; a refusal of the edit is also in <see cref="LastRefusal"/>.</returns>
+    /// <exception cref="InvalidOperationException">No sound is shown.</exception>
     public EditOutcome Preview(PatchEdit e)
     {
-        EditOutcome outcome = EditorOrThrow().Preview(e);
+        PatchEditor editor = EditorOrThrow();
+        if (!editor.InGesture)
+        {
+            return EditOutcome.Refused(editor.Current, "No gesture is under way.");
+        }
+
+        EditOutcome outcome = editor.Preview(e);
         LastRefusal = outcome.Refusal;
         return outcome;
     }

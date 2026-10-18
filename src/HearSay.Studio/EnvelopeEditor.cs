@@ -246,6 +246,13 @@ public sealed class EnvelopeEditor : Control
             return;
         }
 
+        if (!editor.InGesture)
+        {
+            // An undo, a redo or the switch ended the gesture underneath: the drag ends with it.
+            EndDrag(cancel: false, gestureEnded: true);
+            return;
+        }
+
         // Time from where the segment into the point starts, level from the height, both on the scale of the drag's start.
         Layout layout = Measure(envelope);
         Point at = e.GetPosition(this);
@@ -284,7 +291,8 @@ public sealed class EnvelopeEditor : Control
         base.OnDetachedFromVisualTree(e);
     }
 
-    private void EndDrag(bool cancel)
+    /// <summary>Stops a drag: its gesture becomes one step, or is cancelled, unless it already ended underneath.</summary>
+    private void EndDrag(bool cancel, bool gestureEnded = false)
     {
         if (_dragged < 0)
         {
@@ -297,11 +305,11 @@ public sealed class EnvelopeEditor : Control
         IPointer? pointer = _pointer;
         _pointer = null;
         pointer?.Capture(null);
-        if (cancel)
+        if (!gestureEnded && cancel)
         {
             Editor?.CancelGesture();
         }
-        else
+        else if (!gestureEnded)
         {
             Editor?.EndGesture();
         }
