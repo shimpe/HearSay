@@ -60,3 +60,6 @@ nunit-*.xml
 BenchmarkDotNet.Artifacts/
 demo-results/
 result/
+
+# Brainstorming mockups and plan workspaces of the superpowers skills
+.superpowers/
