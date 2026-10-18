@@ -447,7 +447,8 @@ public static class PatchEdits
     private static string? MissingOrUnused(OperatorMatrixPatch patch, int op)
         => Missing(patch, op) ?? (patch.Operators[op].Enabled ? null : $"OP{op + 1} is not in use.");
 
-    private static string Route(int source, int destination) => $"OP{source + 1} -> OP{destination + 1}";
+    /// <summary>A connection in words, such as "OP2 -> OP1".</summary>
+    internal static string Route(int source, int destination) => $"OP{source + 1} -> OP{destination + 1}";
 
     /// <summary>Why the profile cannot have a connection from one operator to another; null when it can.</summary>
     private static string? RoutingRefusal(SynthesisCapabilities c, int source, int destination)
@@ -469,33 +470,47 @@ public static class PatchEdits
     /// </summary>
     private static string? LimitRefusal(OperatorMatrixPatch patch, int destination, SynthesisCapabilities c)
     {
-        double incoming = 0;
-        foreach (ModulationEdge edge in patch.ModulationMatrix.Edges)
-        {
-            if (edge.DestinationOperator != destination || !edge.Enabled || !patch.Operators[edge.SourceOperator].Enabled)
-            {
-                continue;
-            }
-
-            double peak = Math.Abs(edge.Amount);
-            if (edge.AmountEnvelope is { } envelope)
-            {
-                double max = 0;
-                for (int p = 0; p < envelope.Points.Count; p++)
-                {
-                    max = Math.Max(max, Math.Abs(envelope.EffectiveLevel(p)));
-                }
-
-                peak *= max;
-            }
-
-            incoming += peak;
-        }
-
+        double incoming = IncomingModulation(patch, destination);
         double limit = c.MaxModulationRadiansPerDestination;
         return incoming > limit
             ? string.Create(CultureInfo.InvariantCulture, $"OP{destination + 1} would receive {incoming:0.0} rad of modulation; this profile allows at most {limit:0.0} rad.")
             : null;
+    }
+
+    /// <summary>
+    /// The modulation that arrives at an operator, in radians at its peak, as the modulation limit counts it: every
+    /// enabled connection from an enabled operator, heard or not, at its amount times the peak of its envelope.
+    /// </summary>
+    /// <param name="patch">The patch.</param>
+    /// <param name="destination">The modulated operator.</param>
+    /// <param name="exceptSource">A source whose connection is left out of the sum; null for none.</param>
+    internal static double IncomingModulation(OperatorMatrixPatch patch, int destination, int? exceptSource = null)
+    {
+        double incoming = 0;
+        foreach (ModulationEdge edge in patch.ModulationMatrix.Edges)
+        {
+            if (edge.DestinationOperator != destination || edge.SourceOperator == exceptSource || !edge.Enabled || !patch.Operators[edge.SourceOperator].Enabled)
+            {
+                continue;
+            }
+
+            incoming += Math.Abs(edge.Amount) * (edge.AmountEnvelope is { } envelope ? EnvelopePeak(envelope) : 1.0);
+        }
+
+        return incoming;
+    }
+
+    /// <summary>The largest level of an envelope, in magnitude, as rendered (with the exponential floor).</summary>
+    /// <param name="envelope">The envelope.</param>
+    internal static double EnvelopePeak(OperatorEnvelope envelope)
+    {
+        double max = 0;
+        for (int p = 0; p < envelope.Points.Count; p++)
+        {
+            max = Math.Max(max, Math.Abs(envelope.EffectiveLevel(p)));
+        }
+
+        return max;
     }
 
     /// <summary>True when the enabled connections between enabled operators, feedback aside, contain a loop.</summary>
