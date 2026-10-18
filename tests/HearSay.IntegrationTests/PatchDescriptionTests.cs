@@ -45,6 +45,24 @@ public sealed class PatchDescriptionTests
     }
 
     [Fact]
+    public void PitchDetail_TellsTheEnvelopeInCentsAndTheVibrato()
+    {
+        var envelope = new OperatorEnvelope([new EnvelopePoint(0, 37), new EnvelopePoint(0.05, 0)], null, 2);
+        var vibrato = new LfoSettings(5.2, 12, DelaySeconds: 0.3, FadeInSeconds: 0.5);
+
+        Assert.Equal(string.Empty, PatchDescription.PitchDetail(PitchModel.None));
+        Assert.Equal(string.Empty, PatchDescription.PitchDetail(new PitchModel(null, vibrato with { DepthCents = 0 })));
+        Assert.Equal(
+            "Pitch of the ratio operators (fixed ones keep their frequency)\n"
+            + "envelope in cents: 37 → 0 in 50 ms\n"
+            + "vibrato 5.2 Hz, ±12 ct, after 0.3 s, fading in over 0.5 s",
+            PatchDescription.PitchDetail(new PitchModel(envelope, vibrato)));
+        Assert.Equal(
+            "Pitch of the ratio operators (fixed ones keep their frequency)\nvibrato 6 Hz, ±20 ct",
+            PatchDescription.PitchDetail(new PitchModel(null, new LfoSettings(6, 20))));
+    }
+
+    [Fact]
     public void OperatorDetail_OfAModulator_TellsItsNoiseAndStartPhase_AndLeavesOutWhatItDoesNotUse()
     {
         OperatorPatch op = OperatorPatch.Sine(OperatorFrequency.AtFixed(440)) with

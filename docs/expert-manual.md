@@ -298,7 +298,10 @@ square-root scale so that a 5 ms attack and a 2 s decay both show, with a flat s
 the pointer on a box shows everything about the operator in full: tuning, waveform parameters, filter, shared noise,
 the envelope breakpoints, velocity sensitivity, key scaling and start phase. On Nome6, the shared noise source is a box at the top left with its colour
 (*white*, or for example *LP 60% · 1.9 kHz*), and a dotted line runs into every operator that plays it (*plays*) or
-that it roughens (*φ 0.4*: radians of phase, *m -0.2*: the elliptic parameter).
+that it roughens (*φ 0.4*: radians of phase, *m -0.2*: the elliptic parameter). A patch whose pitch moves has a PITCH
+box at the top right: the vibrato rate and depth (*vib 5.5 Hz ±14 ct*) and the pitch envelope sketched around a zero
+line, up and down in cents. It moves the ratio operators only; fixed-frequency ones keep their pitch. Resting the
+pointer on the box shows the breakpoints in cents and the vibrato delay and fade-in.
 
 Studio plays through OpenAL Soft. Without an audio device the keyboard is silent and a note says so; everything else
 works.

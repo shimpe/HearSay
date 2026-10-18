@@ -15,7 +15,8 @@ namespace HearSay.Studio;
 /// out: a sketch of its response and its label. The shared noise source of a profile that has one is a box at the top
 /// left, its colour inside, with a dotted line into every operator it roughens (φ for phase, m for the elliptic
 /// parameter, with the amount) or that plays it. A strip under the text of each box sketches the amplitude envelope; the
-/// pointer on a box shows everything about the operator.
+/// pointer on a box shows everything about the operator. A pitch envelope or vibrato is a box at the top right: the
+/// vibrato rate and depth, and the envelope sketched around a zero line.
 /// </summary>
 public sealed class FmDiagram : Control
 {
@@ -48,7 +49,7 @@ public sealed class FmDiagram : Control
     private static readonly Pen EnvelopePen = new(Accent, 1.2);
     private static readonly IBrush EnvelopeFill = new SolidColorBrush(Color.Parse("#22D3EE"), 0.15);
 
-    // Boxes of the last render, for the tooltip: operator index, or -1 for the shared noise box.
+    // Boxes of the last render, for the tooltip: operator index, -1 for the shared noise box, -2 for the pitch box.
     private readonly List<(Rect Box, int Op)> _hitBoxes = [];
     private int _hover = int.MinValue;
 
@@ -94,7 +95,12 @@ public sealed class FmDiagram : Control
         _hover = hit;
         if (hit != int.MinValue && Patch is { } patch)
         {
-            ToolTip.SetTip(this, hit >= 0 ? PatchDescription.OperatorDetail(patch, hit) : NoiseDetail(patch.Noise));
+            ToolTip.SetTip(this, hit switch
+            {
+                >= 0 => PatchDescription.OperatorDetail(patch, hit),
+                -1 => NoiseDetail(patch.Noise),
+                _ => PatchDescription.PitchDetail(patch.Pitch),
+            });
             ToolTip.SetIsOpen(this, true);
         }
     }
@@ -190,8 +196,15 @@ public sealed class FmDiagram : Control
         double boxW = Math.Min(96, Math.Max(56, slot - 44)), boxH = 46 + EnvelopeH + (anyFilter ? FilterH : 0);
         double busY = height - 28;
 
-        // Room above the top row for self-feedback loops and their amounts.
-        double rowH = top == 0 ? 0 : Math.Min(130, (busY - 40 - boxH - 44) / top);
+        // The pitch box at the top right, when the pitch moves: a title, the vibrato, the envelope.
+        LfoSettings? vibrato = patch.Pitch.Vibrato is { DepthCents: not 0.0 } v ? v : null;
+        OperatorEnvelope? pitchEnvelope = patch.Pitch.PitchEnvelope;
+        double pitchH = patch.Pitch.IsStatic ? 0 : 22 + (vibrato is null ? 0 : 14) + (pitchEnvelope is null ? 0 : 26);
+        var pitchBox = new Rect(Math.Max(6, width - 126), 6, 120, pitchH);
+
+        // Room above the top row for self-feedback loops and their amounts, and below the pitch box.
+        double topMargin = Math.Max(44, pitchH + 36);
+        double rowH = top == 0 ? 0 : Math.Min(130, (busY - 40 - boxH - topMargin) / top);
         var centers = new Point[n];
         var position = new int[n];
         for (int l = 0; l <= top; l++)
@@ -415,6 +428,26 @@ public sealed class FmDiagram : Control
             }
         }
 
+        if (pitchH > 0)
+        {
+            context.DrawRectangle(NoiseFill, BoxPen, pitchBox, 6, 6);
+            _hitBoxes.Add((pitchBox, -2));
+            DrawText(context, "PITCH", new Point(pitchBox.X + 7, pitchBox.Y + 2), 11, Text, FontWeight.SemiBold);
+            double y = pitchBox.Y + 18;
+            if (vibrato is not null)
+            {
+                DrawText(context, string.Create(CultureInfo.InvariantCulture, $"vib {vibrato.RateHz:0.#} Hz ±{vibrato.DepthCents:0.#} ct"), new Point(pitchBox.X + 7, y), 10, Muted, maxWidth: pitchBox.Width - 10);
+                y += 14;
+            }
+
+            if (pitchEnvelope is not null)
+            {
+                var strip = new Rect(pitchBox.X + 7, y + 1, pitchBox.Width - 14, 22);
+                context.DrawLine(NoisePen, new Point(strip.X, strip.Center.Y), new Point(strip.Right, strip.Center.Y));
+                DrawEnvelope(context, pitchEnvelope, strip, signed: true);
+            }
+        }
+
         if (noiseUsers.Count > 0)
         {
             context.DrawRectangle(NoiseFill, NoisePen, noiseBox, 6, 6);
@@ -585,10 +618,11 @@ public sealed class FmDiagram : Control
         : string.Create(CultureInfo.InvariantCulture, $"Shared noise: colour {noise.Color:0.##} (-1 low-passed, 1 high-passed), cutoff {noise.CutoffHz:0} Hz.\nEvery operator joined to it plays it or is roughened by it.");
 
     /// <summary>
-    /// A sketch of an amplitude envelope in a strip: time runs on a square-root scale, so that a 5 ms attack and a 2 s
-    /// decay both show; a held level gets a flat stretch before the release.
+    /// A sketch of an envelope in a strip: time runs on a square-root scale, so that a 5 ms attack and a 2 s decay both
+    /// show; a held level gets a flat stretch before the release. Signed (pitch in cents): around the middle of the
+    /// strip, up and down.
     /// </summary>
-    private static void DrawEnvelope(DrawingContext context, OperatorEnvelope envelope, Rect strip)
+    private static void DrawEnvelope(DrawingContext context, OperatorEnvelope envelope, Rect strip, bool signed = false)
     {
         IReadOnlyList<EnvelopePoint> points = envelope.Points;
         double peak = Math.Max(1e-9, points.Max(static p => Math.Abs(p.Level)));
@@ -605,12 +639,13 @@ public sealed class FmDiagram : Control
         }
 
         double total = widths.Sum(static w => w.Width);
-        double Y(double level) => strip.Bottom - (Math.Abs(level) / peak * strip.Height);
+        double baseline = signed ? strip.Center.Y : strip.Bottom;
+        double Y(double level) => signed ? baseline - (level / peak * strip.Height / 2) : baseline - (Math.Abs(level) / peak * strip.Height);
         var geometry = new StreamGeometry();
         using (StreamGeometryContext g = geometry.Open())
         {
             double x = strip.X;
-            g.BeginFigure(new Point(x, strip.Bottom), true);
+            g.BeginFigure(new Point(x, baseline), true);
             g.LineTo(new Point(x, Y(points[0].Level)));
             foreach ((double width, double level) in widths)
             {
@@ -618,7 +653,7 @@ public sealed class FmDiagram : Control
                 g.LineTo(new Point(x, Y(level)));
             }
 
-            g.LineTo(new Point(x, strip.Bottom));
+            g.LineTo(new Point(x, baseline));
             g.EndFigure(true);
         }
 

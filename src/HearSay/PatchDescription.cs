@@ -151,6 +151,44 @@ public static class PatchDescription
         return string.Join("\n", lines);
     }
 
+    /// <summary>
+    /// The pitch envelope and the vibrato of a patch, for the tooltip of the pitch box in the block diagram; empty when
+    /// the pitch never moves.
+    /// </summary>
+    /// <param name="pitch">Pitch model.</param>
+    public static string PitchDetail(PitchModel pitch)
+    {
+        ArgumentNullException.ThrowIfNull(pitch);
+        if (pitch.IsStatic)
+        {
+            return string.Empty;
+        }
+
+        var lines = new List<string> { "Pitch of the ratio operators (fixed ones keep their frequency)" };
+        if (pitch.PitchEnvelope is { } envelope)
+        {
+            lines.Add("envelope in cents: " + EnvelopeText(envelope));
+        }
+
+        if (pitch.Vibrato is { DepthCents: not 0.0 } vibrato)
+        {
+            string text = string.Create(CultureInfo.InvariantCulture, $"vibrato {vibrato.RateHz:0.##} Hz, ±{vibrato.DepthCents:0.#} ct");
+            if (vibrato.DelaySeconds > 0.0)
+            {
+                text += string.Create(CultureInfo.InvariantCulture, $", after {vibrato.DelaySeconds:0.##} s");
+            }
+
+            if (vibrato.FadeInSeconds > 0.0)
+            {
+                text += string.Create(CultureInfo.InvariantCulture, $", fading in over {vibrato.FadeInSeconds:0.##} s");
+            }
+
+            lines.Add(text);
+        }
+
+        return string.Join("\n", lines);
+    }
+
     /// <summary>A waveform in words: <c>sine</c>, <c>sample-and-hold noise</c>, …</summary>
     /// <param name="waveform">Waveform.</param>
     public static string WaveformName(OperatorWaveform waveform) => waveform switch
