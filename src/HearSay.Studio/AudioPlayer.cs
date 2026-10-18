@@ -8,8 +8,20 @@ namespace HearSay.Studio;
 /// note stops the previous one. When no audio device can be opened, playback is silently unavailable and
 /// <see cref="IsAvailable"/> says so.
 /// </summary>
+/// <remarks>
+/// The device and its context are shared with a <see cref="LiveAudioOutput"/>, which streams live notes on a source of
+/// its own, so that both sound at the same time. The context mixes at 48 kHz and asks for updates of 256 samples, the
+/// size of the live buffers; OpenAL Soft 1.23 takes the update size from its settings instead, which alsoft.ini in
+/// the program's folder sets (Windows rounds it up to 10 ms in shared mode).
+/// </remarks>
 public sealed unsafe class AudioPlayer : IDisposable
 {
+    /// <summary>ALC_FREQUENCY: the sample rate the device mixes at.</summary>
+    private const int ContextFrequency = 0x1007;
+
+    /// <summary>ALC_REFRESH: how many times per second the device mixes an update.</summary>
+    private const int ContextRefresh = 0x1008;
+
     private readonly object _lock = new();
     private readonly AL? _al;
     private readonly ALContext? _alc;
@@ -31,7 +43,20 @@ public sealed unsafe class AudioPlayer : IDisposable
                 return;
             }
 
-            _context = _alc.CreateContext(_device, null);
+            // A short update (48000 / 256 a second) keeps the device's own latency small for the live notes; OpenAL Soft
+            // logs ALC_REFRESH but takes the update size from period_size in alsoft.ini.
+            int* attributes = stackalloc int[]
+            {
+                ContextFrequency, LiveAudioOutput.SampleRate,
+                ContextRefresh, LiveAudioOutput.SampleRate / LiveAudioOutput.BufferSamples,
+                0,
+            };
+            _context = _alc.CreateContext(_device, attributes);
+            if (_context == null)
+            {
+                return;
+            }
+
             _alc.MakeContextCurrent(_context);
             _source = _al.GenSource();
             _buffer = _al.GenBuffer();
@@ -45,6 +70,9 @@ public sealed unsafe class AudioPlayer : IDisposable
 
     /// <summary>True when an audio device is open.</summary>
     public bool IsAvailable { get; }
+
+    /// <summary>The OpenAL API whose context is current, for the live output's source; null when no device is open.</summary>
+    internal AL? Api => IsAvailable ? _al : null;
 
     /// <summary>Plays audio from the start, stopping whatever was playing.</summary>
     /// <param name="audio">Mono audio.</param>

@@ -24,4 +24,10 @@
     <ProjectReference Include="../HearSay/HearSay.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- OpenAL Soft reads its settings from the program's folder: alsoft.ini on Windows, alsoft.conf elsewhere. -->
+    <None Include="alsoft.ini" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="alsoft.ini" Link="alsoft.conf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
