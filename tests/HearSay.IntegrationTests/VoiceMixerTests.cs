@@ -502,6 +502,47 @@ public sealed class VoiceMixerTests(ITestOutputHelper output)
         Assert.True(peak is > 0f and <= 1f);
     }
 
+    [Fact]
+    public async Task FixedGain_IsUsedWithoutRendering()
+    {
+        // A triangle operator is beyond the FM7 renderer: rendering the reference would fail, so a gain that is
+        // there was not computed from it.
+        OperatorMatrixPatch unrenderable = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.01, 0.1, 0.7, 0.2)) with { Waveform = OperatorWaveform.Triangle })
+            .WithOutputLevel(0, 0.8);
+        Sound broken = SoundOf(unrenderable);
+        Assert.ThrowsAny<Exception>(() => broken.ComputeGain());
+        Assert.Equal(0.25f, (broken with { FixedGain = 0.25f }).ComputeGain());
+
+        // And the mix is the voice at that gain and the velocity rule.
+        Sound fixedSound = SoundOf(Sustaining()) with { FixedGain = 0.25f };
+        var mixer = new VoiceMixer();
+        await mixer.PrepareAsync(fixedSound);
+        Assert.True(mixer.NoteOn(60, 0.6, fixedSound, Midi));
+        float[] mix = Render(mixer, 4800);
+        float[] expected = Alone(fixedSound, 60, 0.6, 4800, gain: 0.25f);
+        for (int i = 0; i < mix.Length; i++)
+        {
+            Assert.Equal(expected[i], mix[i], 1e-5f);
+        }
+
+        Assert.True(Peak(mix) > 0f);
+    }
+
+    [Fact]
+    public async Task GainAsync_IsTheGainPrepareUses()
+    {
+        Sound sound = SoundOf(Sustaining());
+        var mixer = new VoiceMixer();
+        await mixer.PrepareAsync(sound);
+        Assert.Equal(Gain(sound), await mixer.GainAsync(sound), 1e-6f);
+
+        // A sound with a fixed gain is another sound: it never takes the cached gain of its equal patch.
+        Sound fixedSound = sound with { FixedGain = 0.25f };
+        Assert.Equal(0.25f, await mixer.GainAsync(fixedSound));
+        Assert.Equal(Gain(sound), await mixer.GainAsync(sound), 1e-6f);
+    }
+
     private static Sound SoundOf(OperatorMatrixPatch patch) => new(patch, SynthesisProfiles.SuperColliderFm7, RenderRequest.Create(220, 1.0, 0.3));
 
     private static OperatorMatrixPatch Sustaining() =>

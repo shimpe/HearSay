@@ -39,6 +39,47 @@ public sealed class FavouriteSoundsTests : IDisposable
     }
 
     [Fact]
+    public void Favourite_KeepsItsGain()
+    {
+        var favourites = new FavouriteSounds(_directory);
+        Favourite withGain = favourites.Add("with", Bell, SynthesisProfiles.SuperColliderFm7, "edited", gain: 0.3f);
+        favourites.Add("without", Piano, SynthesisProfiles.SuperColliderFm7, "search best");
+        Assert.Equal(0.3f, withGain.Gain);
+
+        IReadOnlyList<Favourite> loaded = new FavouriteSounds(_directory).Load();
+        Assert.Equal(0.3f, loaded.Single(static f => f.Nickname == "with").Gain);
+        Favourite plain = loaded.Single(static f => f.Nickname == "without");
+        Assert.Null(plain.Gain);
+        Assert.DoesNotContain("gain", File.ReadAllText(Path.Combine(plain.Directory, "favourite.json")), StringComparison.OrdinalIgnoreCase);
+
+        // A favourite.json from before the field existed.
+        File.WriteAllText(Path.Combine(plain.Directory, "favourite.json"), "{\"origin\":\"old\"}");
+        Favourite old = new FavouriteSounds(_directory).Load().Single(static f => f.Nickname == "without");
+        Assert.Null(old.Gain);
+        Assert.Equal("old", old.Origin);
+    }
+
+    [Fact]
+    public void EditedFavourite_IsANewFavourite()
+    {
+        var favourites = new FavouriteSounds(_directory);
+        Favourite original = favourites.Add("bell", Bell, SynthesisProfiles.SuperColliderFm7, "search best");
+        var before = Directory.GetFiles(original.Directory).ToDictionary(static f => Path.GetFileName(f), static f => File.ReadAllBytes(f));
+
+        Favourite edited = favourites.Add("bell", Piano, SynthesisProfiles.SuperColliderFm7, "edited from search best", gain: 0.4f);
+
+        Assert.Equal(2, favourites.Load().Count);
+        Assert.NotEqual(original.Directory, edited.Directory);
+        Assert.Equal("edited from search best", edited.Origin);
+        var after = Directory.GetFiles(original.Directory).ToDictionary(static f => Path.GetFileName(f), static f => File.ReadAllBytes(f));
+        Assert.Equal(before.Keys.Order(), after.Keys.Order());
+        foreach ((string name, byte[] bytes) in before)
+        {
+            Assert.Equal(bytes, after[name]);
+        }
+    }
+
+    [Fact]
     public void Load_IsInNicknameOrder_AndAnEmptyOrMissingFolderHasNone()
     {
         var favourites = new FavouriteSounds(_directory);

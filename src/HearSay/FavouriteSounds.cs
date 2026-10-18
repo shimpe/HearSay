@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
@@ -9,7 +10,10 @@ namespace HearSay;
 /// <param name="Directory">Its folder.</param>
 /// <param name="Sound">The patch and its profile, as <see cref="ExportedSounds"/> reads them.</param>
 /// <param name="Origin">Where it came from: the library seed, the search, or the imported file.</param>
-public sealed record Favourite(string Nickname, string Directory, ExportedSound Sound, string Origin);
+/// <param name="Gain">
+/// The gain it plays at when it was made from an edit and keeps the gain of the original; null to normalise it as usual.
+/// </param>
+public sealed record Favourite(string Nickname, string Directory, ExportedSound Sound, string Origin, float? Gain = null);
 
 /// <summary>
 /// Favourite sounds, kept between sessions as folders under one folder, one per favourite and named by its nickname:
@@ -54,7 +58,8 @@ public sealed class FavouriteSounds
             ExportedSound? sound = ExportedSounds.Scan(folder).Sounds.FirstOrDefault(s => Path.GetDirectoryName(s.PatchFile) == folder);
             if (sound is not null)
             {
-                favourites.Add(new Favourite(Path.GetFileName(folder), folder, sound, OriginOf(folder)));
+                FavouriteFile file = ReadFile(folder);
+                favourites.Add(new Favourite(Path.GetFileName(folder), folder, sound, file.Origin ?? string.Empty, file.Gain));
             }
         }
 
@@ -66,7 +71,8 @@ public sealed class FavouriteSounds
     /// <param name="patch">Patch.</param>
     /// <param name="profile">Profile it plays on.</param>
     /// <param name="origin">Where it came from, for the header of its code.</param>
-    public Favourite Add(string nickname, OperatorMatrixPatch patch, SynthesisProfile profile, string origin)
+    /// <param name="gain">Gain to play it at, kept in <c>favourite.json</c>; null to normalise it as usual.</param>
+    public Favourite Add(string nickname, OperatorMatrixPatch patch, SynthesisProfile profile, string origin, float? gain = null)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(profile);
@@ -74,8 +80,8 @@ public sealed class FavouriteSounds
         string name = FreeName(SafeName(nickname), except: null);
         string folder = Path.Combine(DirectoryPath, name);
         LibrarySoundWriter.Write(patch, profile, folder, Header(name, origin));
-        File.WriteAllText(Path.Combine(folder, OriginFile), HearSayJson.Serialize(new FavouriteFile(origin)));
-        return new Favourite(name, folder, new ExportedSound(name, Path.Combine(folder, "patch.json"), patch, profile), origin);
+        File.WriteAllText(Path.Combine(folder, OriginFile), HearSayJson.Serialize(new FavouriteFile(origin, gain)));
+        return new Favourite(name, folder, new ExportedSound(name, Path.Combine(folder, "patch.json"), patch, profile), origin, gain);
     }
 
     /// <summary>Gives a favourite another nickname: its folder is renamed and its code says the new name.</summary>
@@ -163,18 +169,18 @@ public sealed class FavouriteSounds
         }
     }
 
-    private static string OriginOf(string folder)
+    private static FavouriteFile ReadFile(string folder)
     {
         try
         {
             string file = Path.Combine(folder, OriginFile);
-            return File.Exists(file) ? HearSayJson.Deserialize<FavouriteFile>(File.ReadAllText(file)).Origin ?? string.Empty : string.Empty;
+            return File.Exists(file) ? HearSayJson.Deserialize<FavouriteFile>(File.ReadAllText(file)) : new FavouriteFile(string.Empty);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
-            return string.Empty;
+            return new FavouriteFile(string.Empty);
         }
     }
 
-    private sealed record FavouriteFile(string Origin);
+    private sealed record FavouriteFile(string Origin, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] float? Gain = null);
 }

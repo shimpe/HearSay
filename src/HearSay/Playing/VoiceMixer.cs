@@ -138,6 +138,15 @@ public sealed class VoiceMixer
         return Prepare(sound).Gain;
     }
 
+    /// <summary>The gain of a sound, kept and computed as <see cref="PrepareAsync"/> does; the fixed gain of a sound that has one.</summary>
+    /// <param name="sound">Sound.</param>
+    /// <returns>A task with the gain; it fails when the reference note cannot be rendered. 1 for a sound whose profile has no live voices.</returns>
+    public Task<float> GainAsync(Sound sound)
+    {
+        ArgumentNullException.ThrowIfNull(sound);
+        return Prepare(sound).Gain;
+    }
+
     /// <summary>
     /// Starts a note. It sounds from the next buffer, or as soon as the gain of its sound is known. The same note held
     /// from the same source is released first; with <see cref="MaxVoices"/> voices playing, the oldest fades out.
@@ -548,7 +557,7 @@ public sealed class VoiceMixer
         long afterStart = afterGateOff is null ? Samples(PatchLifetime.SecondsAfterStart(sound.Patch)) : long.MaxValue;
         return new PreparedSound(
             renderer,
-            ComputeGainOnItsOwnThread(sound),
+            sound.FixedGain is float fixedGain ? Task.FromResult(fixedGain) : ComputeGainOnItsOwnThread(sound),
             afterGateOff,
             afterStart,
             afterGateOff is null ? afterStart - _silenceSamples : long.MaxValue);

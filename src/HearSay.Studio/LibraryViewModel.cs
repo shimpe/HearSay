@@ -31,6 +31,9 @@ public sealed record ImportedItem(ExportedSound Sound, byte[] Print)
     /// <summary>For a finalist of the Search tab, where the search found it; null for a sound read from a folder.</summary>
     public string? SearchOrigin { get; init; }
 
+    /// <summary>The gain a favourite kept, to play the sound at; null to normalise it as usual.</summary>
+    public float? Gain { get; init; }
+
     /// <summary>Where it came from, said differently from the search or import wording; null to use those.</summary>
     public string? SourceText { get; init; }
 
@@ -501,7 +504,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         _status($"Rendering {item.Name} to find its neighbours…");
         byte[] print = await Task.Run(() => ExportedSounds.Fingerprint(sound));
         string source = item.Favourite.Origin.Length > 0 ? "favourite: " + item.Favourite.Origin : "favourite";
-        await ShowAmongNeighboursAsync(new ImportedItem(sound with { Name = item.Name }, print) { SourceText = source }, sound.Profile);
+        await ShowAmongNeighboursAsync(new ImportedItem(sound with { Name = item.Name }, print) { SourceText = source, Gain = item.Favourite.Gain }, sound.Profile);
     }
 
     private void ReloadFavourites()
@@ -682,7 +685,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 item.Sound.Patch,
                 item.Sound.Profile,
                 $"{item.Name} · {item.Source}",
-                [$"{char.ToUpperInvariant(item.Source[0])}{item.Source[1..]}."]));
+                [$"{char.ToUpperInvariant(item.Source[0])}{item.Source[1..]}."],
+                item.Gain));
             return;
         }
 
@@ -731,7 +735,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     }
 
     /// <summary>The sound the keyboard plays: the last clicked one, at the gain of the library's reference note; null before a click.</summary>
-    public Sound? CurrentSound => _selection is { } s ? new Sound(s.Patch, s.Profile, StructureLibrary.ReferenceRequest) : null;
+    public Sound? CurrentSound => _selection is { } s ? new Sound(s.Patch, s.Profile, StructureLibrary.ReferenceRequest) { FixedGain = s.Gain } : null;
 
     /// <summary>The notes that sound now, lit on the keyboard.</summary>
     public IReadOnlyCollection<int> SoundingNotes => _live.SoundingNotes;
@@ -996,7 +1000,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
 
         RenderRequest reference = StructureLibrary.ReferenceRequest;
-        var sound = new Sound(selection.Patch, selection.Profile, reference);
+        var sound = new Sound(selection.Patch, selection.Profile, reference) { FixedGain = selection.Gain };
         int note = reference.MidiNote ?? (int)Math.Round(reference.EffectiveMidiNote);
         var click = new object();
         if (!_live.Play(sound, note, reference.Velocity, click))
@@ -1027,7 +1031,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     private void OnPropertyChanged(string? name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    private sealed record Selection(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Description, IReadOnlyList<string> HeaderComments)
+    private sealed record Selection(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Description, IReadOnlyList<string> HeaderComments, float? Gain = null)
     {
         public string Scd { get; } = SynthesisBackends.ExporterFor(Profile)?.Export(Patch, new PatchExportOptions { HeaderComments = HeaderComments }) ?? "This profile has no export backend.";
     }
