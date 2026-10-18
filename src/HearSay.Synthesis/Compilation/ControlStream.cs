@@ -13,7 +13,7 @@ namespace HearSay.Synthesis.Compilation;
 /// the values during block <c>b</c>, so a renderer ramps from the previous values to the current ones across a block.
 /// </summary>
 /// <remarks>Mutable; use one instance per voice, from one thread.</remarks>
-public sealed class ControlStream
+public sealed class ControlStream : IControlSource
 {
     private readonly Signal[] _amplitudes;
     private readonly Signal[] _edgeSignals;
@@ -30,24 +30,16 @@ public sealed class ControlStream
     private Signal _vibratoDepth;
     private int _blocks;
 
-    /// <summary>Binds a patch to a voice whose gate opens with the first block.</summary>
-    /// <param name="patch">Patch; must be well formed.</param>
-    /// <param name="request">Note to play.</param>
-    /// <param name="controlBlockSize">Samples per control block.</param>
-    /// <exception cref="ArgumentException">The patch is not well formed.</exception>
-    public ControlStream(OperatorMatrixPatch patch, VoiceRequest request, int controlBlockSize = 64)
-        : this(patch, request, controlBlockSize, firstGateOpen: true)
-    {
-    }
-
     /// <summary>Binds a patch to a voice.</summary>
     /// <param name="patch">Patch; must be well formed.</param>
     /// <param name="request">Note to play.</param>
     /// <param name="controlBlockSize">Samples per control block.</param>
     /// <param name="firstGateOpen">
-    /// Whether the gate is open during the first block; the construction values are the values of that block.
+    /// Whether the gate is open during the first block; the construction values are the values of that block. False
+    /// only for a note released before its first block.
     /// </param>
-    internal ControlStream(OperatorMatrixPatch patch, VoiceRequest request, int controlBlockSize, bool firstGateOpen)
+    /// <exception cref="ArgumentException">The patch is not well formed.</exception>
+    public ControlStream(OperatorMatrixPatch patch, VoiceRequest request, int controlBlockSize = 64, bool firstGateOpen = true)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(request);

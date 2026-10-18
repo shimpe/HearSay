@@ -23,36 +23,15 @@ namespace HearSay.Synthesis.Fm7Compatible.Rendering;
 /// <item>The unit computes one sample when it is constructed; the audible output starts one sample into the cycle.</item>
 /// <item>No oversampling and no band-limiting: aliasing is part of the sound of the backend.</item>
 /// </list>
+/// <para>
+/// The kernel runs as a voice, one control block at a time, so a held note from <see cref="StartVoice"/> plays the same
+/// samples as the offline render of a note of the same duration.
+/// </para>
 /// <para>Instances are immutable and thread-safe.</para>
 /// </remarks>
-public sealed class Fm7CompatibleOperatorMatrixRenderer : IOperatorMatrixRenderer
+public sealed class Fm7CompatibleOperatorMatrixRenderer : IOperatorMatrixRenderer, IVoiceRenderer
 {
-    private const int TableSize = 8192;
-    private const int TableMask = TableSize - 1;
-
-    // Wavetable format of the server: value = First + Second * (1 + fraction).
-    private static readonly float[] First = new float[TableSize];
-    private static readonly float[] Second = new float[TableSize];
-
     private readonly SynthesisProfile _profile;
-
-    static Fm7CompatibleOperatorMatrixRenderer()
-    {
-        var sine = new float[TableSize + 1];
-        for (int i = 0; i <= TableSize; i++)
-        {
-            sine[i] = (float)Math.Sin(i * (2.0 * Math.PI / TableSize));
-        }
-
-        sine[TableSize] = sine[0];
-        for (int i = 0; i < TableSize; i++)
-        {
-            float a = sine[i];
-            float b = sine[i + 1];
-            First[i] = (2f * a) - b;
-            Second[i] = b - a;
-        }
-    }
 
     /// <summary>Creates a renderer for the <see cref="SynthesisProfiles.SuperColliderFm7"/> profile.</summary>
     public Fm7CompatibleOperatorMatrixRenderer()
@@ -85,14 +64,19 @@ public sealed class Fm7CompatibleOperatorMatrixRenderer : IOperatorMatrixRendere
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(request);
-        PatchCompatibilityResult compatibility = PatchCompatibilityValidator.Instance.Validate(patch, _profile.Capabilities);
-        if (!compatibility.IsCompatible)
-        {
-            throw new PatchNotSupportedException(_profile.Name, compatibility);
-        }
-
+        EnsureCompatible(patch);
         CompiledOperatorMatrixPatch compiled = PatchCompiler.Compile(patch, request, _profile.ControlBlockSize);
         return new RenderedAudio(Render(compiled), request.SampleRate);
+    }
+
+    /// <inheritdoc />
+    public IOperatorMatrixVoice StartVoice(OperatorMatrixPatch patch, VoiceRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureCompatible(patch);
+        int blockSize = _profile.ControlBlockSize;
+        return new Fm7Voice(request.SampleRate, firstGateOpen => new ControlStream(patch, request, blockSize, firstGateOpen));
     }
 
     /// <summary>Renders an already compiled patch.</summary>
@@ -100,129 +84,21 @@ public sealed class Fm7CompatibleOperatorMatrixRenderer : IOperatorMatrixRendere
     public static float[] Render(CompiledOperatorMatrixPatch compiled)
     {
         ArgumentNullException.ThrowIfNull(compiled);
-        int n = compiled.OperatorCount;
-        int edges = compiled.EdgeCount;
-        int blockSize = compiled.BlockSize;
         var output = new float[compiled.SampleCount];
-        if (n == 0 || output.Length == 0)
+        if (compiled.OperatorCount > 0 && output.Length > 0)
         {
-            return output;
-        }
-
-        float cpsToInc = (float)(TableSize * (1.0 / compiled.SampleRate) * 65536.0);
-        float radToInc = (float)(TableSize * (1.0 / (2.0 * Math.PI)) * 65536.0);
-        float slopeFactor = 1f / blockSize;
-
-        var phase = new int[n];
-        var freq = new float[n];
-        var freqInc = new float[n];
-        var amp = new float[n];
-        var ampInc = new float[n];
-        var mem = new float[n];
-        var deviation = new float[n];
-        var mod = new float[edges];
-        var modInc = new float[edges];
-        float[] phaseOffset = compiled.Phases;
-        float[] gain = compiled.OutputGains;
-        int[] source = compiled.EdgeSources;
-        int[] destination = compiled.EdgeDestinations;
-        float[][] frequencies = compiled.Frequencies;
-        float[][] amplitudes = compiled.Amplitudes;
-        float[][] amounts = compiled.EdgeAmounts;
-
-        for (int k = 0; k < n; k++)
-        {
-            freq[k] = frequencies[k][0];
-            amp[k] = amplitudes[k][0];
-        }
-
-        for (int e = 0; e < edges; e++)
-        {
-            mod[e] = amounts[e][0];
-        }
-
-        // The unit computes one sample while it is constructed. Its output is discarded, its state is kept.
-        Step(n, edges, phase, freq, amp, mem, deviation, mod, phaseOffset, source, destination, cpsToInc, radToInc);
-
-        int position = 0;
-        for (int block = 0; block < compiled.BlockCount; block++)
-        {
-            int step = block + 1;
-            for (int k = 0; k < n; k++)
-            {
-                float[] f = frequencies[k];
-                float[] a = amplitudes[k];
-                freqInc[k] = ((f.Length == 1 ? f[0] : f[step]) - freq[k]) * slopeFactor;
-                ampInc[k] = ((a.Length == 1 ? a[0] : a[step]) - amp[k]) * slopeFactor;
-            }
-
-            for (int e = 0; e < edges; e++)
-            {
-                float[] m = amounts[e];
-                modInc[e] = ((m.Length == 1 ? m[0] : m[step]) - mod[e]) * slopeFactor;
-            }
-
-            int end = Math.Min(position + blockSize, output.Length);
-            for (; position < end; position++)
-            {
-                Step(n, edges, phase, freq, amp, mem, deviation, mod, phaseOffset, source, destination, cpsToInc, radToInc);
-                float mix = 0f;
-                for (int k = 0; k < n; k++)
-                {
-                    mix += mem[k] * gain[k];
-                    freq[k] += freqInc[k];
-                    amp[k] += ampInc[k];
-                }
-
-                for (int e = 0; e < edges; e++)
-                {
-                    mod[e] += modInc[e];
-                }
-
-                output[position] = mix;
-            }
+            new Fm7Voice(compiled.Controls()).Render(output);
         }
 
         return output;
     }
 
-    /// <summary>One sample: all phase deviations from the previous outputs first, then all operators.</summary>
-    private static void Step(
-        int n,
-        int edges,
-        int[] phase,
-        float[] freq,
-        float[] amp,
-        float[] mem,
-        float[] deviation,
-        float[] mod,
-        float[] phaseOffset,
-        int[] source,
-        int[] destination,
-        float cpsToInc,
-        float radToInc)
+    private void EnsureCompatible(OperatorMatrixPatch patch)
     {
-        for (int k = 0; k < n; k++)
+        PatchCompatibilityResult compatibility = PatchCompatibilityValidator.Instance.Validate(patch, _profile.Capabilities);
+        if (!compatibility.IsCompatible)
         {
-            deviation[k] = phaseOffset[k];
-        }
-
-        for (int e = 0; e < edges; e++)
-        {
-            deviation[destination[e]] += mod[e] * mem[source[e]];
-        }
-
-        for (int k = 0; k < n; k++)
-        {
-            int p = unchecked(phase[k] + ToFixed(deviation[k] * radToInc));
-            int index = (p >> 16) & TableMask;
-            float fraction = 1f + ((p & 0xFFFF) * (1f / 65536f));
-            mem[k] = amp[k] * (First[index] + (Second[index] * fraction));
-            phase[k] = unchecked(phase[k] + ToFixed(freq[k] * cpsToInc));
+            throw new PatchNotSupportedException(_profile.Name, compatibility);
         }
     }
-
-    /// <summary>Float to 32-bit conversion with the out-of-range result of the x86 conversion the backend compiles to.</summary>
-    private static int ToFixed(float value) =>
-        value >= 2147483648f || value < -2147483648f || float.IsNaN(value) ? int.MinValue : (int)value;
 }

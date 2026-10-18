@@ -139,6 +139,142 @@ public sealed class CompiledOperatorMatrixPatch
 
     /// <summary>Amount in radians per live edge and control step; a single entry when constant.</summary>
     public float[][] EdgeAmounts { get; }
+
+    /// <summary>
+    /// A control source over the compiled arrays, for a voice that renders this note: its current values step through
+    /// entry 0, 1, 2 and so on, and after the last block they stay at the last entry. The gate is already in the
+    /// arrays, so the source ignores the gate it is given.
+    /// </summary>
+    /// <returns>A new source, not advanced yet.</returns>
+    public IControlSource Controls() => new CompiledControls(this);
+
+    /// <summary>The compiled arrays as an <see cref="IControlSource"/>.</summary>
+    private sealed class CompiledControls : IControlSource
+    {
+        private readonly CompiledOperatorMatrixPatch _compiled;
+        private int _step;
+
+        public CompiledControls(CompiledOperatorMatrixPatch compiled)
+        {
+            _compiled = compiled;
+            int n = compiled.OperatorCount;
+            CompiledFilters? filters = compiled.Filters;
+            if (filters is null)
+            {
+                // The parts of no filter, as a control stream has them.
+                FilterTypes = new int[n];
+                FilterBaseHz = new float[n];
+                FilterQ = new float[n];
+                FormantRatios = new float[n];
+                FormantLevels = new float[n];
+                FilterGainsDb = new float[n];
+                Array.Fill(FilterTypes, OperatorFilterKernel.Off);
+                Array.Fill(FilterQ, 1f);
+                Array.Fill(FormantRatios, 1f);
+            }
+            else
+            {
+                FilterTypes = filters.Types;
+                FilterBaseHz = filters.BaseHz;
+                FilterQ = filters.Q;
+                FormantRatios = filters.FormantRatios;
+                FormantLevels = filters.FormantLevels;
+                FilterGainsDb = filters.GainsDb;
+            }
+
+            Frequencies = new float[n];
+            Amplitudes = new float[n];
+            EdgeAmounts = new float[compiled.EdgeCount];
+            FilterOctaves = new float[n];
+            Load();
+        }
+
+        public int SampleRate => _compiled.SampleRate;
+
+        public int BlockSize => _compiled.BlockSize;
+
+        public int OperatorCount => _compiled.OperatorCount;
+
+        public int EdgeCount => _compiled.EdgeCount;
+
+        public int[] OperatorIndices => _compiled.OperatorIndices;
+
+        public OperatorWaveform[] Waveforms => _compiled.Waveforms;
+
+        public float[] Phases => _compiled.Phases;
+
+        public float[] Shapes => _compiled.Shapes;
+
+        public float[] Morphs => _compiled.Morphs;
+
+        public float[] NoisePhases => _compiled.NoisePhases;
+
+        public float[] NoiseMs => _compiled.NoiseMs;
+
+        public float NoiseColor => _compiled.NoiseColor;
+
+        public float NoiseCutoffHz => _compiled.NoiseCutoffHz;
+
+        public int[] HarmonicLimits => _compiled.HarmonicLimits;
+
+        public float[] OutputGains => _compiled.OutputGains;
+
+        public int[] EdgeSources => _compiled.EdgeSources;
+
+        public int[] EdgeDestinations => _compiled.EdgeDestinations;
+
+        public bool HasFilters => _compiled.Filters is not null;
+
+        public int[] FilterTypes { get; }
+
+        public float[] FilterBaseHz { get; }
+
+        public float[] FilterQ { get; }
+
+        public float[] FormantRatios { get; }
+
+        public float[] FormantLevels { get; }
+
+        public float[] FilterGainsDb { get; }
+
+        public float[] Frequencies { get; }
+
+        public float[] Amplitudes { get; }
+
+        public float[] EdgeAmounts { get; }
+
+        public float[] FilterOctaves { get; }
+
+        public void Advance(bool gateOpen)
+        {
+            if (_step < _compiled.BlockCount)
+            {
+                _step++;
+                Load();
+            }
+        }
+
+        /// <summary>Copies entry <see cref="_step"/> of every signal into the current values.</summary>
+        private void Load()
+        {
+            Copy(_compiled.Frequencies, Frequencies, _step);
+            Copy(_compiled.Amplitudes, Amplitudes, _step);
+            Copy(_compiled.EdgeAmounts, EdgeAmounts, _step);
+            if (_compiled.Filters is { } filters)
+            {
+                Copy(filters.Octaves, FilterOctaves, _step);
+            }
+        }
+
+        private static void Copy(float[][] signals, float[] current, int step)
+        {
+            for (int i = 0; i < signals.Length; i++)
+            {
+                float[] signal = signals[i];
+                current[i] = signal.Length == 1 ? signal[0] : signal[step];
+            }
+        }
+    }
 }
 
 /// <summary>Turns a canonical patch and a note into a <see cref="CompiledOperatorMatrixPatch"/>. Stateless and thread-safe.</summary>
