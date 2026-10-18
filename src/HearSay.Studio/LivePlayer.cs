@@ -24,7 +24,9 @@ public sealed record PlayedNote(int Note, double Velocity, Sound? Sound, bool Pl
 /// <remarks>
 /// <para>
 /// Notes from the MIDI device go to the mixer on the MIDI library's thread, without waiting for the interface thread;
-/// the sound they play is the one <see cref="SoundChanged"/> last took from <see cref="CurrentSound"/>. What the
+/// the sound they play is the one <see cref="SoundChanged"/> last took from <see cref="CurrentSound"/>. Every opened
+/// device is a <see cref="NoteSession"/>, retired when the device is closed, replaced or lost, so that none of its
+/// notes is left sounding, however late it arrives. What the
 /// interface shows (<see cref="SoundingNotes"/>, <see cref="NotePlayed"/>, the device list) changes on the interface
 /// thread only.
 /// </para>
@@ -39,19 +41,13 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
     /// <summary>The first entry of <see cref="MidiDevices"/>: no MIDI input.</summary>
     public const string NoDevice = "none";
 
-    /// <summary>
-    /// How long after a MIDI device is closed its notes are released a second time, to catch a note-on that was on
-    /// its way from the device when it closed.
-    /// </summary>
-    private static readonly TimeSpan LateNoteMargin = TimeSpan.FromMilliseconds(250);
-
     private readonly string? _settingsPath;
-    private readonly object _lateTimers = new();
-    private readonly List<Timer> _pendingReleases = [];
+    private readonly Action<NoteEvent, object> _playMidi;
     private Sound? _current;
     private string? _openName;
-    private object? _midiSource;
-    private Action<NoteEvent>? _midiHandler;
+
+    /// <summary>The notes of the open MIDI device; retired when it is closed, replaced or lost.</summary>
+    private NoteSession? _session;
     private IReadOnlyCollection<int> _soundingNotes = [];
     private int _soundingPosted;
     private string? _shownWarning;
@@ -69,15 +65,19 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         Mixer = new VoiceMixer(LiveAudioOutput.SampleRate);
         Output = new LiveAudioOutput(Device, Mixer);
         Mixer.SoundingNotesChanged += OnSoundingNotesChanged;
+        _playMidi = PlayMidi;
         Midi = new MidiInput();
+        Midi.Note += OnMidiNote;
         Midi.DeviceLost += () => Dispatcher.UIThread.Post(OnDeviceLost);
         Midi.DevicesChanged += () => Dispatcher.UIThread.Post(RefreshMidiDevices);
         StartWarmUp();
 
         string? remembered = StudioSettings.Load(_settingsPath).MidiInput;
         IReadOnlyList<string> names = MidiInput.DeviceNames();
-        if (remembered is not null && names.Contains(remembered) && OpenMidi(remembered))
+        var session = new NoteSession(Mixer);
+        if (remembered is not null && names.Contains(remembered) && Midi.Open(remembered, session))
         {
+            _session = session;
             _openName = remembered;
         }
 
@@ -125,11 +125,11 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
     public ObservableCollection<string> MidiDevices { get; } = [NoDevice];
 
     /// <summary>
-    /// The MIDI device the notes come from, by name, or <see cref="NoDevice"/>. Choosing one opens it, releases the
-    /// notes of the one before, and remembers the choice for the next session; a device that cannot be opened leaves
-    /// <see cref="NoDevice"/> and says so through <see cref="StatusChanged"/>. Null is ignored. Its change is
-    /// announced also when the value stays the same (a device that could not be opened), so that a selector that
-    /// showed the device goes back.
+    /// The MIDI device the notes come from, by name, or <see cref="NoDevice"/>. Choosing one opens it, then closes the
+    /// one before and releases its notes, and remembers the choice for the next session. A device that cannot be
+    /// opened changes nothing: the one before stays open and remembered, and <see cref="StatusChanged"/> says so.
+    /// Null is ignored. Its change is announced also when the value stays the same (a device that could not be
+    /// opened), so that a selector that showed the device goes back.
     /// </summary>
     public string? SelectedMidiDevice
     {
@@ -141,24 +141,33 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
                 return;
             }
 
-            CloseMidi();
-            _openName = null;
-            string? remembered = null;
-            if (value != NoDevice)
+            if (value == NoDevice)
             {
-                if (OpenMidi(value))
+                Midi.Close();
+                RetireSession();
+                _openName = null;
+                Remember(null);
+            }
+            else
+            {
+                var session = new NoteSession(Mixer);
+                if (Midi.Open(value, session))
                 {
+                    // The device before is closed by now; its notes are released, and a late one of them is dropped.
+                    RetireSession();
+                    _session = session;
                     _openName = value;
-                    remembered = value;
+                    Remember(value);
                     StatusChanged?.Invoke(this, $"Playing from the MIDI device {value}.");
                 }
                 else
                 {
-                    StatusChanged?.Invoke(this, $"The MIDI device {value} could not be opened.");
+                    StatusChanged?.Invoke(this, _openName is { } open
+                        ? $"The MIDI device {value} could not be opened; still playing from {open}."
+                        : $"The MIDI device {value} could not be opened.");
                 }
             }
 
-            Remember(remembered);
             OnPropertyChanged();
         }
     }
@@ -234,7 +243,13 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
 
         try
         {
-            return Mixer.NoteOn(note, velocity, sound, source);
+            if (!Mixer.NoteOn(note, velocity, sound, source))
+            {
+                return false;
+            }
+
+            ReportFailedGain(sound);
+            return true;
         }
         catch (Exception)
         {
@@ -242,6 +257,29 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
             // nobody could catch it, and on the interface thread it must not take the window down.
             return false;
         }
+    }
+
+    /// <summary>
+    /// A note started while its sound's gain is still being computed waits for it, and stays silent when that fails:
+    /// the status line then says why (<see cref="StatusChanged"/>).
+    /// </summary>
+    private void ReportFailedGain(Sound sound)
+    {
+        Task gain = Mixer.PrepareAsync(sound);
+        if (gain.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        _ = gain.ContinueWith(
+            t =>
+            {
+                _ = t.Exception;
+                Dispatcher.UIThread.Post(() => StatusChanged?.Invoke(this, CannotPlay(sound)));
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     }
 
     /// <summary>Releases a note started from a source; a note-off without such a note is ignored.</summary>
@@ -297,16 +335,6 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         }
 
         _disposed = true;
-        lock (_lateTimers)
-        {
-            foreach (Timer timer in _pendingReleases)
-            {
-                timer.Dispose();
-            }
-
-            _pendingReleases.Clear();
-        }
-
         Mixer.SoundingNotesChanged -= OnSoundingNotesChanged;
 
         // The output plays in the device's context: it goes first.
@@ -400,69 +428,24 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private bool OpenMidi(string name)
+    /// <summary>Retires the notes of the device that was open: released now, and any still on their way dropped.</summary>
+    private void RetireSession()
     {
-        var source = new object();
-        Action<NoteEvent> handler = e => OnMidiNote(e, source);
-        Midi.Note += handler;
-        if (!Midi.Open(name))
-        {
-            Midi.Note -= handler;
-            return false;
-        }
-
-        _midiSource = source;
-        _midiHandler = handler;
-        return true;
+        _session?.Retire();
+        _session = null;
     }
 
-    /// <summary>Closes the MIDI device and releases its notes, now and once more a little later for a note that was on its way.</summary>
-    private void CloseMidi()
+    /// <summary>A note from the MIDI device, on the library's thread, played unless its device has been closed since.</summary>
+    private void OnMidiNote(NoteEvent e, object session)
     {
-        Midi.Close();
-        RetireMidiSource();
-    }
-
-    private void RetireMidiSource()
-    {
-        if (_midiHandler is { } handler)
+        if (session is NoteSession notes)
         {
-            Midi.Note -= handler;
-        }
-
-        if (_midiSource is not { } source)
-        {
-            return;
-        }
-
-        _midiHandler = null;
-        _midiSource = null;
-        Mixer.ReleaseAll(source);
-        lock (_lateTimers)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            Timer? timer = null;
-            timer = new Timer(_ =>
-            {
-                Mixer.ReleaseAll(source);
-                lock (_lateTimers)
-                {
-                    _pendingReleases.Remove(timer!);
-                }
-
-                timer!.Dispose();
-            });
-            _pendingReleases.Add(timer);
-            timer.Change(LateNoteMargin, Timeout.InfiniteTimeSpan);
+            notes.Deliver(e, _playMidi);
         }
     }
 
-    /// <summary>A note from the MIDI device, on the library's thread.</summary>
-    private void OnMidiNote(NoteEvent e, object source)
+    /// <summary>Plays a note of an open device, under its session's lock, with the session as its source.</summary>
+    private void PlayMidi(NoteEvent e, object source)
     {
         if (e.IsOn)
         {
@@ -482,7 +465,7 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        RetireMidiSource();
+        RetireSession();
         _openName = null;
         OnPropertyChanged(nameof(SelectedMidiDevice));
         StatusChanged?.Invoke(this, $"The MIDI device {lost} was disconnected.");

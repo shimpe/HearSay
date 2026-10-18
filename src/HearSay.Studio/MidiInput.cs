@@ -17,13 +17,18 @@ public sealed class MidiInput : IDisposable
 
     private readonly object _gate = new();
     private IMidiInputPort? _port;
+    private Action<MidiMessage>? _portHandler;
     private Timer? _timer;
     private string? _name;
     private bool _monitoring;
     private bool _disposed;
 
-    /// <summary>Raised for every note-on and note-off, on the library background thread.</summary>
-    public event Action<NoteEvent>? Note;
+    /// <summary>
+    /// Raised for every note-on and note-off of the open device, on the library background thread, with the session
+    /// object given to <see cref="Open"/>. A message from a port that has been closed or replaced is dropped; one that
+    /// was already past that check carries the session of its own device, so that its receiver can drop it too.
+    /// </summary>
+    public event Action<NoteEvent, object>? Note;
 
     /// <summary>Raised when devices are plugged in or out.</summary>
     public event Action? DevicesChanged;
@@ -49,31 +54,41 @@ public sealed class MidiInput : IDisposable
     /// <summary>The names of the MIDI input devices present now (always enumerated afresh); empty when that fails.</summary>
     public static IReadOnlyList<string> DeviceNames() => TryDeviceNames() ?? [];
 
-    /// <summary>Opens the named device, closing any other; false, without an exception, when that is not possible.</summary>
+    /// <summary>
+    /// Opens the named device in place of the open one, which is closed only once the new one is open: when the new
+    /// one cannot be opened, the open one stays open and false is returned, without an exception.
+    /// </summary>
     /// <param name="name">Device name from <see cref="DeviceNames"/>.</param>
-    public bool Open(string name)
+    /// <param name="session">Handed with every note of this device to the <see cref="Note"/> handlers.</param>
+    public bool Open(string name, object session)
     {
-        Close();
+        ArgumentNullException.ThrowIfNull(session);
         IMidiInputPort? port = null;
+        Action<MidiMessage>? handler = null;
         try
         {
             port = MidiPortFactory.OpenInput(name);
-            port.MessageReceived += OnMessage;
+            IMidiInputPort opened = port;
+            handler = message => OnMessage(opened, session, message);
+            port.MessageReceived += handler;
             port.Start();
         }
         catch (Exception)
         {
-            Discard(port);
+            Discard(port, handler);
             return false;
         }
 
         bool startMonitoring = false;
         bool installed = false;
+        (IMidiInputPort? Port, Action<MidiMessage>? Handler, Timer? Timer) replaced = default;
         lock (_gate)
         {
-            if (!_disposed && _port is null)
+            if (!_disposed)
             {
+                replaced = DetachLocked();
                 _port = port;
+                _portHandler = handler;
                 _name = name;
                 _timer = new Timer(_ => CheckPresence(), null, CheckPeriod, CheckPeriod);
                 startMonitoring = !_monitoring;
@@ -82,9 +97,11 @@ public sealed class MidiInput : IDisposable
             }
         }
 
+        // The device it replaces is closed outside the lock: no library call is made while it is held.
+        Release(replaced);
         if (!installed)
         {
-            Discard(port);
+            Discard(port, handler);
             return false;
         }
 
@@ -111,7 +128,7 @@ public sealed class MidiInput : IDisposable
     public void Dispose()
     {
         bool stopMonitoring;
-        (IMidiInputPort? Port, Timer? Timer) detached;
+        (IMidiInputPort? Port, Action<MidiMessage>? Handler, Timer? Timer) detached;
         lock (_gate)
         {
             if (_disposed)
@@ -152,11 +169,16 @@ public sealed class MidiInput : IDisposable
         }
     }
 
-    private static void Discard(IMidiInputPort? port)
+    private static void Discard(IMidiInputPort? port, Action<MidiMessage>? handler)
     {
         if (port is null)
         {
             return;
+        }
+
+        if (handler is not null)
+        {
+            port.MessageReceived -= handler;
         }
 
         try
@@ -198,7 +220,7 @@ public sealed class MidiInput : IDisposable
         }
     }
 
-    private (IMidiInputPort? Port, Timer? Timer) Detach()
+    private (IMidiInputPort? Port, Action<MidiMessage>? Handler, Timer? Timer) Detach()
     {
         lock (_gate)
         {
@@ -206,33 +228,39 @@ public sealed class MidiInput : IDisposable
         }
     }
 
-    private (IMidiInputPort? Port, Timer? Timer) DetachLocked()
+    private (IMidiInputPort? Port, Action<MidiMessage>? Handler, Timer? Timer) DetachLocked()
     {
-        var result = (_port, _timer);
+        var result = (_port, _portHandler, _timer);
         _port = null;
+        _portHandler = null;
         _timer = null;
         _name = null;
         return result;
     }
 
-    private void Release((IMidiInputPort? Port, Timer? Timer) detached)
+    private static void Release((IMidiInputPort? Port, Action<MidiMessage>? Handler, Timer? Timer) detached)
     {
         detached.Timer?.Dispose();
-        if (detached.Port is { } port)
-        {
-            port.MessageReceived -= OnMessage;
-            Discard(port);
-        }
+        Discard(detached.Port, detached.Handler);
     }
 
-    private void OnMessage(MidiMessage message)
+    /// <summary>A message of a port, on the library thread: notes of the port that is open now go to the handlers.</summary>
+    private void OnMessage(IMidiInputPort port, object session, MidiMessage message)
     {
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_port, port))
+            {
+                return; // Closed or replaced since; its session is retired as well.
+            }
+        }
+
         if (MidiNoteDecoder.Decode(message.Status, message.Data1, message.Data2) is not { } note)
         {
             return;
         }
 
-        Action<NoteEvent>? handlers = Note;
+        Action<NoteEvent, object>? handlers = Note;
         if (handlers is null)
         {
             return;
@@ -242,7 +270,7 @@ public sealed class MidiInput : IDisposable
         {
             try
             {
-                ((Action<NoteEvent>)handler)(note);
+                ((Action<NoteEvent, object>)handler)(note, session);
             }
             catch (Exception)
             {
@@ -265,7 +293,7 @@ public sealed class MidiInput : IDisposable
             return;
         }
 
-        (IMidiInputPort? Port, Timer? Timer) detached;
+        (IMidiInputPort? Port, Action<MidiMessage>? Handler, Timer? Timer) detached;
         lock (_gate)
         {
             if (_name != open)

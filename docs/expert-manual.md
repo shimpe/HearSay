@@ -324,7 +324,9 @@ Search tab the shown finalist (or the library sound shown there), in the Library
   whenever it opens. Only note-on, note-off and velocity are used (a note-on with velocity 0 is a note-off); every
   channel plays, and pitch bend, controllers, the sustain pedal, aftertouch and program changes are ignored. The
   choice is remembered by name between sessions in `%LOCALAPPDATA%\HearSay\studio-settings.json`; a remembered device
-  that is not connected at start leaves the selector on *none*, without an error. A device unplugged while open
+  that is not connected at start leaves the selector on *none*, without an error. Choosing a device that cannot be
+  opened changes nothing: the device before stays open and remembered, and the status line says so. A device
+  unplugged while open
   releases its notes, the selector goes back to *none* and the status line says so; it stays remembered for the next
   session.
 - A sound whose profile has no live voices is not played, and the status line says so (FM7, FMX6 and Nome6 all play).
