@@ -1,4 +1,3 @@
-using HearSay.Synthesis.Envelopes;
 using HearSay.Synthesis.Filters;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Rendering;
@@ -145,7 +144,7 @@ public sealed class CompiledOperatorMatrixPatch
 /// <summary>Turns a canonical patch and a note into a <see cref="CompiledOperatorMatrixPatch"/>. Stateless and thread-safe.</summary>
 public static class PatchCompiler
 {
-    /// <summary>Compiles a patch for one note.</summary>
+    /// <summary>Compiles a patch for one note by running a <see cref="ControlStream"/> through the whole note.</summary>
     /// <param name="patch">Patch; must be well formed.</param>
     /// <param name="request">Note to play.</param>
     /// <param name="controlBlockSize">Samples per control block.</param>
@@ -155,215 +154,88 @@ public static class PatchCompiler
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentOutOfRangeException.ThrowIfLessThan(controlBlockSize, 1);
-        IReadOnlyList<string> problems = patch.Validate();
-        if (problems.Count > 0)
-        {
-            throw new ArgumentException("The patch is not well formed: " + string.Join(" ", problems), nameof(patch));
-        }
 
-        int sampleRate = request.SampleRate;
         int sampleCount = Math.Max(0, request.TotalSamples);
         int blockCount = (sampleCount + controlBlockSize - 1) / controlBlockSize;
         int steps = blockCount + 1;
-        double controlRate = (double)sampleRate / controlBlockSize;
 
         // The gate closes in the control block that contains the end of the note, as measured on scsynth: a gate
         // message takes effect at the start of the block its time stamp falls into.
         int gateOffBlock = request.NoteSamples / controlBlockSize;
-        double midiNote = request.EffectiveMidiNote;
 
-        bool[] audible = patch.FindAudibleOperators();
-        var map = new int[patch.OperatorCount];
-        var indices = new List<int>();
-        for (int i = 0; i < audible.Length; i++)
+        // A unit is constructed with the value of the first block, so the stream needs to know that block's gate.
+        var stream = new ControlStream(patch, request.ToVoiceRequest(), controlBlockSize, firstGateOpen: blockCount > 0 && gateOffBlock > 0);
+        float[][] frequencies = Signals(stream.Frequencies, stream.FrequencyVaries, steps);
+        float[][] amplitudes = Signals(stream.Amplitudes, null, steps);
+        float[][] edgeAmounts = Signals(stream.EdgeAmounts, stream.EdgeAmountVaries, steps);
+        float[][]? octaves = stream.HasFilters ? Signals(stream.FilterOctaves, stream.FilterOctavesVary, steps) : null;
+        for (int b = 0; b < blockCount; b++)
         {
-            map[i] = audible[i] ? indices.Count : -1;
-            if (audible[i])
+            stream.Advance(b < gateOffBlock);
+            Record(frequencies, stream.Frequencies, b + 1);
+            Record(amplitudes, stream.Amplitudes, b + 1);
+            Record(edgeAmounts, stream.EdgeAmounts, b + 1);
+            if (octaves is not null)
             {
-                indices.Add(i);
+                Record(octaves, stream.FilterOctaves, b + 1);
             }
         }
 
-        float[]? pitchRatio = patch.Pitch.IsStatic ? null : PitchRatio(patch.Pitch, steps, gateOffBlock, controlRate);
-
-        int n = indices.Count;
-        var waveforms = new OperatorWaveform[n];
-        var frequencies = new float[n][];
-        var amplitudes = new float[n][];
-        var phases = new float[n];
-        var shapes = new float[n];
-        var morphs = new float[n];
-        var noisePhases = new float[n];
-        var noiseMs = new float[n];
-        var harmonicLimits = new int[n];
-        var gains = new float[n];
-        for (int k = 0; k < n; k++)
-        {
-            OperatorPatch op = patch.Operators[indices[k]];
-            waveforms[k] = op.Waveform;
-            phases[k] = (float)op.InitialPhase;
-            shapes[k] = (float)op.Shape;
-            morphs[k] = (float)op.Morph;
-            noisePhases[k] = (float)op.NoisePhase;
-            noiseMs[k] = (float)op.NoiseM;
-            harmonicLimits[k] = op.HarmonicLimit;
-            gains[k] = (float)patch.OutputLevels[indices[k]];
-
-            if (op.Frequency.Mode == OperatorFrequencyMode.Fixed || pitchRatio is null)
-            {
-                // Single precision in the order of the exported SynthDef: (freq * factor) + detune.
-                frequencies[k] = op.Frequency.Mode == OperatorFrequencyMode.Fixed
-                    ? [(float)(op.Frequency.FixedFrequencyHz + op.DetuneHz)]
-                    : [((float)request.FrequencyHz * (float)(op.Frequency.Ratio * Math.Pow(2.0, op.FineTuneCents / 1200.0))) + (float)op.DetuneHz];
-            }
-            else
-            {
-                float tracking = (float)(request.FrequencyHz * op.Frequency.Ratio * Math.Pow(2.0, op.FineTuneCents / 1200.0));
-                float detune = (float)op.DetuneHz;
-                var f = new float[steps];
-                for (int s = 0; s < steps; s++)
-                {
-                    f[s] = (tracking * pitchRatio[s]) + detune;
-                }
-
-                frequencies[k] = f;
-            }
-
-            float scale = (float)(op.VelocityFactor(request.Velocity) * op.KeyScaling.LevelFactor(midiNote));
-            amplitudes[k] = Run(op.AmplitudeEnvelope, steps, gateOffBlock, controlRate, op.KeyScaling.TimeFactor(midiNote), scale);
-        }
-
-        CompiledFilters? filters = null;
-        if (indices.Any(i => patch.Operators[i].Filter is not null))
-        {
-            var types = new int[n];
-            var baseHz = new float[n];
-            var octaves = new float[n][];
-            var q = new float[n];
-            var ratios = new float[n];
-            var levels = new float[n];
-            var filterGains = new float[n];
-            for (int k = 0; k < n; k++)
-            {
-                OperatorPatch op = patch.Operators[indices[k]];
-                OperatorFilter? filter = op.Filter;
-                types[k] = OperatorFilterKernel.Code(filter);
-                if (filter is null)
-                {
-                    octaves[k] = [0f];
-                    q[k] = 1f;
-                    ratios[k] = 1f;
-                    continue;
-                }
-
-                // Single precision in the order of the exported SynthDef: (freq * ratio), or the fixed frequency.
-                baseHz[k] = filter.IsKeyTracked ? (float)request.FrequencyHz * (float)filter.CutoffRatio : (float)filter.FixedHz;
-                octaves[k] = filter.Envelope is null || filter.EnvelopeOctaves == 0.0
-                    ? [0f]
-                    : Run(filter.Envelope, steps, gateOffBlock, controlRate, op.KeyScaling.TimeFactor(midiNote), (float)filter.EnvelopeOctaves);
-                q[k] = (float)filter.Q;
-                ratios[k] = (float)filter.FormantRatio;
-                levels[k] = (float)filter.FormantLevel;
-                filterGains[k] = (float)filter.PeakGainDb;
-            }
-
-            filters = new CompiledFilters(types, baseHz, octaves, q, ratios, levels, filterGains);
-        }
-
-        var sources = new List<int>();
-        var destinations = new List<int>();
-        var amounts = new List<float[]>();
-        foreach (ModulationEdge edge in patch.ModulationMatrix.Edges)
-        {
-            if (!edge.Enabled || edge.Amount == 0.0 || map[edge.SourceOperator] < 0 || map[edge.DestinationOperator] < 0)
-            {
-                continue;
-            }
-
-            sources.Add(map[edge.SourceOperator]);
-            destinations.Add(map[edge.DestinationOperator]);
-            amounts.Add(edge.AmountEnvelope is null
-                ? [(float)edge.Amount]
-                : Run(edge.AmountEnvelope, steps, gateOffBlock, controlRate, 1.0, (float)edge.Amount));
-        }
-
+        CompiledFilters? filters = stream.HasFilters
+            ? new CompiledFilters(stream.FilterTypes, stream.FilterBaseHz, octaves!, stream.FilterQ, stream.FormantRatios, stream.FormantLevels, stream.FilterGainsDb)
+            : null;
         return new CompiledOperatorMatrixPatch(
-            sampleRate,
+            stream.SampleRate,
             controlBlockSize,
             blockCount,
             sampleCount,
-            [.. indices],
-            waveforms,
+            stream.OperatorIndices,
+            stream.Waveforms,
             frequencies,
             amplitudes,
-            phases,
-            shapes,
-            morphs,
-            noisePhases,
-            noiseMs,
-            (float)patch.Noise.Color,
-            (float)patch.Noise.CutoffHz,
-            harmonicLimits,
-            gains,
-            [.. sources],
-            [.. destinations],
-            [.. amounts],
+            stream.Phases,
+            stream.Shapes,
+            stream.Morphs,
+            stream.NoisePhases,
+            stream.NoiseMs,
+            stream.NoiseColor,
+            stream.NoiseCutoffHz,
+            stream.HarmonicLimits,
+            stream.OutputGains,
+            stream.EdgeSources,
+            stream.EdgeDestinations,
+            edgeAmounts,
             filters);
     }
 
-    /// <summary>Evaluates an envelope per control step: entry 0 is the construction value, entry b + 1 belongs to block b.</summary>
-    private static float[] Run(OperatorEnvelope envelope, int steps, int gateOffBlock, double controlRate, double timeScale, float scale)
+    /// <summary>
+    /// One array per signal, holding its construction value: <paramref name="steps"/> entries for a signal that
+    /// varies, a single entry for a constant one.
+    /// </summary>
+    /// <param name="current">Construction values.</param>
+    /// <param name="varies">Which signals vary; null when all do.</param>
+    /// <param name="steps">Construction value plus one entry per block.</param>
+    private static float[][] Signals(float[] current, bool[]? varies, int steps)
     {
-        var runner = new ControlRateEnvelope(envelope, controlRate, timeScale);
-        var values = new float[steps];
-        for (int b = 0; b < steps - 1; b++)
+        var signals = new float[current.Length][];
+        for (int i = 0; i < current.Length; i++)
         {
-            values[b + 1] = (float)runner.Next(b < gateOffBlock) * scale;
+            signals[i] = varies is null || varies[i] ? new float[steps] : new float[1];
+            signals[i][0] = current[i];
         }
 
-        // A unit is constructed with the value of the first block.
-        values[0] = steps > 1 ? values[1] : (float)envelope.EffectiveLevel(0) * scale;
-        return values;
+        return signals;
     }
 
-    private static float[] PitchRatio(PitchModel pitch, int steps, int gateOffBlock, double controlRate)
+    /// <summary>Stores the current values of the varying signals as entry <paramref name="step"/>.</summary>
+    private static void Record(float[][] signals, float[] current, int step)
     {
-        var cents = new double[steps];
-        if (pitch.PitchEnvelope is not null)
+        for (int i = 0; i < signals.Length; i++)
         {
-            float[] envelope = Run(pitch.PitchEnvelope, steps, gateOffBlock, controlRate, 1.0, 1f);
-            for (int s = 0; s < steps; s++)
+            if (signals[i].Length > 1)
             {
-                cents[s] = envelope[s];
+                signals[i][step] = current[i];
             }
         }
-
-        if (pitch.Vibrato is { DepthCents: not 0.0 } vibrato)
-        {
-            var depthEnvelope = new OperatorEnvelope(
-                [
-                    new EnvelopePoint(0, vibrato.DelaySeconds > 0 || vibrato.FadeInSeconds > 0 ? 0 : 1),
-                    new EnvelopePoint(vibrato.DelaySeconds, vibrato.DelaySeconds > 0 || vibrato.FadeInSeconds > 0 ? 0 : 1),
-                    new EnvelopePoint(vibrato.FadeInSeconds, 1),
-                ],
-                SustainPoint: null,
-                ReleasePoint: 3);
-            float[] depth = Run(depthEnvelope, steps, int.MaxValue, controlRate, 1.0, (float)vibrato.DepthCents);
-            double increment = 2.0 * Math.PI * vibrato.RateHz / controlRate;
-            for (int s = 0; s < steps; s++)
-            {
-                // Block b is entry b + 1; the oscillator starts at phase zero in block 0.
-                int block = Math.Max(0, s - 1);
-                cents[s] += depth[s] * Math.Sin(increment * block);
-            }
-        }
-
-        var ratio = new float[steps];
-        for (int s = 0; s < steps; s++)
-        {
-            ratio[s] = (float)Math.Pow(2.0, cents[s] / 1200.0);
-        }
-
-        return ratio;
     }
 }

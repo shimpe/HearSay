@@ -28,6 +28,9 @@ public sealed record RenderRequest(
     /// <summary>Total number of samples.</summary>
     public int TotalSamples => NoteSamples + (int)Math.Round(ReleaseDuration.TotalSeconds * SampleRate);
 
+    /// <summary>The note without its durations, for a voice whose gate is decided block by block.</summary>
+    public VoiceRequest ToVoiceRequest() => new(FrequencyHz, MidiNote, Velocity, SampleRate);
+
     /// <summary>A note at full velocity.</summary>
     /// <param name="frequencyHz">Note frequency.</param>
     /// <param name="noteSeconds">Gate time.</param>
