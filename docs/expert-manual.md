@@ -318,12 +318,17 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   While a sound is shown, the PITCH box is always there (empty when the pitch does not move), and so is the NOISE box
   on Nome6, so that a pitch envelope, vibrato or noise can be added. An operator that is in use but no longer heard
   (output 0 and modulating nothing that is heard) stays in the diagram, greyed, and can still be selected and edited.
-- **The inspector** lists every value of the part. An operator has *Add modulator*, *Connect to…* and *Remove*, menus
+- **The inspector** lists every value of the part. An operator has *Add modulator*, *Modulate…*, *Modulated by…* and
+  *Remove*, menus
   for the waveform and the frequency mode (ratio or fixed Hz), its numbers, a filter section (type, *Sweep*) and, on
   Nome6, *Roughness from the shared noise*. A connection has *Disconnect*, its amount and *Amount follows an envelope*;
   NOISE its colour and cutoff; PITCH the toggles *Pitch envelope* and *Vibrato* and the vibrato rate, depth, delay and
   fade-in. *Add modulator* takes the first free operator: a sine at ratio 1 with a short decaying envelope, modulating
-  the selected operator by 1 rad and not heard on its own. *Remove* switches an operator off with its own connections;
+  the selected operator by 1 rad and not heard on its own. *Modulate…* lets the selected operator modulate another one
+  (or itself: feedback), *Modulated by…* lets another one modulate it; their menus read *OP1 → OP2*, grey the
+  connections that exist already and mark *(not heard)* a connection into an operator that is not heard, which changes
+  nothing until that operator is heard. A new connection starts at 1 rad and is selected, so that its amount can be
+  typed or dragged at once. *Remove* switches an operator off with its own connections;
   the last carrier that is heard cannot be removed.
 - **Numbers.** Type a number and press Enter (or leave the box). Or drag sideways, on the box or its name in the
   inspector, or on the dashed-underlined numbers of the diagram itself (frequency ratio or fixed frequency, connection

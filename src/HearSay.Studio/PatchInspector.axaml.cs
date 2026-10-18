@@ -230,12 +230,10 @@ public sealed partial class PatchInspector : UserControl
             return;
         }
 
-        var connect = new Button { Name = "ConnectTo", Content = "Connect to…", Flyout = new MenuFlyout() };
-        ToolTip.SetTip(connect, $"Let OP{op + 1} modulate another operator, or itself");
-        ((MenuFlyout)connect.Flyout).Opening += (_, _) => FillConnectMenu((MenuFlyout)connect.Flyout, op);
         Buttons(
             Action("AddModulator", "Add modulator", $"A new operator that modulates OP{op + 1}", () => _editor!.Apply(PatchEdits.AddModulator(op))),
-            connect,
+            ConnectButton("ModulateTo", "Modulate…", $"Let OP{op + 1} modulate another operator, or itself", op, outgoing: true),
+            ConnectButton("ModulatedBy", "Modulated by…", $"Let another operator, or OP{op + 1} itself, modulate OP{op + 1}", op, outgoing: false),
             Action("Remove", "Remove", $"Remove OP{op + 1} and its connections", () => Deselect(_editor!.Apply(PatchEdits.RemoveOperator(op)))));
 
         IReadOnlyList<OperatorWaveform> waveforms = PatchEdits.WaveformsFor(caps);
@@ -294,15 +292,39 @@ public sealed partial class PatchInspector : UserControl
         AddEnvelopes(patch, part, "Amount envelope (× the amount)");
     }
 
-    /// <summary>The operators the selected one can modulate; those it already modulates are greyed.</summary>
-    private void FillConnectMenu(MenuFlyout flyout, int op)
+    /// <summary>
+    /// A button whose menu connects the selected operator to another one (or itself): as the modulator when
+    /// <paramref name="outgoing"/>, else as the operator modulated. The menu is built on each click, from the patch as it
+    /// is then (a menu filled while it opens shows empty).
+    /// </summary>
+    private Button ConnectButton(string name, string text, string tip, int op, bool outgoing)
     {
-        flyout.Items.Clear();
+        var button = new Button { Name = name, Content = text };
+        ToolTip.SetTip(button, tip);
+        button.Click += (_, _) =>
+        {
+            if (ConnectMenu(op, outgoing) is { } menu)
+            {
+                menu.ShowAt(button);
+            }
+        };
+        return button;
+    }
+
+    /// <summary>
+    /// One item per operator in use, as <c>OPs → OPd</c>: those already connected are greyed, and those whose connection
+    /// would not be heard (it ends in an operator that is not heard) say so. Choosing one connects at 1 rad and selects the
+    /// new connection, so that its amount is at hand.
+    /// </summary>
+    private MenuFlyout? ConnectMenu(int op, bool outgoing)
+    {
         if (_editor?.DisplayedPatch is not { } patch)
         {
-            return;
+            return null;
         }
 
+        bool[] audible = patch.FindAudibleOperators();
+        var menu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
         for (int i = 0; i < patch.OperatorCount; i++)
         {
             if (!patch.Operators[i].Enabled)
@@ -310,15 +332,21 @@ public sealed partial class PatchInspector : UserControl
                 continue;
             }
 
-            int destination = i;
-            var item = new MenuItem
+            (int source, int destination) = outgoing ? (op, i) : (i, op);
+            bool connected = patch.ModulationMatrix.Find(source, destination) is { Enabled: true };
+            string note = connected ? " (connected)" : source == destination ? " (feedback)" : !audible[destination] ? " (not heard)" : string.Empty;
+            var item = new MenuItem { Header = $"OP{source + 1} → OP{destination + 1}{note}", IsEnabled = !connected };
+            item.Click += (_, _) =>
             {
-                Header = i == op ? $"OP{i + 1} (itself: feedback)" : $"OP{i + 1}",
-                IsEnabled = patch.ModulationMatrix.Find(op, i) is not { Enabled: true },
+                if (!_editor.Apply(PatchEdits.Connect(source, destination)).IsRefused)
+                {
+                    _editor.Selected = new PatchPart.ConnectionPart(source, destination);
+                }
             };
-            item.Click += (_, _) => _editor.Apply(PatchEdits.Connect(op, destination));
-            flyout.Items.Add(item);
+            menu.Items.Add(item);
         }
+
+        return menu;
     }
 
     /// <summary>Closes the inspector once the part it shows was removed.</summary>
