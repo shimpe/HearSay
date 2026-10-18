@@ -346,16 +346,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (Set(ref _isRunning, value))
             {
                 RaiseCanExecute();
+                OnPropertyChanged(nameof(ShowsProgress));
             }
         }
     }
 
-    /// <summary>Share of the budget spent, 0..1.</summary>
+    /// <summary>Share of the budget spent, or of a library built, 0..1.</summary>
     public double Progress
     {
         get => _progress;
-        private set => Set(ref _progress, value);
+        private set
+        {
+            if (Set(ref _progress, value))
+            {
+                OnPropertyChanged(nameof(ShowsProgress));
+            }
+        }
     }
+
+    /// <summary>The progress bar is shown while a search runs or a library is built, and hidden when it is done.</summary>
+    public bool ShowsProgress => IsRunning || (Progress > 0 && Progress < 1);
 
     /// <summary>One line about what is happening.</summary>
     public string Status

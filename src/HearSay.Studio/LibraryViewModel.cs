@@ -568,6 +568,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             ? string.Create(CultureInfo.InvariantCulture, $"Adding {toRender:N0} noise-free sounds to the {name} library, once")
             : string.Create(CultureInfo.InvariantCulture, $"Building the {name} library: {toRender:N0} sounds to render, once");
         var clock = new RemainingTime();
+        _progress(0.0);
         GraphMessage = toRender == 0 ? $"Loading the {name} library…" : $"{building}; {clock.Describe(0.0)}…";
         var progress = new Progress<double>(f =>
         {

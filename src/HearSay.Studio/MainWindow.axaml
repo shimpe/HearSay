@@ -333,7 +333,7 @@
     <Border Grid.Row="2" Classes="card" Padding="14,10">
       <Grid ColumnDefinitions="*,220" ColumnSpacing="14">
         <TextBlock Grid.Column="0" Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center" />
-        <ProgressBar Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding Progress}" VerticalAlignment="Center" />
+        <ProgressBar Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding Progress}" IsVisible="{Binding ShowsProgress}" VerticalAlignment="Center" />
       </Grid>
     </Border>
   </Grid>
