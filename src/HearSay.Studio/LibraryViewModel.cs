@@ -66,6 +66,12 @@ public sealed record LibraryPatch(string Title, OperatorMatrixPatch Patch, Synth
 {
     /// <summary>The gain to play it at, for an edit or a favourite that kept one; null to normalise it as usual.</summary>
     public float? Gain { get; init; }
+
+    /// <summary>
+    /// Where it came from, as a favourite of it would say (for an edit, <c>edited from …</c>); null for its header
+    /// comments, as the Library tab says it of an unedited sound.
+    /// </summary>
+    public string? Origin { get; init; }
 }
 
 /// <summary>
@@ -806,15 +812,16 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
 
         bool edited = Edits.ShowsEdit;
+        string origin = Edits.FavouriteOrigin;
+        IReadOnlyList<string> header = ShownHeader(selection);
         float? gain = await Edits.FavouriteGainAsync();
-        IReadOnlyList<string> header = edited ? [.. selection.HeaderComments, PatchEditorViewModel.EditedHeaderLine] : selection.HeaderComments;
         string scd = edited ? Export(patch, selection.Profile, header) : selection.Scd;
-        _showInSearch(new LibraryPatch(selection.Title + (edited ? " edited" : string.Empty), patch, selection.Profile, scd, header) { Gain = gain });
+        _showInSearch(new LibraryPatch(selection.Title + (edited ? " edited" : string.Empty), patch, selection.Profile, scd, header) { Gain = gain, Origin = origin });
     }
 
     /// <summary>The header of the shown version's code: an edit's says so.</summary>
     private IReadOnlyList<string> ShownHeader(Selection selection) =>
-        Edits.ShowsEdit ? [.. selection.HeaderComments, PatchEditorViewModel.EditedHeaderLine] : selection.HeaderComments;
+        Edits.ShowsEdit ? PatchEditorViewModel.WithEditedLine(selection.HeaderComments) : selection.HeaderComments;
 
     private static string Export(OperatorMatrixPatch patch, SynthesisProfile profile, IReadOnlyList<string> headerComments) =>
         SynthesisBackends.ExporterFor(profile)?.Export(patch, new PatchExportOptions { HeaderComments = headerComments }) ?? "This profile has no export backend.";

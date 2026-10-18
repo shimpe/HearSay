@@ -241,7 +241,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(patch);
         SetResult(null);
         _libraryPatch = patch;
-        Edits.Show(patch.Patch, patch.Profile, HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest, string.Join(" ", patch.HeaderComments), patch.Gain);
+        Edits.Show(patch.Patch, patch.Profile, HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest, patch.Origin ?? string.Join(" ", patch.HeaderComments), patch.Gain);
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
         ShowDetails();
@@ -550,6 +550,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Similarity per target note.</summary>
     public ObservableCollection<NoteRow> NoteRows { get; } = [];
 
+    /// <summary>The heading of <see cref="NoteRows"/>; while an edit is shown it says they are the original's.</summary>
+    public string NoteRowsHeading => _statsShowEdit ? "per-note similarity (original)" : "per-note similarity";
+
+    /// <summary>The label of the save button: the result folder, or while an edit is shown, the edited sound alone.</summary>
+    public string SaveLabel => Edits.ShowsEdit ? "Save edited sound…" : "Save result folder…";
+
     /// <summary>The 6x6 modulation matrix of the best patch, row-major, destination rows and source columns.</summary>
     public ObservableCollection<MatrixCell> MatrixCells { get; } = [];
 
@@ -856,7 +862,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (_libraryPatch is { } library)
         {
             OperatorMatrixPatch patch = Edits.DisplayedPatch ?? library.Patch;
-            IReadOnlyList<string> header = Edits.ShowsEdit ? [.. library.HeaderComments, PatchEditorViewModel.EditedHeaderLine] : library.HeaderComments;
+            IReadOnlyList<string> header = Edits.ShowsEdit ? PatchEditorViewModel.WithEditedLine(library.HeaderComments) : library.HeaderComments;
             IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(patch, library.Profile, directory, header));
             Status = $"{written.Count} files written to {directory}.";
             return;
@@ -870,7 +876,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (Edits.ShowsEdit && Edits.DisplayedPatch is { } edited && _candidate is { } candidate)
         {
             PatchMatchResult shown = _result;
-            IReadOnlyList<string> header = [.. FinalistHeader(shown, candidate), PatchEditorViewModel.EditedHeaderLine];
+            IReadOnlyList<string> header = PatchEditorViewModel.WithEditedLine(FinalistHeader(shown, candidate));
             IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(edited, shown.Profile, directory, header));
             Status = $"{written.Count} files of the edited sound written to {directory}.";
             return;
@@ -966,6 +972,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void ShowStats(PatchMatchResult result, bool edited)
     {
         _statsShowEdit = edited;
+        OnPropertyChanged(nameof(NoteRowsHeading));
         string of = edited ? " (original)" : string.Empty;
         SearchSummary s = result.SearchSummary;
         Stats.Clear();
@@ -989,6 +996,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 break;
             case nameof(PatchEditorViewModel.DisplayedSound):
                 Live.SoundChanged();
+                break;
+            case nameof(PatchEditorViewModel.ShowsEdit):
+                OnPropertyChanged(nameof(SaveLabel));
                 break;
             case nameof(PatchEditorViewModel.LastRefusal) when Edits.LastRefusal is { } refusal:
                 Status = refusal;
@@ -1028,7 +1038,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (_libraryPatch is { } library)
         {
             ResultSummary = $"from the library: {library.Title}{(edited ? ", edited" : string.Empty)}\n\n{Routing(patch)}";
-            Scd = edited ? Export(library.Profile, patch, [.. library.HeaderComments, PatchEditorViewModel.EditedHeaderLine]) : library.Scd;
+            Scd = edited ? Export(library.Profile, patch, PatchEditorViewModel.WithEditedLine(library.HeaderComments)) : library.Scd;
         }
         else if (_result is { } result && _candidate is { } candidate)
         {
@@ -1043,7 +1053,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 {Routing(patch)}
                 """);
             IReadOnlyList<string> header = FinalistHeader(result, candidate);
-            Scd = Export(result.Profile, patch, edited ? [.. header, PatchEditorViewModel.EditedHeaderLine] : header);
+            Scd = Export(result.Profile, patch, edited ? PatchEditorViewModel.WithEditedLine(header) : header);
             if (_statsShowEdit != edited)
             {
                 ShowStats(result, edited);

@@ -313,7 +313,8 @@ played, on the on-screen keyboard or the MIDI device, plays the edit (notes alre
 follows every edit at once, the code a moment later, with the line *Edited in HearSay Studio.* in its header.
 
 - **Selecting.** Click an operator box, the amount of a connection, the NOISE box or the PITCH box to select it: it is
-  outlined, and the inspector beside the diagram shows it. Clicking empty space, or the × of the inspector, closes it.
+  outlined, and the inspector beside the diagram shows it. Clicking empty space, or the × of the inspector, closes it;
+  the inspector's place then says *Click a part of the diagram to edit it.*, so the diagram keeps its size.
   While a sound is shown, the PITCH box is always there (empty when the pitch does not move), and so is the NOISE box
   on Nome6, so that a pitch envelope, vibrato or noise can be added. An operator that is in use but no longer heard
   (output 0 and modulating nothing that is heard) stays in the diagram, greyed, and can still be selected and edited.
@@ -335,15 +336,17 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   breakpoints as numbers under them. Drag a point to move it in time and level (the first point only up and down);
   double-click a line to add a point; right-click a point to remove it, hold the note there (*Sustain here*), make the
   envelope run its course (*One-shot*), or choose the curve of the segment that ends there (linear, exponential, step).
+  The pitch envelope has no exponential curves: they cannot go below zero, and its cents go either way of the note.
 - **Undo and Redo** (the arrows right of the tabs, Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to the sound
   as it was. One step is one drag from press to release, one typed number, one menu choice, one part added or removed,
   one envelope point dragged. While a box holds typed text, Ctrl+Z undoes the typing; during a drag the keys do
   nothing.
 - **Original ⇄ Edited.** Once a sound is edited, a switch beside the arrows shows the original or the edit: the
   diagram, the code and the keys follow, to compare by ear. The original can be inspected but not changed; an edit,
-  undo or redo returns to the edit. Copy, Save…, Show in Search, Find in library and ☆ act on the version shown. In the
-  Search tab, the final loss, the similarity and the audio loss shown with an edit are the original's, marked
-  *(original)*: they are not computed again; the routing and the matrix follow the edit.
+  undo or redo returns to the edit. Copy, Save…, Show in Search, Find in library and ☆ act on the version shown; while
+  the edit is shown, *Save result folder…* becomes *Save edited sound…* and saves the edited sound's own folder. In the
+  Search tab, the final loss, the similarity, the per-note similarity and the audio loss shown with an edit are the
+  original's, marked *(original)*: they are not computed again; the routing and the matrix follow the edit.
 - **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
   original's origin; the favourite of the original stays as it was. The edit plays at the loudness of the original (its
   gain is not normalised again, so a lower output level really is softer), and its favourite keeps that loudness: the
@@ -356,8 +359,9 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   refused, and the status line says why.
 - **History.** Every sound keeps its edit and its history while the Studio runs, per patch and profile: look at
   another finalist or library sound and come back, and the edit is still there, with its undo steps; the same sound in
-  both tabs shares one edit. A new search replaces the finalists and their edits, and nothing is kept when the Studio
-  closes (keep an edit with ☆ or Save…).
+  both tabs shares one edit. The edits are kept per sound for as long as the Studio runs, also after a new search:
+  coming back to the same sound, as a finalist, from the library or as a favourite, finds its edit and its history
+  again. Nothing is kept when the Studio closes (keep an edit with ☆ or Save edited sound…).
 
 **Playing like a synth.** The keyboard of each tab, and a MIDI controller, play the sound of the visible tab: in the
 Search tab the shown finalist (or the library sound shown there), in the Library tab the last clicked sound.

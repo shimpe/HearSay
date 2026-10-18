@@ -348,7 +348,9 @@ public sealed class EnvelopeEditor : Control
         var curve = new MenuItem { Header = "Curve", IsEnabled = index > 0 };
         foreach ((string name, EnvelopeCurve shape) in new[] { ("Linear", EnvelopeCurve.Linear), ("Exponential", EnvelopeCurve.Exponential), ("Step", EnvelopeCurve.Step) })
         {
-            MenuItem choice = Item(name, true, EnvelopeEdits.SetCurve(reference, index, shape));
+            // No exponential curves where they would floor levels below 0, such as the cents of the pitch.
+            bool offered = shape != EnvelopeCurve.Exponential || envelope.Points[index].Curve == shape || EnvelopeEdits.AllowsExponential(envelope, reference.Kind);
+            MenuItem choice = Item(name, offered, EnvelopeEdits.SetCurve(reference, index, shape));
             choice.ToggleType = MenuItemToggleType.Radio;
             choice.IsChecked = envelope.Points[index].Curve == shape;
             curve.Items.Add(choice);

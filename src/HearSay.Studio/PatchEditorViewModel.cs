@@ -24,6 +24,17 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     /// <summary>The line added to the header comments of the code of an edited version.</summary>
     public const string EditedHeaderLine = "Edited in HearSay Studio.";
 
+    /// <summary>
+    /// The header comments of an edited version: the original's with <see cref="EditedHeaderLine"/> added, unless they
+    /// already have it (an edit of an edit).
+    /// </summary>
+    /// <param name="header">The header comments of the original.</param>
+    public static IReadOnlyList<string> WithEditedLine(IReadOnlyList<string> header)
+    {
+        ArgumentNullException.ThrowIfNull(header);
+        return header.Contains(EditedHeaderLine, StringComparer.Ordinal) ? header : [.. header, EditedHeaderLine];
+    }
+
     private readonly EditSessions _sessions;
     private readonly Func<Sound, Task<float>> _gainOf;
 
@@ -157,7 +168,8 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Shows a sound: its edits, if it was edited before, and its history come back. Call it whenever the tab's shown sound
-    /// changes. The original's gain is fetched; a fetch for a sound shown earlier never overwrites it.
+    /// changes. A gesture under way on the sound shown before ends as one step. The original's gain is fetched; a fetch
+    /// for a sound shown earlier never overwrites it.
     /// </summary>
     /// <param name="original">The patch as it was; null when nothing is shown.</param>
     /// <param name="profile">Its profile; null when nothing is shown.</param>
@@ -171,6 +183,9 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         {
             if (_editor is not null)
             {
+                // A drag on the sound that goes is one step of its history; the control that began it sees that its
+                // gesture ended and stops.
+                _editor.EndGesture();
                 _editor.Changed -= OnEditorChanged;
             }
 

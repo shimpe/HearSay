@@ -136,7 +136,7 @@ public sealed partial class MainWindow : Window
     {
         IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Folder for patch.json, preview.wav, patch.scd and diagnostics",
+            Title = ViewModel.Edits.ShowsEdit ? "Folder for the edited sound: patch.json, preview.wav and patch.scd" : "Folder for patch.json, preview.wav, patch.scd and diagnostics",
             AllowMultiple = false,
         });
         if (folders.Count == 1 && folders[0].TryGetLocalPath() is string directory)

@@ -28,7 +28,8 @@
         <TextBox Classes="mono" Text="{Binding Code, ElementName=Root}" Watermark="{Binding Watermark, ElementName=Root}" />
       </TabItem>
       <TabItem Header="Block diagram" FontSize="13">
-        <!-- The inspector of the selected part beside the diagram, while something is selected -->
+        <!-- Beside the diagram while a sound is shown: the inspector of the selected part, or a hint while nothing is
+             selected, so that the diagram keeps its width when a part is selected or deselected -->
         <Grid ColumnDefinitions="*,Auto">
           <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
             <!-- Editing while a sound is shown: click to select, drag the underlined numbers sideways -->
@@ -37,9 +38,16 @@
                              CanNudge="{Binding Editor.ShowingEdited, ElementName=Root, FallbackValue=False}"
                              SelectedPart="{Binding Editor.Selected, ElementName=Root, Mode=TwoWay}" />
           </Border>
-          <local:PatchInspector x:Name="Inspector" Grid.Column="1" Width="272" Margin="8,0,0,0"
-                                DataContext="{Binding Editor, ElementName=Root}"
-                                IsVisible="{Binding Editor.Selected, ElementName=Root, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+          <Panel x:Name="InspectorColumn" Grid.Column="1" Width="272" Margin="8,0,0,0"
+                 IsVisible="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}">
+            <local:PatchInspector x:Name="Inspector"
+                                  DataContext="{Binding Editor, ElementName=Root}"
+                                  IsVisible="{Binding Editor.Selected, ElementName=Root, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+            <Border x:Name="InspectorHint" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="10,8"
+                    IsVisible="{Binding Editor.Selected, ElementName=Root, Converter={x:Static ObjectConverters.IsNull}, FallbackValue=True}">
+              <TextBlock Text="Click a part of the diagram to edit it." FontSize="12" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" />
+            </Border>
+          </Panel>
         </Grid>
       </TabItem>
     </TabControl>
