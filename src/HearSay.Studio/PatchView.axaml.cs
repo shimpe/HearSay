@@ -1,13 +1,15 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using HearSay.Editing;
 using HearSay.Synthesis.Patches;
 
 namespace HearSay.Studio;
 
 /// <summary>
 /// A patch as SuperCollider code and as a block diagram, in two tabs, with the toolbar of its editing (undo, redo,
-/// Original ⇄ Edited) and, beside the diagram, the inspector of the part selected; used by the Search and Library tabs.
+/// Original ⇄ Edited) and, beside the diagram, the inspector of the part selected; a click on the diagram selects a
+/// part and a sideways drag of one of its numbers changes it. Used by the Search and Library tabs.
 /// </summary>
 public sealed partial class PatchView : UserControl
 {
@@ -29,9 +31,19 @@ public sealed partial class PatchView : UserControl
     /// <summary>The editing of the shown sound: undo, redo and the Original ⇄ Edited switch of the toolbar.</summary>
     public static readonly StyledProperty<PatchEditorViewModel?> EditorProperty = AvaloniaProperty.Register<PatchView, PatchEditorViewModel?>(nameof(Editor));
 
+    /// <summary>The value a drag on the diagram changes, from the sound it began on, and where it began.</summary>
+    private EditableValue? _nudged;
+    private PatchEditor? _nudgedSound;
+    private double _nudgeFrom;
+
     public PatchView()
     {
         InitializeComponent();
+        Diagram.PartClicked += OnPartClicked;
+        Diagram.NudgeStarted += OnNudgeStarted;
+        Diagram.Nudged += OnNudged;
+        Diagram.NudgeEnded += (_, _) => EndNudge(cancel: false);
+        Diagram.NudgeCancelled += (_, _) => EndNudge(cancel: true);
     }
 
     /// <inheritdoc cref="EditorProperty"/>
@@ -44,6 +56,71 @@ public sealed partial class PatchView : UserControl
     private void OnUndo(object? sender, RoutedEventArgs e) => Editor?.Undo();
 
     private void OnRedo(object? sender, RoutedEventArgs e) => Editor?.Redo();
+
+    private void OnPartClicked(object? sender, PatchPart? part)
+    {
+        if (Editor is { HasSound: true } edits)
+        {
+            edits.Selected = part;
+        }
+    }
+
+    /// <summary>A drag of a number on the diagram begins one gesture, on the value of the part it selected.</summary>
+    private void OnNudgeStarted(object? sender, string id)
+    {
+        if (Editor is not { Editor: { } editor, DisplayedPatch: { } patch, ShowingOriginal: false } edits
+            || Diagram.SelectedPart is not { } part
+            || EditableValues.For(patch, editor.Profile.Capabilities, part).FirstOrDefault(v => v.Id == id) is not { } value)
+        {
+            Diagram.StopNudge();
+            return;
+        }
+
+        _nudged = value;
+        _nudgedSound = editor;
+        _nudgeFrom = value.Get(patch);
+        edits.BeginGesture();
+    }
+
+    /// <summary>Shows the value the drag reaches; a drag whose gesture ended underneath (an undo, the switch) stops.</summary>
+    private void OnNudged(object? sender, DiagramNudge nudge)
+    {
+        if (_nudged is not { } value || value.Id != nudge.Id)
+        {
+            return;
+        }
+
+        if (Editor is not { InGesture: true } edits || !ReferenceEquals(edits.Editor, _nudgedSound))
+        {
+            _nudged = null;
+            _nudgedSound = null;
+            Diagram.StopNudge();
+            return;
+        }
+
+        edits.Preview(value.Set(value.Nudge(_nudgeFrom, nudge.Pixels, nudge.Fine, nudge.Snap)));
+    }
+
+    /// <summary>The drag becomes one step, or goes back to where it began; nothing when its gesture already ended.</summary>
+    private void EndNudge(bool cancel)
+    {
+        PatchEditor? sound = _nudgedSound;
+        _nudged = null;
+        _nudgedSound = null;
+        if (sound is null || Editor is not { InGesture: true } edits || !ReferenceEquals(edits.Editor, sound))
+        {
+            return;
+        }
+
+        if (cancel)
+        {
+            edits.CancelGesture();
+        }
+        else
+        {
+            edits.EndGesture();
+        }
+    }
 
     /// <inheritdoc cref="CodeProperty"/>
     public string Code

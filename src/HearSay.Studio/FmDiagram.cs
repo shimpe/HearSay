@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using HearSay.Editing;
 using HearSay.Synthesis.Oscillators;
 using HearSay.Synthesis.Patches;
 
@@ -18,9 +19,11 @@ namespace HearSay.Studio;
 /// pointer on a box shows everything about the operator. A pitch envelope or vibrato is a box at the top right: the
 /// vibrato rate and depth, and the envelope sketched around a zero line. An edge amount that follows an envelope has
 /// its sketch beside the amount; the sweep of a filter is a violet line over the amplitude envelope of its operator
-/// (hanging from the top when it sweeps down). The pointer on an amount tells the edge in full.
+/// (hanging from the top when it sweeps down). The pointer on an amount tells the edge in full. In editing mode
+/// (<see cref="IsEditing"/>) operators in use that are not heard are drawn too, greyed, and parts can be selected and
+/// numbers dragged; see DiagramEditing.cs.
 /// </summary>
-public sealed class FmDiagram : Control
+public sealed partial class FmDiagram : Control
 {
     /// <summary>Patch to draw; nothing is drawn without one.</summary>
     public static readonly StyledProperty<OperatorMatrixPatch?> PatchProperty = AvaloniaProperty.Register<FmDiagram, OperatorMatrixPatch?>(nameof(Patch));
@@ -59,7 +62,7 @@ public sealed class FmDiagram : Control
 
     static FmDiagram()
     {
-        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty);
+        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty, IsEditingProperty, SelectedPartProperty, CanNudgeProperty);
         PatchProperty.Changed.AddClassHandler<FmDiagram>(static (d, _) => d.HideTip());
     }
 
@@ -80,6 +83,11 @@ public sealed class FmDiagram : Control
     protected override void OnPointerMoved(Avalonia.Input.PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        if (MoveDrag(e))
+        {
+            return;
+        }
+
         Point at = e.GetPosition(this);
         int hit = int.MinValue;
         foreach ((Rect box, int op) in _hitBoxes)
@@ -103,7 +111,7 @@ public sealed class FmDiagram : Control
             {
                 >= 0 => PatchDescription.OperatorDetail(patch, hit),
                 -1 => NoiseDetail(patch.Noise),
-                -2 => PatchDescription.PitchDetail(patch.Pitch),
+                -2 => PatchDescription.PitchDetail(patch.Pitch) is { Length: > 0 } pitch ? pitch : "The pitch does not move: no pitch envelope, no vibrato.",
                 _ => PatchDescription.EdgeDetail(_hitEdges[-100 - hit]),
             });
             ToolTip.SetIsOpen(this, true);
@@ -127,6 +135,7 @@ public sealed class FmDiagram : Control
     {
         _hitBoxes.Clear();
         _hitEdges.Clear();
+        ClearTargets();
         // Transparent, but painted: the control then receives the pointer everywhere, for the tooltips.
         context.FillRectangle(Brushes.Transparent, new Rect(Bounds.Size));
         OperatorMatrixPatch? patch = Patch;
@@ -137,9 +146,13 @@ public sealed class FmDiagram : Control
         }
 
         int n = patch.OperatorCount;
+        bool editing = IsEditing;
         bool[] audible = patch.FindAudibleOperators();
+        // While editing, every operator in use is drawn, and every connection between them, heard or not.
+        bool[] drawn = editing ? [.. patch.Operators.Select(static o => o.Enabled)] : audible;
         bool[] carrier = [.. Enumerable.Range(0, n).Select(i => audible[i] && patch.OutputLevels[i] != 0.0)];
-        var edges = patch.ModulationMatrix.Edges.Where(e => e.Enabled && e.Amount != 0.0 && audible[e.SourceOperator] && audible[e.DestinationOperator]).ToList();
+        var edges = patch.ModulationMatrix.Edges.Where(e => e.Enabled && (editing || e.Amount != 0.0) && drawn[e.SourceOperator] && drawn[e.DestinationOperator]).ToList();
+        int[] shown = [.. Enumerable.Range(0, n).Where(i => drawn[i])];
 
         // Feedback edges close a cycle: found by a depth-first walk from the carriers up through their modulators, as the
         // edges that lead back to an operator still on the walk. The others form a stack of layers.
@@ -168,6 +181,12 @@ public sealed class FmDiagram : Control
             Walk(c);
         }
 
+        // Then the operators that are not heard, drawn while editing.
+        foreach (int i in shown.Where(i => state[i] == 0))
+        {
+            Walk(i);
+        }
+
         // Rows: carriers at level 0, every modulator one above the highest operator it modulates.
         var level = new int[n];
         var forward = edges.Where(e => !e.IsSelfFeedback && !feedback.Contains(e)).ToList();
@@ -179,7 +198,6 @@ public sealed class FmDiagram : Control
             }
         }
 
-        int[] shown = [.. Enumerable.Range(0, n).Where(i => audible[i])];
         if (shown.Length == 0)
         {
             DrawText(context, "The patch is silent.", new Point(12, 12), 12, Muted);
@@ -202,10 +220,10 @@ public sealed class FmDiagram : Control
         double boxW = Math.Min(96, Math.Max(56, slot - 44)), boxH = 46 + EnvelopeH + (anyFilter ? FilterH : 0);
         double busY = height - 28;
 
-        // The pitch box at the top right, when the pitch moves: a title, the vibrato, the envelope.
+        // The pitch box at the top right, when the pitch moves or while editing: a title, the vibrato, the envelope.
         LfoSettings? vibrato = patch.Pitch.Vibrato is { DepthCents: not 0.0 } v ? v : null;
         OperatorEnvelope? pitchEnvelope = patch.Pitch.PitchEnvelope;
-        double pitchH = patch.Pitch.IsStatic ? 0 : 22 + (vibrato is null ? 0 : 14) + (pitchEnvelope is null ? 0 : 26);
+        double pitchH = patch.Pitch.IsStatic && !editing ? 0 : 22 + (vibrato is null ? 0 : 14) + (pitchEnvelope is null ? 0 : 26);
         var pitchBox = new Rect(Math.Max(6, width - 126), 6, 120, pitchH);
 
         // Room above the top row for self-feedback loops and their amounts, and below the pitch box.
@@ -265,10 +283,11 @@ public sealed class FmDiagram : Control
         }
 
         // Amounts and levels are drawn last, over everything else, so that no edge runs through them.
-        var labels = new List<(string Text, Point At, IBrush Brush, ModulationEdge? Edge)>();
+        // Each with the value it shows, while editing, and whether it is heard.
+        var labels = new List<(string Text, Point At, IBrush Brush, ModulationEdge? Edge, (string Id, PatchPart Part)? Value, bool Unheard)>();
 
-        // Output bus and the carriers feeding it.
-        double[] carrierX = [.. shown.Where(i => carrier[i]).Select(i => centers[i].X)];
+        // Output bus and the carriers feeding it; under the bottom row when an edit left no carrier.
+        double[] carrierX = [.. shown.Where(i => carrier[i] || (!carrier.Any(static c => c) && level[i] == 0)).Select(i => centers[i].X)];
         double busLeft = carrierX.Min() - (boxW / 2), busRight = carrierX.Max() + (boxW / 2);
         context.DrawLine(OutputPen, new Point(busLeft, busY), new Point(busRight, busY));
         DrawText(context, "OUT", new Point(busRight + 8, busY - 8), 11, Muted);
@@ -278,7 +297,7 @@ public sealed class FmDiagram : Control
             var to = new Point(centers[i].X, busY);
             context.DrawLine(OutputPen, from, to);
             DrawArrowHead(context, OutputPen.Brush!, from, to);
-            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted, null));
+            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted, null, (FormattableString.Invariant($"op{i + 1}.output.level"), new PatchPart.OperatorPart(i)), false));
         }
 
         // Straight lines the curves should stay off: edges to the row below and the output lines.
@@ -299,13 +318,16 @@ public sealed class FmDiagram : Control
         {
             Point s = centers[e.SourceOperator], d = centers[e.DestinationOperator];
             string amount = e.Amount.ToString("0.##", CultureInfo.InvariantCulture);
+            (string, PatchPart) value = (FormattableString.Invariant($"edge.{e.SourceOperator + 1}>{e.DestinationOperator + 1}.amount"), new PatchPart.ConnectionPart(e.SourceOperator, e.DestinationOperator));
+            bool unheard = !audible[e.DestinationOperator] || e.Amount == 0.0;
+            using IDisposable? pale = Unheard(context, unheard);
             if (e.IsSelfFeedback)
             {
                 // A loop out of the right side and back into the top-right corner.
                 var start = new Point(s.X + (boxW / 2), s.Y);
                 var end = new Point(s.X + (boxW / 2) - 10, s.Y - (boxH / 2));
                 DrawArrowCurve(context, LoopPen, Amber, start, new Point(start.X + 28, start.Y), new Point(end.X + 10, end.Y - 28), end);
-                labels.Add((amount, new Point(start.X + 16, end.Y - 26), Amber, e));
+                labels.Add((amount, new Point(start.X + 16, end.Y - 26), Amber, e, value, unheard));
             }
             else if (level[e.SourceOperator] == level[e.DestinationOperator])
             {
@@ -321,7 +343,7 @@ public sealed class FmDiagram : Control
                     var to = new Point(d.X - (direction * boxW / 2), y);
                     context.DrawLine(pen, from, to);
                     DrawArrowHead(context, brush, from, to);
-                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, direction > 0 ? y - 15 : y + 2), brush, e));
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, direction > 0 ? y - 15 : y + 2), brush, e, value, unheard));
                 }
                 else
                 {
@@ -331,7 +353,7 @@ public sealed class FmDiagram : Control
                     double peak = from.Y - 26 - (10 * arcs++);
                     DrawArrowCurve(context, pen, brush, from, new Point(from.X, peak), new Point(to.X, peak), to);
                     double highest = from.Y + (0.75 * (peak - from.Y));
-                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, highest - 15), brush, e));
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, highest - 15), brush, e, value, unheard));
                 }
             }
             else if (!feedback.Contains(e) && level[e.SourceOperator] == level[e.DestinationOperator] + 1)
@@ -340,7 +362,7 @@ public sealed class FmDiagram : Control
                 var to = new Point(d.X, d.Y - (boxH / 2));
                 context.DrawLine(EdgePen, from, to);
                 DrawArrowHead(context, Accent, from, to);
-                labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent, e));
+                labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent, e, value, unheard));
             }
             else
             {
@@ -386,7 +408,7 @@ public sealed class FmDiagram : Control
                 DrawArrowCurve(context, back ? FeedbackPen : EdgePen, brush, start, new Point(apex, start.Y), new Point(apex, end.Y), end);
                 // Beside the middle of the curve, on its outer side.
                 Point middle = Bezier(start, new Point(apex, start.Y), new Point(apex, end.Y), end, 0.5);
-                labels.Add((amount, new Point(chosen > 0 ? middle.X + 4 : middle.X - 30, middle.Y - 7 + (12 * (stacked % 3))), brush, e));
+                labels.Add((amount, new Point(chosen > 0 ? middle.X + 4 : middle.X - 30, middle.Y - 7 + (12 * (stacked % 3))), brush, e, value, unheard));
             }
         }
 
@@ -396,6 +418,7 @@ public sealed class FmDiagram : Control
         var noiseUsers = shown.Select(i => (Op: i, Use: NoiseUse(patch.Operators[i], SharedNoise))).Where(static u => u.Use.Length > 0).ToList();
         foreach ((int op, string use) in noiseUsers)
         {
+            using IDisposable? pale = Unheard(context, !audible[op]);
             var from = new Point(noiseBox.Right, noiseBox.Center.Y);
             var to = new Point(centers[op].X - (boxW / 4), centers[op].Y - (boxH / 2));
             context.DrawLine(NoisePen, from, to);
@@ -403,15 +426,17 @@ public sealed class FmDiagram : Control
             // Left of the arrowhead, above the box it points into: clear of the boxes the line may pass behind and of the
             // edges that arrive at the middle of the box.
             double labelWidth = new FormattedText(use, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Muted).Width;
-            labels.Add((use, new Point(to.X - 6 - labelWidth, to.Y - 15), Muted, null));
+            labels.Add((use, new Point(to.X - 6 - labelWidth, to.Y - 15), Muted, null, null, !audible[op]));
         }
 
-        // Operator boxes over the edges.
+        // Operator boxes over the edges; while editing, an operator that is not heard is greyed.
         foreach (int i in shown)
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
+            using IDisposable? pale = Unheard(context, !audible[i]);
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
             _hitBoxes.Add((rect, i));
+            AddPart(rect, new PatchPart.OperatorPart(i));
             var envelopeStrip = new Rect(rect.X + 7, rect.Y + 45, boxW - 14, EnvelopeH - 3);
             DrawEnvelope(context, patch.Operators[i].AmplitudeEnvelope, envelopeStrip);
             if (patch.Operators[i].Filter is { Envelope: { } sweep, EnvelopeOctaves: not 0.0 } swept)
@@ -429,12 +454,12 @@ public sealed class FmDiagram : Control
             if (tuning.Length == 0)
             {
                 DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 5), 12, Text, FontWeight.SemiBold);
-                DrawText(context, Describe(patch.Operators[i]), new Point(rect.X + 7, rect.Y + 25), 10, Muted, maxWidth: boxW - 10);
+                DrawFrequencyLine(context, shownOp, i, new Point(rect.X + 7, rect.Y + 25), boxW - 10);
             }
             else
             {
                 DrawText(context, "OP" + (i + 1), new Point(rect.X + 7, rect.Y + 2), 12, Text, FontWeight.SemiBold);
-                DrawText(context, Describe(patch.Operators[i]), new Point(rect.X + 7, rect.Y + 18), 10, Muted, maxWidth: boxW - 10);
+                DrawFrequencyLine(context, shownOp, i, new Point(rect.X + 7, rect.Y + 18), boxW - 10);
                 DrawText(context, tuning, new Point(rect.X + 7, rect.Y + 31), 10, Muted, maxWidth: boxW - 10);
             }
         }
@@ -443,6 +468,7 @@ public sealed class FmDiagram : Control
         {
             context.DrawRectangle(NoiseFill, BoxPen, pitchBox, 6, 6);
             _hitBoxes.Add((pitchBox, -2));
+            AddPart(pitchBox, new PatchPart.PitchPart());
             DrawText(context, "PITCH", new Point(pitchBox.X + 7, pitchBox.Y + 2), 11, Text, FontWeight.SemiBold);
             double y = pitchBox.Y + 18;
             if (vibrato is not null)
@@ -459,27 +485,42 @@ public sealed class FmDiagram : Control
             }
         }
 
-        if (noiseUsers.Count > 0)
+        // While editing, the NOISE box of a profile with shared noise is there even when nothing uses it, empty.
+        if (noiseUsers.Count > 0 || (editing && SharedNoise))
         {
             context.DrawRectangle(NoiseFill, NoisePen, noiseBox, 6, 6);
             _hitBoxes.Add((noiseBox, -1));
+            AddPart(noiseBox, new PatchPart.NoisePart());
             DrawText(context, "NOISE", new Point(noiseBox.X + 7, noiseBox.Y + 2), 11, Text, FontWeight.SemiBold);
-            DrawText(context, DescribeNoise(patch.Noise), new Point(noiseBox.X + 7, noiseBox.Y + 17), 10, Muted, maxWidth: noiseBox.Width - 10);
+            if (noiseUsers.Count > 0)
+            {
+                DrawText(context, DescribeNoise(patch.Noise), new Point(noiseBox.X + 7, noiseBox.Y + 17), 10, Muted, maxWidth: noiseBox.Width - 10);
+            }
         }
 
         // Labels on a patch of background, so that the lines under them do not cut through the digits. An amount that
         // follows an envelope has its sketch beside it; the pointer on an edge amount tells the edge.
         const double SketchW = 22;
         var taken = _hitBoxes.Select(static b => b.Box).ToList();
-        foreach ((string text, Point anchor, IBrush brush, ModulationEdge? edge) in labels)
+        foreach ((string text, Point anchor, IBrush brush, ModulationEdge? edge, (string Id, PatchPart Part)? value, bool unheard) in labels)
         {
             var formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, brush);
             double extra = edge?.AmountEnvelope is null ? 0 : SketchW + 3;
             Point at = FreeSpot(anchor, formatted.Width + 4 + extra, formatted.Height, taken, width, height);
             var back = new Rect(at.X - 2, at.Y, formatted.Width + 4 + extra, formatted.Height);
             taken.Add(back.Inflate(1));
+            using IDisposable? pale = Unheard(context, unheard);
             context.DrawRectangle(LabelBackground, null, back, 3, 3);
             context.DrawText(formatted, at);
+            if (value is { } number)
+            {
+                AddNumber(context, new Rect(at.X, at.Y, formatted.Width, formatted.Height), number.Id, number.Part, brush);
+                if (edge is not null)
+                {
+                    AddPart(back, number.Part);
+                }
+            }
+
             if (edge?.AmountEnvelope is { } amountEnvelope)
             {
                 DrawEnvelope(context, amountEnvelope, new Rect(at.X + formatted.Width + 3, at.Y + 2, SketchW, formatted.Height - 4), stroke: brush);
@@ -491,6 +532,8 @@ public sealed class FmDiagram : Control
                 _hitEdges.Add(edge);
             }
         }
+
+        DrawSelection(context);
     }
 
     /// <summary>
@@ -643,9 +686,7 @@ public sealed class FmDiagram : Control
     /// <summary>Frequency, and waveform when it is not a sine, in a few characters.</summary>
     private static string Describe(OperatorPatch op)
     {
-        string frequency = op.Frequency.Mode == OperatorFrequencyMode.Fixed
-            ? op.Frequency.FixedFrequencyHz.ToString("0.#", CultureInfo.InvariantCulture) + " Hz"
-            : "×" + op.Frequency.Ratio.ToString("0.###", CultureInfo.InvariantCulture);
+        string frequency = DescribeFrequency(op);
         if (op.Waveform == OperatorWaveform.Elliptic)
         {
             // The nome is the brightness; the morph shows how far towards sd, when it is not plain sn.
@@ -669,6 +710,11 @@ public sealed class FmDiagram : Control
 
         return frequency;
     }
+
+    /// <summary>The frequency: "×3.5" for a ratio, "440 Hz" for a fixed frequency.</summary>
+    private static string DescribeFrequency(OperatorPatch op) => op.Frequency.Mode == OperatorFrequencyMode.Fixed
+        ? op.Frequency.FixedFrequencyHz.ToString("0.#", CultureInfo.InvariantCulture) + " Hz"
+        : "×" + op.Frequency.Ratio.ToString("0.###", CultureInfo.InvariantCulture);
 
     /// <summary>The shared noise in words, for the tooltip of its box.</summary>
     private static string NoiseDetail(SharedNoise noise) => noise.Color == 0.0

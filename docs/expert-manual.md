@@ -290,7 +290,8 @@ result's profile and places the shown finalist among the library sounds like it,
 selected and played, with its neighbours around it. It joins the imported sounds as *search best* or *search #2*, so
 several finalists can be compared there.
 
-**Block diagram.** The second tab of the patch card draws the operators that can be heard: carriers on the bottom row
+**Block diagram.** The second tab of the patch card draws the operators in use (greyed when they cannot be heard; see
+*Editing a sound* below): carriers on the bottom row
 feeding OUT with their output levels, every modulator above what it modulates, edges with their amounts in radians
 (dashed amber when they feed back, a loop for self-feedback, and a small sketch beside the amount when it follows an
 envelope; the pointer on an amount shows the edge with its envelope breakpoints), and an operator filter as a strip at
@@ -305,6 +306,58 @@ that it roughens (*φ 0.4*: radians of phase, *m -0.2*: the elliptic parameter).
 box at the top right: the vibrato rate and depth (*vib 5.5 Hz ±14 ct*) and the pitch envelope sketched around a zero
 line, up and down in cents. It moves the ratio operators only; fixed-frequency ones keep their pitch. Resting the
 pointer on the box shows the breakpoints in cents and the vibrato delay and fade-in.
+
+**Editing a sound.** Whatever the patch card shows (a finalist, a library sound, a favourite, a placed import) can be
+edited in the block diagram, in both tabs. The original is never changed: editing works on a copy, and the next note
+played, on the on-screen keyboard or the MIDI device, plays the edit (notes already held keep their sound). The diagram
+follows every edit at once, the code a moment later, with the line *Edited in HearSay Studio.* in its header.
+
+- **Selecting.** Click an operator box, the amount of a connection, the NOISE box or the PITCH box to select it: it is
+  outlined, and the inspector beside the diagram shows it. Clicking empty space, or the × of the inspector, closes it.
+  While a sound is shown, the PITCH box is always there (empty when the pitch does not move), and so is the NOISE box
+  on Nome6, so that a pitch envelope, vibrato or noise can be added. An operator that is in use but no longer heard
+  (output 0 and modulating nothing that is heard) stays in the diagram, greyed, and can still be selected and edited.
+- **The inspector** lists every value of the part. An operator has *Add modulator*, *Connect to…* and *Remove*, menus
+  for the waveform and the frequency mode (ratio or fixed Hz), its numbers, a filter section (type, *Sweep*) and, on
+  Nome6, *Roughness from the shared noise*. A connection has *Disconnect*, its amount and *Amount follows an envelope*;
+  NOISE its colour and cutoff; PITCH the toggles *Pitch envelope* and *Vibrato* and the vibrato rate, depth, delay and
+  fade-in. *Add modulator* takes the first free operator: a sine at ratio 1 with a short decaying envelope, modulating
+  the selected operator by 1 rad and not heard on its own. *Remove* switches an operator off with its own connections;
+  the last carrier that is heard cannot be removed.
+- **Numbers.** Type a number and press Enter (or leave the box). Or drag sideways, on the box or its name in the
+  inspector, or on the dashed-underlined numbers of the diagram itself (frequency ratio or fixed frequency, connection
+  amounts, output levels) while a note plays: 200 pixels cross the whole range, along its scale (a ratio in equal
+  musical steps). Hold **Shift** for steps ten times finer, **Ctrl** to snap a ratio to the musical ratios the search
+  uses (0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 3.5, 4 and on up to 16). **Escape** during a drag puts the value back. A
+  click on a number of the diagram selects its part; a drag selects it too. While the original is shown, the numbers
+  of the diagram are not underlined and do not drag.
+- **Envelopes** are small graphs in the inspector, time on the same square-root scale as the diagram, with their
+  breakpoints as numbers under them. Drag a point to move it in time and level (the first point only up and down);
+  double-click a line to add a point; right-click a point to remove it, hold the note there (*Sustain here*), make the
+  envelope run its course (*One-shot*), or choose the curve of the segment that ends there (linear, exponential, step).
+- **Undo and Redo** (the arrows right of the tabs, Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to the sound
+  as it was. One step is one drag from press to release, one typed number, one menu choice, one part added or removed,
+  one envelope point dragged. While a box holds typed text, Ctrl+Z undoes the typing; during a drag the keys do
+  nothing.
+- **Original ⇄ Edited.** Once a sound is edited, a switch beside the arrows shows the original or the edit: the
+  diagram, the code and the keys follow, to compare by ear. The original can be inspected but not changed; an edit,
+  undo or redo returns to the edit. Copy, Save…, Show in Search, Find in library and ☆ act on the version shown. In the
+  Search tab, the final loss, the similarity and the audio loss shown with an edit are the original's, marked
+  *(original)*: they are not computed again; the routing and the matrix follow the edit.
+- **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
+  original's origin; the favourite of the original stays as it was. The edit plays at the loudness of the original (its
+  gain is not normalised again, so a lower output level really is softer), and its favourite keeps that loudness: the
+  gain is stored in `favourite.json` as `gain`. Favourites without it are normalised as before.
+- **Limits of the profile.** An edit always stays playable by the sound's backend. Values are clamped to the profile's
+  ranges (those of the search's parameter schema where it has the value). Connection amounts stop at the backend's
+  modulation limit: 24 rad into one operator in all, shared by every connection into it (an amount that follows an
+  envelope counts at its peak). Menus offer only what the profile has: no waveform menu on FM7 (sine only), filters on
+  FMX6 only, roughness and NOISE on Nome6 only, and no new operator beyond six. An edit that cannot be made so is
+  refused, and the status line says why.
+- **History.** Every sound keeps its edit and its history while the Studio runs, per patch and profile: look at
+  another finalist or library sound and come back, and the edit is still there, with its undo steps; the same sound in
+  both tabs shares one edit. A new search replaces the finalists and their edits, and nothing is kept when the Studio
+  closes (keep an edit with ☆ or Save…).
 
 **Playing like a synth.** The keyboard of each tab, and a MIDI controller, play the sound of the visible tab: in the
 Search tab the shown finalist (or the library sound shown there), in the Library tab the last clicked sound.
