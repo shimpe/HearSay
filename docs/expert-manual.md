@@ -326,9 +326,11 @@ Search tab the shown finalist (or the library sound shown there), in the Library
   choice is remembered by name between sessions in `%LOCALAPPDATA%\HearSay\studio-settings.json`; a remembered device
   that is not connected at start leaves the selector on *none*, without an error. Choosing a device that cannot be
   opened changes nothing: the device before stays open and remembered, and the status line says so. A device
-  unplugged while open
-  releases its notes, the selector goes back to *none* and the status line says so; it stays remembered for the next
-  session.
+  unplugged while open releases its notes, the selector goes back to *none* and the status line says so; it stays
+  remembered for the next session.
+- An audio device unplugged while the Studio runs (headphones, a USB interface) is noticed within a second: live notes
+  stop, the MIDI device is closed and the selector set to *none* (it stays remembered), the keyboard says it is silent,
+  and the status line asks to restart the Studio once an audio device is connected again.
 - A sound whose profile has no live voices is not played, and the status line says so (FM7, FMX6 and Nome6 all play).
 - Latency from key to sound is about 41 ms at most on the development machine (Windows, WASAPI shared mode: 22 ms of
   it is the device's own buffering). A running search or library build keeps its full speed, so notes may stutter or

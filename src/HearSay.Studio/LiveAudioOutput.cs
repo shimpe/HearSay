@@ -64,7 +64,11 @@ public sealed unsafe class LiveAudioOutput : IDisposable
 
     private static readonly TimeSpan IdleCheck = TimeSpan.FromMilliseconds(50);
 
+    /// <summary>How often the thread asks whether the audio device is still there, idle or playing.</summary>
+    private static readonly long ConnectionCheckTicks = Stopwatch.Frequency;
+
     private readonly AL? _al;
+    private readonly AudioPlayer _device;
     private readonly VoiceMixer _mixer;
     private readonly uint _source;
     private readonly uint[] _buffers = new uint[BufferCount];
@@ -79,6 +83,8 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     private readonly short[] _pcm = new short[BufferSamples];
 
     private volatile bool _stopping;
+    private volatile bool _deviceLost;
+    private long _nextConnectionCheck;
     private double _latencySeconds = BufferCount * BufferSamples / (double)SampleRate;
     private int _underruns;
     private int _errors;
@@ -106,6 +112,7 @@ public sealed unsafe class LiveAudioOutput : IDisposable
         }
 
         _mixer = mixer;
+        _device = device;
         _onSoundingNotesChanged = Wake;
         _al = device.Api;
         if (_al is null)
@@ -185,6 +192,15 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     /// </summary>
     public string? Warning => _warning;
 
+    /// <summary>True once the audio device is gone; nothing more is heard from this output.</summary>
+    public bool IsDeviceLost => _deviceLost;
+
+    /// <summary>
+    /// Raised once, on the audio thread, when the audio device is gone (unplugged headphones or interface). The voices
+    /// that still sound are then rendered to nowhere until they end, so that their keys go dark.
+    /// </summary>
+    public event Action? DeviceLost;
+
     /// <summary>Sets <see cref="Underruns"/>, <see cref="Errors"/> and <see cref="LongestRenderMilliseconds"/> back to zero.</summary>
     public void ResetStatistics()
     {
@@ -244,8 +260,25 @@ public sealed unsafe class LiveAudioOutput : IDisposable
         {
             try
             {
+                if (_deviceLost)
+                {
+                    // Nothing can be heard: the voices still sounding play on unheard until they end.
+                    if (_mixer.ActiveVoices > 0)
+                    {
+                        _mixer.Render(_mix);
+                        pacer.Wait();
+                    }
+                    else
+                    {
+                        _wake.WaitOne(IdleCheck);
+                    }
+
+                    continue;
+                }
+
                 if (_mixer.ActiveVoices == 0)
                 {
+                    CheckConnection(now: false);
                     _wake.WaitOne(IdleCheck);
                     continue;
                 }
@@ -285,6 +318,14 @@ public sealed unsafe class LiveAudioOutput : IDisposable
             // below, so that a restart cannot play one again.
             al.GetSourceProperty(_source, GetSourceInteger.SourceState, out int state);
             bool playing = state == (int)SourceState.Playing;
+
+            // A source that stopped while fed may mean the device is gone: asked at once then, else once a second.
+            if (CheckConnection(now: feeding && !playing))
+            {
+                Rewind();
+                return;
+            }
+
             Reclaim(al);
             int queued = BufferCount - _free.Count;
             if (_mixer.ActiveVoices == 0)
@@ -321,6 +362,42 @@ public sealed unsafe class LiveAudioOutput : IDisposable
 
             MeasureLatency(al);
         }
+    }
+
+    /// <summary>
+    /// Asks the device whether it is still there, at most once a second unless <paramref name="now"/>; the first time it
+    /// is not, marks the output lost and raises <see cref="DeviceLost"/>. True when the device is gone.
+    /// </summary>
+    private bool CheckConnection(bool now)
+    {
+        if (_deviceLost)
+        {
+            return true;
+        }
+
+        long time = Stopwatch.GetTimestamp();
+        if (!now && time < _nextConnectionCheck)
+        {
+            return false;
+        }
+
+        _nextConnectionCheck = time + ConnectionCheckTicks;
+        if (_device.IsConnected)
+        {
+            return false;
+        }
+
+        _deviceLost = true;
+        try
+        {
+            DeviceLost?.Invoke();
+        }
+        catch (Exception)
+        {
+            Interlocked.Increment(ref _errors);
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -162,6 +162,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(SoundingNotes));
             }
+            else if (args.PropertyName == nameof(LivePlayer.CanPlay))
+            {
+                OnPropertyChanged(nameof(CanPlay));
+            }
         };
         Notes = new NotePlayer(Live.Device);
         Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites);

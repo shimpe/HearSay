@@ -268,7 +268,7 @@
                   <ScrollViewer x:Name="KeyboardScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled" AllowAutoHide="False" LayoutUpdated="OnKeyboardLayoutUpdated">
                     <local:PianoKeyboard x:Name="Keyboard" Height="92" Margin="0,0,0,18" LowestNote="0" HighestNote="127" WhiteKeyWidth="26" MarkedNotes="{Binding TargetNotes}" SoundingNotes="{Binding SoundingNotes}" NotePressed="OnNotePressed" NoteReleased="OnNoteReleased" />
                   </ScrollViewer>
-                  <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
+                  <TextBlock Text="No audio device; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
                 </StackPanel>
                 <Grid Grid.Row="4" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasPatch}">
                   <StackPanel Grid.Column="0" IsVisible="{Binding HasResult}">

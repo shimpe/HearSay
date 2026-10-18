@@ -25,6 +25,9 @@ public sealed unsafe class AudioPlayer : IDisposable
     /// <summary>ALC_REFRESH: how many times per second the device mixes an update.</summary>
     private const int ContextRefresh = 0x1008;
 
+    /// <summary>ALC_CONNECTED (ALC_EXT_disconnect): 0 once the device is gone.</summary>
+    private const int ContextConnected = 0x313;
+
     /// <summary>Environment variable that names a settings file OpenAL Soft reads after all others.</summary>
     private const string SettingsVariable = "ALSOFT_CONF";
 
@@ -32,6 +35,7 @@ public sealed unsafe class AudioPlayer : IDisposable
     private readonly AL? _al;
     private readonly ALContext? _alc;
     private readonly Device* _device;
+    private readonly bool _reportsConnection;
     private readonly Context* _context;
     private uint _source;
     private uint _buffer;
@@ -49,6 +53,8 @@ public sealed unsafe class AudioPlayer : IDisposable
             {
                 return;
             }
+
+            _reportsConnection = _alc.IsExtensionPresent(_device, "ALC_EXT_disconnect");
 
             // A short update (48000 / 256 a second) keeps the device's own latency small for the live notes; OpenAL Soft
             // logs ALC_REFRESH but takes the update size from period_size in alsoft.ini.
@@ -87,6 +93,25 @@ public sealed unsafe class AudioPlayer : IDisposable
     /// Windows with the shipped settings, 960 without them; 0 when no device is open or it does not say.
     /// </summary>
     internal int DeviceUpdateSamples { get; }
+
+    /// <summary>
+    /// False once the audio device is gone, for example unplugged headphones or a USB interface; true while it is there,
+    /// and also when OpenAL cannot tell. Safe on any thread.
+    /// </summary>
+    internal bool IsConnected
+    {
+        get
+        {
+            if (!_reportsConnection || _alc is null || _device == null)
+            {
+                return true;
+            }
+
+            int connected = 1;
+            _alc.GetContextProperty(_device, (GetContextInteger)ContextConnected, 1, &connected);
+            return connected != 0;
+        }
+    }
 
     /// <summary>Plays audio from the start, stopping whatever was playing.</summary>
     /// <param name="audio">Mono audio.</param>

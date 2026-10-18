@@ -121,6 +121,10 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             {
                 OnPropertyChanged(nameof(SoundingNotes));
             }
+            else if (args.PropertyName == nameof(LivePlayer.CanPlay))
+            {
+                OnPropertyChanged(nameof(CanPlay));
+            }
         };
         _status = status;
         _progress = progress;

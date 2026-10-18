@@ -70,6 +70,7 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         Midi.Note += OnMidiNote;
         Midi.DeviceLost += () => Dispatcher.UIThread.Post(OnDeviceLost);
         Midi.DevicesChanged += () => Dispatcher.UIThread.Post(RefreshMidiDevices);
+        Output.DeviceLost += () => Dispatcher.UIThread.Post(OnAudioDeviceLost);
         StartWarmUp();
 
         string? remembered = StudioSettings.Load(_settingsPath).MidiInput;
@@ -102,7 +103,7 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
     public MidiInput Midi { get; }
 
     /// <summary>True when live notes can be heard: an audio device is open and the streaming source could be made.</summary>
-    public bool CanPlay => Output.IsAvailable;
+    public bool CanPlay => Output.IsAvailable && !Output.IsDeviceLost;
 
     /// <summary>
     /// The sound a new note plays: the sound of the visible tab, or null when it has none. Read on the interface
@@ -138,6 +139,14 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         {
             if (value is null || value == SelectedMidiDevice)
             {
+                return;
+            }
+
+            if (value != NoDevice && !CanPlay)
+            {
+                // Its notes could not be heard; the selector goes back to none.
+                StatusChanged?.Invoke(this, $"No audio device: the MIDI device {value} is not opened.");
+                OnPropertyChanged();
                 return;
             }
 
@@ -470,6 +479,25 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(SelectedMidiDevice));
         StatusChanged?.Invoke(this, $"The MIDI device {lost} was disconnected.");
         RefreshMidiDevices();
+    }
+
+    /// <summary>
+    /// The audio device is gone: live notes are off (<see cref="CanPlay"/> turns false), the MIDI device is closed and its
+    /// notes released, the selector says none and the status line says why. The MIDI device stays remembered, so that
+    /// the next start opens it again.
+    /// </summary>
+    private void OnAudioDeviceLost()
+    {
+        if (_openName is not null)
+        {
+            Midi.Close();
+            RetireSession();
+            _openName = null;
+            OnPropertyChanged(nameof(SelectedMidiDevice));
+        }
+
+        OnPropertyChanged(nameof(CanPlay));
+        StatusChanged?.Invoke(this, "The audio device was disconnected: live notes are off and MIDI in is set to none. Restart the Studio once an audio device is connected again.");
     }
 
     /// <summary>Brings <see cref="MidiDevices"/> up to date in place, so that the selector keeps its selection.</summary>
