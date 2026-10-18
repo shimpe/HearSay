@@ -61,6 +61,74 @@ public sealed partial class LibraryView : UserControl
 
     private void OnClearFilter(object? sender, RoutedEventArgs e) => ViewModel.ClearFilter();
 
+    private void OnFavouriteOpening(object? sender, EventArgs e)
+    {
+        ViewModel.PrepareFavouriteName();
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => { FavouriteBox.Focus(); FavouriteBox.SelectAll(); });
+    }
+
+    private async void OnSaveFavourite(object? sender, RoutedEventArgs e)
+    {
+        FavouriteButton.Flyout?.Hide();
+        await ViewModel.SaveShownFavouriteAsync();
+    }
+
+    private async void OnFavouriteKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key == Avalonia.Input.Key.Enter)
+        {
+            FavouriteButton.Flyout?.Hide();
+            await ViewModel.SaveShownFavouriteAsync();
+        }
+    }
+
+    private void OnRemoveShownFavourite(object? sender, RoutedEventArgs e)
+    {
+        FavouriteButton.Flyout?.Hide();
+        ViewModel.RemoveShownFavourite();
+    }
+
+    private async void OnFavouriteTapped(object? sender, Avalonia.Input.TappedEventArgs e)
+    {
+        if (e.Source is Control { DataContext: FavouriteItem item })
+        {
+            await ViewModel.PlaceFavouriteAsync(item);
+        }
+    }
+
+    private void OnRenameOpening(object? sender, EventArgs e)
+    {
+        ViewModel.FavouriteNickname = ViewModel.SelectedFavourite?.Name ?? string.Empty;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => { RenameBox.Focus(); RenameBox.SelectAll(); });
+    }
+
+    private void OnRename(object? sender, RoutedEventArgs e)
+    {
+        RenameButton.Flyout?.Hide();
+        if (ViewModel.SelectedFavourite is { } item)
+        {
+            ViewModel.RenameFavourite(item, ViewModel.FavouriteNickname);
+        }
+    }
+
+    private void OnRenameKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key == Avalonia.Input.Key.Enter)
+        {
+            OnRename(sender, e);
+        }
+    }
+
+    private void OnRemoveFavourite(object? sender, RoutedEventArgs e)
+    {
+        RemoveButton.Flyout?.Hide();
+        if (ViewModel.SelectedFavourite is { } item)
+        {
+            ViewModel.RemoveFavourite(item);
+        }
+    }
+
+
     private async void OnImport(object? sender, RoutedEventArgs e)
     {
         if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)

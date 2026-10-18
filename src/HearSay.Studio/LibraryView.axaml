@@ -8,6 +8,23 @@
     <Style Selector="ToggleButton.empty">
       <Setter Property="Opacity" Value="0.45" />
     </Style>
+    <!-- The Imported / Favourites switch: two buttons, the chosen one lit -->
+    <Style Selector="RadioButton.segment">
+      <Setter Property="Background" Value="#334155" />
+      <Setter Property="Foreground" Value="#E2E8F0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}" CornerRadius="5" Padding="6,3">
+            <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="RadioButton.segment:checked">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="#0B1220" />
+    </Style>
   </UserControl.Styles>
   <Grid RowDefinitions="*,Auto" ColumnDefinitions="3*,2*" RowSpacing="12" ColumnSpacing="12">
 
@@ -68,16 +85,56 @@
           <Button Grid.Column="1" Content="Clear" Click="OnClearFilter" Padding="6,2" FontSize="11" Background="Transparent" Foreground="{StaticResource AccentBrush}" />
         </Grid>
         <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="8">
-          <ListBox Grid.Column="0" Width="170" ItemsSource="{Binding Imports}" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6" IsVisible="{Binding Imports.Count}" Tapped="OnImportTapped">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="local:ImportedItem">
-                <StackPanel>
-                  <TextBlock Text="{Binding Name}" FontSize="11" TextTrimming="CharacterEllipsis" />
-                  <TextBlock Text="{Binding ProfileName}" Classes="muted" FontSize="9" />
-                </StackPanel>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+          <!-- Side list: the sounds imported this session, or the favourites kept between sessions -->
+          <Grid Grid.Column="0" Width="170" RowDefinitions="Auto,*,Auto" RowSpacing="4" IsVisible="{Binding HasSideList}">
+            <Grid Grid.Row="0" ColumnDefinitions="*,*" ColumnSpacing="4">
+              <RadioButton Grid.Column="0" Classes="segment" Content="Imported" GroupName="SideList" IsChecked="{Binding ShowImports}" FontSize="11" />
+              <RadioButton Grid.Column="1" Classes="segment" Content="Favourites" GroupName="SideList" IsChecked="{Binding ShowFavourites}" FontSize="11" />
+            </Grid>
+            <ListBox Grid.Row="1" ItemsSource="{Binding Imports}" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6" IsVisible="{Binding ShowImports}" Tapped="OnImportTapped">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:ImportedItem">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Name}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding ProfileName}" Classes="muted" FontSize="9" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <ListBox Grid.Row="1" ItemsSource="{Binding Favourites}" SelectedItem="{Binding SelectedFavourite}" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6" IsVisible="{Binding ShowFavourites}" Tapped="OnFavouriteTapped">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:FavouriteItem">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Name}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
+                    <TextBlock Text="{Binding ProfileName}" Classes="muted" FontSize="9" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="4" IsVisible="{Binding ShowFavourites}">
+              <Button x:Name="RenameButton" Grid.Column="0" Content="Rename" FontSize="11" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsEnabled="{Binding HasSelectedFavourite}">
+                <Button.Flyout>
+                  <Flyout Placement="TopEdgeAlignedLeft" Opening="OnRenameOpening">
+                    <StackPanel Spacing="6" Width="220">
+                      <TextBlock Text="New nickname" Classes="muted" FontSize="11" />
+                      <TextBox x:Name="RenameBox" Text="{Binding FavouriteNickname}" KeyDown="OnRenameKeyDown" />
+                      <Button Content="Rename" Click="OnRename" HorizontalAlignment="Right" />
+                    </StackPanel>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
+              <Button x:Name="RemoveButton" Grid.Column="1" Content="Remove" FontSize="11" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsEnabled="{Binding HasSelectedFavourite}">
+                <Button.Flyout>
+                  <Flyout Placement="TopEdgeAlignedLeft">
+                    <StackPanel Spacing="6" Width="220">
+                      <TextBlock Text="{Binding SelectedFavourite.Name, StringFormat='Remove {0} from the favourites? Its folder is deleted.'}" TextWrapping="Wrap" FontSize="11" />
+                      <Button Content="Remove" Click="OnRemoveFavourite" HorizontalAlignment="Right" Foreground="{StaticResource AmberBrush}" />
+                    </StackPanel>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
+            </Grid>
+          </Grid>
           <Border Grid.Column="1" CornerRadius="6" ClipToBounds="True">
             <local:LibraryGraph x:Name="Graph" Nodes="{Binding Nodes}" Edges="{Binding Edges}" SelectedIndex="{Binding SelectedIndex}" Message="{Binding GraphMessage}" NodeClicked="OnNodeClicked" NodeOpened="OnNodeOpened" />
           </Border>
@@ -88,11 +145,25 @@
     <!-- The selected sound -->
     <Border Grid.Row="0" Grid.Column="1" Classes="card">
       <DockPanel>
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,0,0,8">
           <TextBlock Grid.Column="0" Classes="title" Text="PATCH" Margin="0" VerticalAlignment="Center" />
-          <Button Grid.Column="1" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Copy the SuperCollider code" />
-          <Button Grid.Column="2" Content="Save…" Click="OnSave" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Write patch.json, patch.scd and preview.wav to a folder; it can be imported again" />
-          <Button Grid.Column="3" Content="Show in Search" Click="OnShowInSearch" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Show this sound as the patch of the Search tab" />
+          <Button x:Name="FavouriteButton" Grid.Column="1" Content="{Binding FavouriteStar}" FontSize="16" Padding="8,0" Foreground="{StaticResource AmberBrush}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Keep this sound as a favourite, with a nickname; the Favourites list beside the graph has them all">
+            <Button.Flyout>
+              <Flyout Placement="BottomEdgeAlignedRight" Opening="OnFavouriteOpening">
+                <StackPanel Spacing="6" Width="240">
+                  <TextBlock Text="Nickname" Classes="muted" FontSize="11" />
+                  <TextBox x:Name="FavouriteBox" Text="{Binding FavouriteNickname}" KeyDown="OnFavouriteKeyDown" />
+                  <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                    <Button Content="Remove" Click="OnRemoveShownFavourite" IsVisible="{Binding IsShownFavourite}" Foreground="{StaticResource AmberBrush}" />
+                    <Button Content="Save" Click="OnSaveFavourite" />
+                  </StackPanel>
+                </StackPanel>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
+          <Button Grid.Column="2" Content="Copy" Click="OnCopy" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Copy the SuperCollider code" />
+          <Button Grid.Column="3" Content="Save…" Click="OnSave" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Write patch.json, patch.scd and preview.wav to a folder; it can be imported again" />
+          <Button Grid.Column="4" Content="Show in Search" Click="OnShowInSearch" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Show this sound as the patch of the Search tab" />
         </Grid>
         <TextBlock DockPanel.Dock="Bottom" Text="{Binding SelectionText}" Classes="muted" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
         <local:PatchView Code="{Binding Scd}" Patch="{Binding ShownPatch}" SharedNoise="{Binding ShownPatchSharesNoise}" Watermark="Click a node to see its code." />

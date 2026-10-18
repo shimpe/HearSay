@@ -139,6 +139,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _playingText = string.Empty;
     private AlternativeItem? _selectedAlternative;
     private OperatorMatrixPatch? _shownPatch;
+    private string _favouriteNickname = string.Empty;
 
     /// <summary>The last result of every synthesis target, by profile name, so that the targets can be compared by ear.</summary>
     private readonly Dictionary<string, PatchMatchResult> _results = new(StringComparer.Ordinal);
@@ -146,10 +147,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>What each kept result was searched with (<see cref="SearchInputs"/>); a search with the same inputs reuses it.</summary>
     private readonly Dictionary<string, string> _resultInputs = new(StringComparer.Ordinal);
 
-    public MainViewModel()
+    /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
+    public MainViewModel(FavouriteSounds? favourites = null)
     {
         Notes = new NotePlayer(_player);
-        Library = new LibraryViewModel(Notes, s => Status = s, p => Progress = p, ShowLibraryPatch);
+        Library = new LibraryViewModel(Notes, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites);
+        Library.Favourites.CollectionChanged += (_, _) => OnFavouriteChanged();
         RunCommand = new RelayCommand(() => _ = RunAsync(), () => Targets.Count > 0 && !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
         RemoveCommand = new RelayCommand(RemoveSelected, () => SelectedTarget is not null && !IsRunning);
@@ -190,6 +193,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _shownPatch = patch.Patch;
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
+        OnFavouriteChanged();
         Scd = patch.Scd;
         string routing = PatchDescription.Routing(patch.Patch);
         int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
@@ -210,6 +214,75 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SelectedTab = 1;
         string name = finalist.Rank == 1 ? "search best" : $"search {finalist.Label}";
         await Library.FindAsync(name, finalist.Candidate.Origin, finalist.Candidate.Patch, result.Profile);
+    }
+
+    /// <summary>The nickname typed in the favourite box.</summary>
+    public string FavouriteNickname
+    {
+        get => _favouriteNickname;
+        set => Set(ref _favouriteNickname, value ?? string.Empty);
+    }
+
+    /// <summary>True when the shown patch is a favourite.</summary>
+    public bool IsShownFavourite => ShownSound() is { } shown && Library.FindFavourite(shown.Patch, shown.Profile) is not null;
+
+    /// <summary>The star of the favourite button: filled for a favourite.</summary>
+    public string FavouriteStar => IsShownFavourite ? "★" : "☆";
+
+    /// <summary>Fills the favourite box: the nickname of the shown patch when it is a favourite, else a suggestion.</summary>
+    public void PrepareFavouriteName()
+    {
+        if (ShownSound() is { } shown)
+        {
+            FavouriteNickname = Library.FindFavourite(shown.Patch, shown.Profile)?.Name ?? shown.Suggestion;
+        }
+    }
+
+    /// <summary>Keeps the shown patch as a favourite with the typed nickname, or renames it when it is one already.</summary>
+    public async Task SaveFavouriteAsync()
+    {
+        if (ShownSound() is { } shown)
+        {
+            await Library.SaveFavouriteAsync(FavouriteNickname, shown.Patch, shown.Profile, shown.Origin);
+        }
+    }
+
+    /// <summary>Removes the shown patch from the favourites.</summary>
+    public void RemoveShownFavourite()
+    {
+        if (ShownSound() is { } shown && Library.FindFavourite(shown.Patch, shown.Profile) is { } item)
+        {
+            Library.RemoveFavourite(item);
+        }
+    }
+
+    /// <summary>
+    /// The patch shown in the Search tab, with a suggested nickname and where it came from: the selected finalist (named
+    /// after the first target, for example <c>piano-c4 best</c>), or a library sound shown here.
+    /// </summary>
+    private (OperatorMatrixPatch Patch, SynthesisProfile Profile, string Suggestion, string Origin)? ShownSound()
+    {
+        if (_libraryPatch is { } library)
+        {
+            return (library.Patch, library.Profile, library.Title, string.Join(" ", library.HeaderComments));
+        }
+
+        if (_result is { } result && SelectedAlternative is { } finalist)
+        {
+            string target = Targets.Count > 0 ? System.IO.Path.GetFileNameWithoutExtension(Targets[0].Path) : "search";
+            string suggestion = $"{target} {(finalist.Rank == 1 ? "best" : finalist.Label)}";
+            string targets = string.Join(", ", Targets.Select(static t => t.Name));
+            string origin = string.Create(CultureInfo.InvariantCulture, $"From the search for {targets}, seed {result.SearchSummary.RandomSeed}: {finalist.Candidate.Origin}");
+            return (finalist.Candidate.Patch, result.Profile, suggestion, origin);
+        }
+
+        return null;
+    }
+
+    private void OnFavouriteChanged()
+    {
+        OnPropertyChanged(nameof(IsShownFavourite));
+        OnPropertyChanged(nameof(FavouriteStar));
     }
 
     /// <summary>Loaded target notes.</summary>
@@ -724,6 +797,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _shownPatch = null;
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
+        OnFavouriteChanged();
         Alternatives.Clear();
         if (result is null)
         {
@@ -779,6 +853,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _shownPatch = patch;
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
+        OnFavouriteChanged();
         bool[] audible = patch.FindAudibleOperators();
         OperatorNames.Clear();
         MatrixCells.Clear();

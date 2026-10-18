@@ -331,6 +331,13 @@ nearest neighbours.
   the list to place it: the tab opens the family whose centre is closest at every level and shows the sound there as a
   star among the sounds like it. One level up, the family it fell in has a dashed ring. Placement is by sound, so an
   FM7 export can be placed in the FMX6 library.
+- **☆** keeps the shown sound as a favourite under a nickname you type (a library sound, a placed import or finalist
+  here; the shown finalist or library sound in the Search tab, which has the same button). A favourite has a filled
+  ★; clicking it again renames or removes it. Favourites are kept between sessions as ordinary exported-sound folders
+  named by their nicknames under `%LOCALAPPDATA%\HearSay\favourites`, each with a `favourite.json` saying where it came
+  from. The **Favourites** side of the list beside the graph shows them all with their profiles: click one to place it
+  among its neighbours in the library of its profile, selected and played, ready to copy or save; **Rename** and
+  **Remove** act on the selected one (removing deletes its folder, after asking).
 - **Filter ▾** shows only some sounds: by the waveforms and filter types of the operators you can hear, brightness,
   envelope, noise (*noisy* or *noise-free*), the number of audible operators and feedback. Values in a row are
   alternatives, rows must all hold (*saw or square*, and *low-pass*). Each chip shows how many sounds match the rest of

@@ -112,6 +112,33 @@ public sealed partial class MainWindow : Window
 
     private async void OnFindInLibrary(object? sender, RoutedEventArgs e) => await ViewModel.FindInLibraryAsync();
 
+    private void OnFavouriteOpening(object? sender, EventArgs e)
+    {
+        ViewModel.PrepareFavouriteName();
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => { FavouriteBox.Focus(); FavouriteBox.SelectAll(); });
+    }
+
+    private async void OnSaveFavourite(object? sender, RoutedEventArgs e)
+    {
+        FavouriteButton.Flyout?.Hide();
+        await ViewModel.SaveFavouriteAsync();
+    }
+
+    private async void OnFavouriteKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key == Avalonia.Input.Key.Enter)
+        {
+            FavouriteButton.Flyout?.Hide();
+            await ViewModel.SaveFavouriteAsync();
+        }
+    }
+
+    private void OnRemoveShownFavourite(object? sender, RoutedEventArgs e)
+    {
+        FavouriteButton.Flyout?.Hide();
+        ViewModel.RemoveShownFavourite();
+    }
+
     private async void OnCopy(object? sender, RoutedEventArgs e)
     {
         if (Clipboard is not null && ViewModel.Scd.Length > 0)

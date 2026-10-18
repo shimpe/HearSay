@@ -30,11 +30,25 @@ public sealed record ImportedItem(ExportedSound Sound, byte[] Print)
     /// <summary>For a finalist of the Search tab, where the search found it; null for a sound read from a folder.</summary>
     public string? SearchOrigin { get; init; }
 
+    /// <summary>Where it came from, said differently from the search or import wording; null to use those.</summary>
+    public string? SourceText { get; init; }
+
     /// <summary>Where it came from, for the selection line and the header of its code.</summary>
-    public string Source => SearchOrigin is { } origin ? "from the search: " + origin : "imported from " + Sound.PatchFile;
+    public string Source => SourceText ?? (SearchOrigin is { } origin ? "from the search: " + origin : "imported from " + Sound.PatchFile);
 
     /// <summary>The same key is the same sound: its file, or for a finalist its profile and patch.</summary>
     public string Key => SearchOrigin is null ? Sound.PatchFile : $"search {Sound.Profile.Name} {Sound.Patch.ComputeHash()}";
+}
+
+/// <summary>A favourite sound in the side list of the Library tab.</summary>
+/// <param name="Favourite">The favourite as it is kept on disk.</param>
+public sealed record FavouriteItem(Favourite Favourite)
+{
+    /// <summary>Its nickname.</summary>
+    public string Name => Favourite.Nickname;
+
+    /// <summary>Profile it plays on, short.</summary>
+    public string ProfileName => ProfileNameConverter.Short(Favourite.Sound.Profile.Name);
 }
 
 /// <summary>A sound from the library, as it is handed to the Search tab.</summary>
@@ -76,14 +90,28 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private int _filterVersion;
     private SoundFilter _shownFilter = SoundFilter.None;
     private string? _filterSummary;
+    private readonly FavouriteSounds _favouriteStore;
+    private bool _showFavourites;
+    private FavouriteItem? _selectedFavourite;
+    private string _favouriteNickname = string.Empty;
 
     /// <summary>Creates the view model.</summary>
     /// <param name="notes">Shared note player.</param>
     /// <param name="status">Sets the status line of the window.</param>
     /// <param name="progress">Sets the progress bar of the window, 0..1.</param>
     /// <param name="showInSearch">Shows a sound in the Search tab.</param>
-    public LibraryViewModel(NotePlayer notes, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch)
+    /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
+    public LibraryViewModel(NotePlayer notes, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null)
     {
+        _favouriteStore = favourites ?? new FavouriteSounds();
+        Imports.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSideList));
+        Favourites.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasSideList));
+            OnPropertyChanged(nameof(IsShownFavourite));
+            OnPropertyChanged(nameof(FavouriteStar));
+        };
+        ReloadFavourites();
         _notes = notes;
         _status = status;
         _progress = progress;
@@ -295,6 +323,186 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>Sounds imported this session.</summary>
     public ObservableCollection<ImportedItem> Imports { get; } = [];
 
+    /// <summary>Favourite sounds, kept between sessions, by nickname.</summary>
+    public ObservableCollection<FavouriteItem> Favourites { get; } = [];
+
+    /// <summary>The side list is shown when there is something in it.</summary>
+    public bool HasSideList => Imports.Count > 0 || Favourites.Count > 0;
+
+    /// <summary>The side list shows the favourites rather than the imported sounds.</summary>
+    public bool ShowFavourites
+    {
+        get => _showFavourites;
+        set
+        {
+            if (Set(ref _showFavourites, value))
+            {
+                OnPropertyChanged(nameof(ShowImports));
+            }
+        }
+    }
+
+    /// <summary>The side list shows the imported sounds.</summary>
+    public bool ShowImports
+    {
+        get => !_showFavourites;
+        set => ShowFavourites = !value;
+    }
+
+    /// <summary>The favourite selected in the side list, for Rename and Remove.</summary>
+    public FavouriteItem? SelectedFavourite
+    {
+        get => _selectedFavourite;
+        set
+        {
+            if (Set(ref _selectedFavourite, value))
+            {
+                OnPropertyChanged(nameof(HasSelectedFavourite));
+            }
+        }
+    }
+
+    /// <summary>True when a favourite is selected in the side list.</summary>
+    public bool HasSelectedFavourite => _selectedFavourite is not null;
+
+    /// <summary>The nickname typed in the favourite box.</summary>
+    public string FavouriteNickname
+    {
+        get => _favouriteNickname;
+        set => Set(ref _favouriteNickname, value ?? string.Empty);
+    }
+
+    /// <summary>True when the shown sound is a favourite.</summary>
+    public bool IsShownFavourite => _selection is { } s && FindFavourite(s.Patch, s.Profile) is not null;
+
+    /// <summary>The star of the favourite button: filled for a favourite.</summary>
+    public string FavouriteStar => IsShownFavourite ? "★" : "☆";
+
+    /// <summary>The favourite of a patch on a profile, if there is one.</summary>
+    /// <param name="patch">Patch.</param>
+    /// <param name="profile">Profile.</param>
+    public FavouriteItem? FindFavourite(OperatorMatrixPatch patch, SynthesisProfile profile) =>
+        FavouriteSounds.Find(Favourites.Select(static f => f.Favourite), patch, profile) is { } found
+            ? Favourites.First(f => ReferenceEquals(f.Favourite, found))
+            : null;
+
+    /// <summary>Fills the favourite box: the nickname of the shown sound when it is a favourite, else a suggestion.</summary>
+    public void PrepareFavouriteName()
+    {
+        if (_selection is { } s)
+        {
+            FavouriteNickname = FindFavourite(s.Patch, s.Profile)?.Name ?? s.Title;
+        }
+    }
+
+    /// <summary>Keeps the shown sound as a favourite with the typed nickname, or renames it when it is one already.</summary>
+    public async Task SaveShownFavouriteAsync()
+    {
+        if (_selection is { } s)
+        {
+            await SaveFavouriteAsync(FavouriteNickname, s.Patch, s.Profile, string.Join(" ", s.HeaderComments));
+        }
+    }
+
+    /// <summary>Removes the shown sound from the favourites.</summary>
+    public void RemoveShownFavourite()
+    {
+        if (_selection is { } s && FindFavourite(s.Patch, s.Profile) is { } item)
+        {
+            RemoveFavourite(item);
+        }
+    }
+
+    /// <summary>
+    /// Keeps a sound as a favourite under a nickname, or gives the favourite it already is that nickname; writing a
+    /// favourite renders its preview, so this runs off the interface thread.
+    /// </summary>
+    /// <param name="nickname">Nickname.</param>
+    /// <param name="patch">Patch.</param>
+    /// <param name="profile">Profile it plays on.</param>
+    /// <param name="origin">Where it came from.</param>
+    public async Task SaveFavouriteAsync(string nickname, OperatorMatrixPatch patch, SynthesisProfile profile, string origin)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(profile);
+        try
+        {
+            if (FindFavourite(patch, profile) is { } existing)
+            {
+                RenameFavourite(existing, nickname);
+                return;
+            }
+
+            Favourite added = await Task.Run(() => _favouriteStore.Add(nickname, patch, profile, origin));
+            ReloadFavourites();
+            _status($"\u2605 {added.Nickname} is a favourite; the Favourites list of the Library tab has it.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _status("The favourite could not be saved: " + e.Message);
+        }
+    }
+
+    /// <summary>Gives a favourite another nickname.</summary>
+    /// <param name="item">Favourite.</param>
+    /// <param name="nickname">New nickname.</param>
+    public void RenameFavourite(FavouriteItem item, string nickname)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        try
+        {
+            Favourite renamed = _favouriteStore.Rename(item.Favourite, nickname);
+            ReloadFavourites();
+            SelectedFavourite = Favourites.FirstOrDefault(f => f.Favourite.Directory == renamed.Directory);
+            _status($"Renamed to {renamed.Nickname}.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _status("The favourite could not be renamed: " + e.Message);
+        }
+    }
+
+    /// <summary>Removes a favourite and its folder.</summary>
+    /// <param name="item">Favourite.</param>
+    public void RemoveFavourite(FavouriteItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        try
+        {
+            _favouriteStore.Remove(item.Favourite);
+            ReloadFavourites();
+            _status($"{item.Name} is no longer a favourite.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _status("The favourite could not be removed: " + e.Message);
+        }
+    }
+
+    /// <summary>Places a favourite among its neighbours in the library of its profile, selected and played.</summary>
+    /// <param name="item">Favourite.</param>
+    public async Task PlaceFavouriteAsync(FavouriteItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ExportedSound sound = item.Favourite.Sound;
+        _status($"Rendering {item.Name} to find its neighbours…");
+        byte[] print = await Task.Run(() => ExportedSounds.Fingerprint(sound));
+        string source = item.Favourite.Origin.Length > 0 ? "favourite: " + item.Favourite.Origin : "favourite";
+        await ShowAmongNeighboursAsync(new ImportedItem(sound with { Name = item.Name }, print) { SourceText = source }, sound.Profile);
+    }
+
+    private void ReloadFavourites()
+    {
+        string? selected = _selectedFavourite?.Favourite.Directory;
+        Favourites.Clear();
+        foreach (Favourite favourite in _favouriteStore.Load())
+        {
+            Favourites.Add(new FavouriteItem(favourite));
+        }
+
+        SelectedFavourite = Favourites.FirstOrDefault(f => f.Favourite.Directory == selected);
+    }
+
     /// <summary>Reads the exported sounds under a folder and adds them to the list.</summary>
     /// <param name="directory">Folder.</param>
     public async Task ImportAsync(string directory)
@@ -424,7 +632,13 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             Imports.Add(item);
         }
 
-        // Its own profile's library holds the neighbours the search drew on; a profile without one keeps the library shown.
+        await ShowAmongNeighboursAsync(item, profile);
+    }
+
+    /// <summary>Shows the library of a profile and places a sound in it once it is shown.</summary>
+    private async Task ShowAmongNeighboursAsync(ImportedItem item, SynthesisProfile profile)
+    {
+        // Its own profile's library holds the neighbours; a profile without one keeps the library shown.
         if (Profiles.FirstOrDefault(p => p.Name == profile.Name) is { } own)
         {
             SelectedProfile = own;
@@ -750,6 +964,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Scd));
         OnPropertyChanged(nameof(SelectionText));
         OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(IsShownFavourite));
+        OnPropertyChanged(nameof(FavouriteStar));
         RenderRequest reference = StructureLibrary.ReferenceRequest;
         _ = PlayReferenceAsync(selection, reference);
     }
