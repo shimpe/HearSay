@@ -17,7 +17,8 @@ synth parameters → synth render → candidate audio → HearSay comparison →
 ```
 
 * No UI, no platform-specific code, no native dependencies, **no NuGet dependencies** (the FFT, resampler and WAV
-  reader are part of the library).
+  reader are part of the library). Only HearSay Studio, the desktop app, has dependencies: Avalonia (the window),
+  Silk.NET.OpenAL with OpenAL Soft (audio output) and OwnAudioSharp.Midi (MIDI input).
 * .NET 10, nullable reference types, XML documentation on every public API, warnings as errors.
 * Deterministic: the same input and configuration always give the same output.
 * Thread-safe core: all caches are immutable after initialization.
@@ -510,7 +511,7 @@ HearSay.sln
 │   ├── HearSay.OperatorMatrix            which synthesis structure and parameters should be explored?
 │   ├── HearSay                           facade: OperatorMatrixPatchMatcher, SynthesisBackends, PatchMatchResultWriter
 │   ├── HearSay.Cli                       hearsay match | analyze | profiles
-│   └── HearSay.Studio                    Avalonia desktop app: load WAVs, run the search, play the result on a keyboard, show patch.scd, browse the structure library by sound family
+│   └── HearSay.Studio                    Avalonia desktop app: load WAVs, run the search, play the result on a keyboard or a MIDI controller, show patch.scd, browse the structure library by sound family
 ├── tests                                 xUnit: Audio, Modeling, Synthesis, OperatorMatrix, SuperCollider, IntegrationTests
 ├── benchmarks/HearSay.Benchmarks         BenchmarkDotNet
 ├── docs

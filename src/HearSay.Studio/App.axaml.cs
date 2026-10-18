@@ -21,13 +21,18 @@ public sealed class App : Application
             {
                 int size = logoAt + 2 < args.Length && int.TryParse(args[logoAt + 2], out int given) ? given : 512;
                 File.WriteAllBytes(args[logoAt + 1], HearSayLogo.RenderPng(size));
-                desktop.MainWindow = new MainWindow { DataContext = new MainViewModel() };
+                var logoModel = new MainViewModel();
+                desktop.Exit += (_, _) => logoModel.Dispose();
+                desktop.MainWindow = new MainWindow { DataContext = logoModel };
                 Avalonia.Threading.Dispatcher.UIThread.Post(desktop.MainWindow.Close);
                 base.OnFrameworkInitializationCompleted();
                 return;
             }
 
             var viewModel = new MainViewModel();
+
+            // The live output goes before the audio device it plays on, and the MIDI device is closed.
+            desktop.Exit += (_, _) => viewModel.Dispose();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
             // WAV files on the command line are loaded at start-up, one after the other so that the order is kept.
             string[] files = [.. args.Where(File.Exists)];

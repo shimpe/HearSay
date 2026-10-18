@@ -23,6 +23,17 @@ public sealed partial class MainWindow : Window
         base.OnDataContextChanged(e);
         if (DataContext is MainViewModel viewModel)
         {
+            // A two-way binding would not put the selector back on none after the device chosen could not be opened:
+            // the view model's value did not change. The selector is set from it whenever it says so.
+            viewModel.Live.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(LivePlayer.SelectedMidiDevice))
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowMidiDevice(viewModel.Live));
+                }
+            };
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowMidiDevice(viewModel.Live));
+
             // A new result puts the keyboard back on its target notes.
             viewModel.PropertyChanged += (_, args) =>
             {
@@ -100,7 +111,38 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnNotePressed(object? sender, KeyPress e) => await ViewModel.PlayNoteAsync(e.MidiNote, e.Velocity);
+    private void OnNotePressed(object? sender, KeyPress e) => ViewModel.NoteOn(e.MidiNote, e.Velocity);
+
+    private void OnNoteReleased(object? sender, int midiNote) => ViewModel.NoteOff(midiNote);
+
+    /// <summary>The device list is read again whenever it opens: plugging a device in is not always reported.</summary>
+    private void OnMidiDropDownOpened(object? sender, EventArgs e) => ViewModel.Live.RefreshMidiDevices();
+
+    /// <summary>A device chosen in the selector is opened; a selection lost while the list changes is put back.</summary>
+    private void OnMidiSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        if (MidiSelector.SelectedItem is string device)
+        {
+            viewModel.Live.SelectedMidiDevice = device;
+        }
+        else
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowMidiDevice(viewModel.Live));
+        }
+    }
+
+    private void ShowMidiDevice(LivePlayer live)
+    {
+        if (!Equals(MidiSelector.SelectedItem, live.SelectedMidiDevice))
+        {
+            MidiSelector.SelectedItem = live.SelectedMidiDevice;
+        }
+    }
 
     private void OnPlayTarget(object? sender, RoutedEventArgs e)
     {

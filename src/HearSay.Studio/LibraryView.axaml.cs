@@ -29,7 +29,9 @@ public sealed partial class LibraryView : UserControl
         }
     }
 
-    private async void OnNotePressed(object? sender, KeyPress e) => await ViewModel.PlayNoteAsync(e.MidiNote, e.Velocity);
+    private void OnNotePressed(object? sender, KeyPress e) => ViewModel.NoteOn(e.MidiNote, e.Velocity);
+
+    private void OnNoteReleased(object? sender, int midiNote) => ViewModel.NoteOff(midiNote);
 
     private async void OnCopy(object? sender, RoutedEventArgs e)
     {

@@ -116,10 +116,11 @@ public sealed class TargetItem : INotifyPropertyChanged
 }
 
 /// <summary>
-/// State of the main window: the loaded target notes, the search options, the running search and its result. File
-/// and clipboard access stay in the view; the view model only exposes what to do with a path once it is known.
+/// State of the main window: the loaded target notes, the search options, the running search and its result, and the
+/// live notes of both tabs. File and clipboard access stay in the view; the view model only exposes what to do with a
+/// path once it is known.
 /// </summary>
-public sealed class MainViewModel : INotifyPropertyChanged
+public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly OperatorMatrixPatchMatcher _matcher = new();
     private CancellationTokenSource? _cancellation;
@@ -136,7 +137,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _scd = string.Empty;
     private PatchMatchResult? _result;
     private LibraryPatch? _libraryPatch;
-    private readonly AudioPlayer _player = new();
+    private readonly object _keyboard = new();
     private string _playingText = string.Empty;
     private AlternativeItem? _selectedAlternative;
     private OperatorMatrixPatch? _shownPatch;
@@ -149,10 +150,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly Dictionary<string, string> _resultInputs = new(StringComparer.Ordinal);
 
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
-    public MainViewModel(FavouriteSounds? favourites = null)
+    /// <param name="studioSettingsPath">Where the Studio settings (the MIDI device) are kept; the user's local application data when null.</param>
+    public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null)
     {
-        Notes = new NotePlayer(_player);
-        Library = new LibraryViewModel(Notes, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites);
+        Live = new LivePlayer(studioSettingsPath) { CurrentSound = VisibleSound };
+        Live.NotePlayed += OnNotePlayed;
+        Live.StatusChanged += (_, line) => Status = line;
+        Live.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(LivePlayer.SoundingNotes))
+            {
+                OnPropertyChanged(nameof(SoundingNotes));
+            }
+        };
+        Notes = new NotePlayer(Live.Device);
+        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites);
+        Library.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(LibraryViewModel.ShownPatch))
+            {
+                // Its gain is computed while it is shown, also behind the Search tab, so that its first note need not wait.
+                Live.Prepare(Library.CurrentSound);
+                Live.SoundChanged();
+            }
+        };
+        if (Live.NewWarning() is { } warning)
+        {
+            _status = warning;
+        }
+
         Library.Favourites.CollectionChanged += (_, _) => OnFavouriteChanged();
         RunCommand = new RelayCommand(() => _ = RunAsync(), () => Targets.Count > 0 && !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
@@ -163,8 +189,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>Plays notes for both tabs.</summary>
+    /// <summary>Plays target files as they are.</summary>
     internal NotePlayer Notes { get; }
+
+    /// <summary>Plays the live notes of both tabs, from the keyboards and the MIDI device, and holds the MIDI in selector's state.</summary>
+    public LivePlayer Live { get; }
+
+    /// <summary>The notes that sound now, lit on the keyboard.</summary>
+    public IReadOnlyCollection<int> SoundingNotes => Live.SoundingNotes;
 
     private int _selectedTab;
 
@@ -669,41 +701,64 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set => Set(ref _playingText, value);
     }
 
-    /// <summary>True when an audio device could be opened.</summary>
-    public bool CanPlay => Notes.CanPlay;
+    /// <summary>True when the live notes can be heard: an audio device could be opened.</summary>
+    public bool CanPlay => Live.CanPlay;
 
-    /// <summary>Renders the shown patch at a note and plays it. Nothing happens without a patch.</summary>
+    /// <summary>Starts a note of the shown patch, held until <see cref="NoteOff"/>. Nothing happens without a patch.</summary>
     /// <param name="midiNote">MIDI note.</param>
     /// <param name="velocity">Key velocity 0..1.</param>
-    public async Task PlayNoteAsync(int midiNote, double velocity)
+    public void NoteOn(int midiNote, double velocity) => Live.NoteOn(midiNote, velocity, _keyboard);
+
+    /// <summary>Releases a note started by <see cref="NoteOn"/>.</summary>
+    /// <param name="midiNote">MIDI note.</param>
+    public void NoteOff(int midiNote) => Live.NoteOff(midiNote, _keyboard);
+
+    /// <summary>Stops the live notes and closes the MIDI and audio devices.</summary>
+    public void Dispose() => Live.Dispose();
+
+    /// <summary>
+    /// The sound the Search tab plays: the shown finalist, at the gain of the searched note, or a library sound shown
+    /// here, at the gain of the library's reference note; null when nothing is shown.
+    /// </summary>
+    private Sound? SearchSound() => _libraryPatch is { } library
+        ? new Sound(library.Patch, library.Profile, HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest)
+        : _result is { } result && _shownPatch is { } patch ? new Sound(patch, result.Profile, result.Request) : null;
+
+    /// <summary>The sound of the visible tab, which a new note plays.</summary>
+    private Sound? VisibleSound() => SelectedTab == 1 ? Library.CurrentSound : SearchSound();
+
+    /// <summary>A note-on from a keyboard or the MIDI device: the caption of the visible tab says what it played.</summary>
+    private void OnNotePlayed(object? sender, PlayedNote played)
     {
-        if (_libraryPatch is { } library)
+        if (played.Sound is not { } sound)
         {
-            RenderRequest reference = HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest;
-            double libraryHz = 440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0);
-            var libraryNote = new RenderRequest(libraryHz, midiNote, velocity, reference.NoteDuration, reference.ReleaseDuration, reference.SampleRate);
-            if (await Notes.PlayAsync(library.Patch, library.Profile, reference, libraryNote))
-            {
-                PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({libraryHz:F1} Hz), velocity {velocity:F2}");
-            }
-
+            Status = SelectedTab == 1
+                ? "No sound to play yet: click a node of the library, and the keys play it."
+                : "No sound to play yet: run a search, or show a library sound here, and the keys play it.";
             return;
         }
 
-        if (_result is null || _shownPatch is null)
+        if (!played.Played)
         {
+            Status = LivePlayer.CannotPlay(sound);
             return;
         }
 
-        PatchMatchResult result = _result;
-        OperatorMatrixPatch patch = _shownPatch;
-        double hz = 440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0);
-        double held = Math.Clamp(result.Request.NoteDuration.TotalSeconds, 0.3, 2.0);
-        double tail = Math.Clamp(Math.Max(0.3, result.Request.ReleaseDuration.TotalSeconds), 0.3, 2.0);
-        var note = new RenderRequest(hz, midiNote, velocity, TimeSpan.FromSeconds(held), TimeSpan.FromSeconds(tail), result.Request.SampleRate);
-        if (await Notes.PlayAsync(patch, result.Profile, result.Request, note))
+        double hz = 440.0 * Math.Pow(2.0, (played.Note - 69) / 12.0);
+        string text = FormattableString.Invariant($"{PianoKeyboard.NoteName(played.Note)} ({hz:F1} Hz), velocity {played.Velocity:F2}")
+            + (sound.RespondsToVelocity ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
+        if (SelectedTab == 1)
         {
-            PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (PlaybackLevel.RespondsToVelocity(patch) ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
+            Library.ShowPlaying(text);
+        }
+        else
+        {
+            PlayingText = text;
+        }
+
+        if (Live.NewWarning() is { } warning)
+        {
+            Status = warning;
         }
     }
 
@@ -912,7 +967,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return true;
     }
 
-    private void OnPropertyChanged(string? name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private void OnPropertyChanged(string? name)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        if (name is nameof(ShownPatch) or nameof(SelectedTab))
+        {
+            // Its gain is computed while it is shown, also behind the Library tab, so that its first note need not wait.
+            Live.Prepare(SearchSound());
+            Live.SoundChanged();
+        }
+    }
 }
 
 /// <summary>Command backed by delegates.</summary>

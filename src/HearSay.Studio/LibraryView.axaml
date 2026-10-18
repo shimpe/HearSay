@@ -176,10 +176,10 @@
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
           <TextBlock Grid.Column="0" Text="play the last clicked sound" Classes="muted" FontSize="10" VerticalAlignment="Center" />
           <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="2" Text="lower on a key = louder" Classes="muted" FontSize="9" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="2" Text="hold a key to sustain · lower on a key = louder" Classes="muted" FontSize="9" VerticalAlignment="Center" />
         </Grid>
         <ScrollViewer x:Name="KeyboardScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled" AllowAutoHide="False" LayoutUpdated="OnKeyboardLayoutUpdated">
-          <local:PianoKeyboard x:Name="Keyboard" Height="80" Margin="0,0,0,18" LowestNote="0" HighestNote="127" WhiteKeyWidth="26" NotePressed="OnNotePressed" />
+          <local:PianoKeyboard x:Name="Keyboard" Height="80" Margin="0,0,0,18" LowestNote="0" HighestNote="127" WhiteKeyWidth="26" SoundingNotes="{Binding SoundingNotes}" NotePressed="OnNotePressed" NoteReleased="OnNoteReleased" />
         </ScrollViewer>
         <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
       </StackPanel>

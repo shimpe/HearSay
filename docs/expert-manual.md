@@ -250,8 +250,8 @@ one-shot envelopes only frees itself after the longest one, so it can be played 
 
 Studio is the library with a window around it. Everything it does is available in the API.
 
-**Header.** Target (FM7, FMX6, Nome6, or All), Budget, Seed, Seeds, Library, Run, Stop. Stop returns the best patch
-found so far; the progress bar shows the run within the seeds and the stage within the run. Library (on by default)
+**Header.** MIDI in (see *Playing like a synth* below), Target (FM7, FMX6, Nome6, or All), Budget, Seed, Seeds,
+Library, Run, Stop. Stop returns the best patch found so far; the progress bar shows the run within the seeds and the stage within the run. Library (on by default)
 adds the nearest patches of the structure library as extra starting points (`StructureLibrarySize`, section 12); the
 first search of a target builds its library once, which the status line says. Off, the whole budget goes to the
 structures read from the target.
@@ -277,9 +277,10 @@ note, the list of finalists, the keyboard, the modulation matrix and the routing
   code follow the selection, and the keyboard plays it. The header of the code says whether it is the best patch or
   an alternative. The tiles and "Save result folder" always describe the whole result.
 - **Keyboard**: MIDI 0..127, scrollable, opens centred on C4 for every new result. Amber dots mark the target notes.
-  Pressing lower on a key plays louder (velocity 0.3..1.0). A patch without velocity sensitivity is played at a
-  volume that follows the key velocity instead, and the caption says so. One gain per shown patch, taken from the
-  reference note at full velocity, so level differences between keys are real.
+  A key sounds while it is held, as on a synth (see *Playing like a synth* below). Pressing lower on a key plays
+  louder (velocity 0.3..1.0). A patch without velocity sensitivity is played at a volume that follows the key velocity
+  instead, and the caption says so. One gain per shown patch, taken from the searched note at full velocity, so level
+  differences between keys are real.
 - **Matrix**: rows are destinations, columns sources, values in radians; the diagonal is self-feedback.
   Off operators leave their cells empty.
 
@@ -305,8 +306,37 @@ box at the top right: the vibrato rate and depth (*vib 5.5 Hz ±14 ct*) and the 
 line, up and down in cents. It moves the ratio operators only; fixed-frequency ones keep their pitch. Resting the
 pointer on the box shows the breakpoints in cents and the vibrato delay and fade-in.
 
+**Playing like a synth.** The keyboard of each tab, and a MIDI controller, play the sound of the visible tab: in the
+Search tab the shown finalist (or the library sound shown there), in the Library tab the last clicked sound.
+
+- A note sounds for as long as its key is held: an envelope with a sustain point holds there until the key is let go
+  and then plays its release; a percussive envelope runs its course whatever the key does. What is heard is what the
+  search matched and what the SuperCollider export plays for a note held that long.
+- On the on-screen keyboard, mouse button or touch down is note-on and up is note-off. Sliding a held pointer onto
+  another key releases the old note and plays the new one. Every finger on a touch screen holds a note of its own;
+  with one mouse, one key is held at a time and earlier notes ring on through their release. A finger on the keys
+  plays rather than scrolls; the scroll bar under the keys scrolls the keyboard.
+- Up to 16 notes sound at once; a 17th takes the oldest, which fades out over a few milliseconds. A note keeps the
+  sound it started with: select another finalist or click another node while holding a chord, and the new notes play
+  the new sound while the held ones go on.
+- Keys light up while they sound, from the mouse or from MIDI, in both tabs.
+- **MIDI in** in the header chooses the MIDI input device: *none*, then the devices by name. The list is read again
+  whenever it opens. Only note-on, note-off and velocity are used (a note-on with velocity 0 is a note-off); every
+  channel plays, and pitch bend, controllers, the sustain pedal, aftertouch and program changes are ignored. The
+  choice is remembered by name between sessions in `%LOCALAPPDATA%\HearSay\studio-settings.json`; a remembered device
+  that is not connected at start leaves the selector on *none*, without an error. A device unplugged while open
+  releases its notes, the selector goes back to *none* and the status line says so; it stays remembered for the next
+  session.
+- A sound whose profile has no live voices is not played, and the status line says so (FM7, FMX6 and Nome6 all play).
+- Latency from key to sound is about 41 ms at most on the development machine (Windows, WASAPI shared mode: 22 ms of
+  it is the device's own buffering). A running search or library build keeps its full speed, so notes may stutter or
+  drop out while one runs; on an otherwise idle machine they play cleanly. When the computer cannot keep up, the
+  oldest notes are dropped (with a short fade) rather than all of them stuttering.
+- The Studio runs on Windows, macOS and Linux; MIDI input works there through OwnAudioSharp.Midi. Android and iOS are
+  not supported by the Studio.
+
 Studio plays through OpenAL Soft. Without an audio device the keyboard is silent and a note says so; everything else
-works.
+works. Target files and live notes can sound at the same time.
 
 The logo in the header and the window icon are one vector drawing (`HearSayLogo`): six operators on a ring, the
 chords of a modulation matrix, a wave through them. `HearSay.Studio --logo out.png [size]` writes it as a PNG and
@@ -320,8 +350,9 @@ family into 40 more, down to single sounds. Every node is a real sound, the memb
 nodes are sized by the number of sounds and coloured from dark (blue) to bright (yellow), and each is joined to its two
 nearest neighbours.
 
-- Click a node to hear it at A3 (the note the library was rendered at) and see its code and block diagram; the
-  keyboard plays the last clicked sound at any pitch. Double-click a family, or click the plus, to open it; the
+- Click a node to hear it at A3 (the note the library was rendered at, held for its 1 s and released) and see its
+  code and block diagram; the keyboard and the MIDI device play the last clicked sound at any pitch, held as long as
+  the key. Double-click a family, or click the plus, to open it; the
   breadcrumb goes back up. Resting the pointer on a node shows a few words about it: brightness, envelope, the
   waveform of the loudest carrier, *filtered*, *noisy*, and the number of sounds.
 - **Copy** copies the SuperCollider code, with the library and seed in its header. **Save…** writes `patch.json`,
@@ -550,6 +581,13 @@ edit the envelopes' sustain points.
 
 **Noisy targets under FMX6 score around 0.08 at best.** That is the realization floor: the noise operator is found,
 its sequence never matches. Judge by ear and by `Similarity`.
+
+**Notes from the MIDI controller stutter or drop out.** A search or a library build is running (it keeps its full
+speed), or the status line warns that the audio device mixes in large blocks: OpenAL Soft did not read the
+`alsoft.ini` shipped next to the program.
+
+**The MIDI device is not in the list.** Open the list again (it is read every time it opens); check that no other
+program holds the device: on Windows most MIDI drivers let only one program open an input at a time.
 
 **Studio's keyboard is silent.** No audio device could be opened (OpenAL Soft). The note under the keyboard says so.
 Everything else works; save the folder and play `preview.wav`.

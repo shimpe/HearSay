@@ -66,7 +66,8 @@ public sealed record LibraryPatch(string Title, OperatorMatrixPatch Patch, Synth
 /// </summary>
 public sealed class LibraryViewModel : INotifyPropertyChanged
 {
-    private readonly NotePlayer _notes;
+    private readonly LivePlayer _live;
+    private readonly object _keyboard = new();
     private readonly Action<string> _status;
     private readonly Action<double> _progress;
     private readonly Action<LibraryPatch> _showInSearch;
@@ -97,12 +98,12 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private string _favouriteNickname = string.Empty;
 
     /// <summary>Creates the view model.</summary>
-    /// <param name="notes">Shared note player.</param>
+    /// <param name="live">The live notes, shared with the Search tab.</param>
     /// <param name="status">Sets the status line of the window.</param>
     /// <param name="progress">Sets the progress bar of the window, 0..1.</param>
     /// <param name="showInSearch">Shows a sound in the Search tab.</param>
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
-    public LibraryViewModel(NotePlayer notes, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null)
+    public LibraryViewModel(LivePlayer live, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null)
     {
         _favouriteStore = favourites ?? new FavouriteSounds();
         Imports.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSideList));
@@ -113,7 +114,14 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(FavouriteStar));
         };
         ReloadFavourites();
-        _notes = notes;
+        _live = live;
+        _live.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(LivePlayer.SoundingNotes))
+            {
+                OnPropertyChanged(nameof(SoundingNotes));
+            }
+        };
         _status = status;
         _progress = progress;
         _showInSearch = showInSearch;
@@ -191,7 +199,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     }
 
     /// <summary>True when an audio device could be opened.</summary>
-    public bool CanPlay => _notes.CanPlay;
+    public bool CanPlay => _live.CanPlay;
 
     /// <summary>Rows of the filter panel; empty until the library is read, and for a library nothing can filter.</summary>
     public ObservableCollection<TraitRow> FilterRows { get; } = [];
@@ -718,24 +726,24 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         await ShowFamilyAsync(crumb.Family, [.. Crumbs.Take(at + 1)]);
     }
 
-    /// <summary>Plays the last clicked sound at a note.</summary>
+    /// <summary>The sound the keyboard plays: the last clicked one, at the gain of the library's reference note; null before a click.</summary>
+    public Sound? CurrentSound => _selection is { } s ? new Sound(s.Patch, s.Profile, StructureLibrary.ReferenceRequest) : null;
+
+    /// <summary>The notes that sound now, lit on the keyboard.</summary>
+    public IReadOnlyCollection<int> SoundingNotes => _live.SoundingNotes;
+
+    /// <summary>Starts a note of the last clicked sound, held until <see cref="NoteOff"/>.</summary>
     /// <param name="midiNote">MIDI note.</param>
     /// <param name="velocity">Key velocity 0..1.</param>
-    public async Task PlayNoteAsync(int midiNote, double velocity)
-    {
-        if (_selection is not { } selection)
-        {
-            return;
-        }
+    public void NoteOn(int midiNote, double velocity) => _live.NoteOn(midiNote, velocity, _keyboard);
 
-        RenderRequest reference = StructureLibrary.ReferenceRequest;
-        double hz = 440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0);
-        var note = new RenderRequest(hz, midiNote, velocity, reference.NoteDuration, reference.ReleaseDuration, reference.SampleRate);
-        if (await _notes.PlayAsync(selection.Patch, selection.Profile, reference, note))
-        {
-            PlayingText = FormattableString.Invariant($"{PianoKeyboard.NoteName(midiNote)} ({hz:F1} Hz), velocity {velocity:F2}") + (PlaybackLevel.RespondsToVelocity(selection.Patch) ? string.Empty : " (as volume: this patch has no velocity sensitivity)");
-        }
-    }
+    /// <summary>Releases a note started by <see cref="NoteOn"/>.</summary>
+    /// <param name="midiNote">MIDI note.</param>
+    public void NoteOff(int midiNote) => _live.NoteOff(midiNote, _keyboard);
+
+    /// <summary>Shows what the keyboard or the MIDI device last played.</summary>
+    /// <param name="text">For example <c>C4 (261.6 Hz), velocity 0.80</c>.</param>
+    internal void ShowPlaying(string text) => PlayingText = text;
 
     /// <summary>Writes the selected sound as a folder that imports again.</summary>
     /// <param name="directory">Destination folder.</param>
@@ -969,16 +977,36 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(IsShownFavourite));
         OnPropertyChanged(nameof(FavouriteStar));
-        RenderRequest reference = StructureLibrary.ReferenceRequest;
-        _ = PlayReferenceAsync(selection, reference);
+        _ = PlayReferenceAsync(selection);
     }
 
-    private async Task PlayReferenceAsync(Selection selection, RenderRequest reference)
+    /// <summary>
+    /// Plays the library's reference note once, as the library rendered it: held for its note duration from when the
+    /// sound's gain is known, then released, through the live voices. Every click is a note of its own.
+    /// </summary>
+    private async Task PlayReferenceAsync(Selection selection)
     {
-        if (await _notes.PlayAsync(selection.Patch, selection.Profile, reference, reference))
+        if (!_live.CanPlay)
         {
-            PlayingText = "A3 (220.0 Hz), the library's reference note";
+            return;
         }
+
+        RenderRequest reference = StructureLibrary.ReferenceRequest;
+        var sound = new Sound(selection.Patch, selection.Profile, reference);
+        int note = reference.MidiNote ?? (int)Math.Round(reference.EffectiveMidiNote);
+        var click = new object();
+        if (!_live.Play(sound, note, reference.Velocity, click))
+        {
+            _status(LivePlayer.CannotPlay(sound));
+            return;
+        }
+
+        PlayingText = "A3 (220.0 Hz), the library's reference note";
+
+        // A note waits for its gain before it sounds: the hold starts then. A failed gain ends the note unheard.
+        await Task.WhenAny(_live.Mixer.PrepareAsync(sound));
+        await Task.Delay(reference.NoteDuration);
+        _live.NoteOff(note, click);
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

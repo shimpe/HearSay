@@ -117,6 +117,12 @@
             </Style>
           </WrapPanel.Styles>
           <!-- Each label stays with its control when the row wraps. -->
+          <!-- The MIDI device both tabs play from; the list is read again whenever it opens. The selection follows the
+               view model in code: a device that cannot be opened, or is lost, puts it back on none. -->
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Classes="label" Text="MIDI in" ToolTip.Tip="MIDI input device that plays the sound of the visible tab, as its keyboard does: note-on, note-off and velocity, on every channel. The choice is remembered for the next session." />
+            <ComboBox x:Name="MidiSelector" Width="170" ItemsSource="{Binding Live.MidiDevices}" DropDownOpened="OnMidiDropDownOpened" SelectionChanged="OnMidiSelectionChanged" />
+          </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="10">
             <TextBlock Classes="label" Text="Target" ToolTip.Tip="SuperCollider UGen the patch is searched for and exported to. FM7 (sc3-plugins): sine operators. FMX6 (github.com/shimpe/fmx6): sine, triangle, saw, square, pulse and noise operators. Nome6: Jacobi elliptic operators, from a sine to strong odd harmonics, morphing from sn to sd. All: the three, one after the other with the full budget each; every target keeps its result." />
             <ComboBox Width="130" ItemsSource="{Binding SynthesisTargets}" SelectedItem="{Binding SelectedSynthesisTarget}" IsEnabled="{Binding !IsRunning}">
@@ -260,7 +266,7 @@
                   </Grid>
                   <!-- The Fluent scrollbar is an overlay; the margin under the keys gives it a strip of its own, and it is always shown there. -->
                   <ScrollViewer x:Name="KeyboardScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled" AllowAutoHide="False" LayoutUpdated="OnKeyboardLayoutUpdated">
-                    <local:PianoKeyboard x:Name="Keyboard" Height="92" Margin="0,0,0,18" LowestNote="0" HighestNote="127" WhiteKeyWidth="26" MarkedNotes="{Binding TargetNotes}" NotePressed="OnNotePressed" />
+                    <local:PianoKeyboard x:Name="Keyboard" Height="92" Margin="0,0,0,18" LowestNote="0" HighestNote="127" WhiteKeyWidth="26" MarkedNotes="{Binding TargetNotes}" SoundingNotes="{Binding SoundingNotes}" NotePressed="OnNotePressed" NoteReleased="OnNoteReleased" />
                   </ScrollViewer>
                   <TextBlock Text="No audio device could be opened; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
                 </StackPanel>

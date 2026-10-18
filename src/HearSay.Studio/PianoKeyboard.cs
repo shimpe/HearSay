@@ -11,8 +11,10 @@ namespace HearSay.Studio;
 public sealed record KeyPress(int MidiNote, double Velocity);
 
 /// <summary>
-/// A piano keyboard drawn from <see cref="LowestNote"/> to <see cref="HighestNote"/>. Pressing a key raises
-/// <see cref="NotePressed"/>; the pressed key is highlighted until the pointer is released.
+/// A piano keyboard drawn from <see cref="LowestNote"/> to <see cref="HighestNote"/>, played like a synth: pressing a
+/// key raises <see cref="NotePressed"/> and letting it go <see cref="NoteReleased"/>; sliding a held pointer onto
+/// another key releases the old note and presses the new one, and every pointer (every finger on a touch screen) holds
+/// a note of its own. A key is lit while a pointer holds it and while it is among <see cref="SoundingNotes"/>.
 /// </summary>
 public sealed class PianoKeyboard : Control
 {
@@ -28,22 +30,33 @@ public sealed class PianoKeyboard : Control
     /// <summary>Notes to mark, for example the pitches of the target notes.</summary>
     public static readonly StyledProperty<IReadOnlyList<int>?> MarkedNotesProperty = AvaloniaProperty.Register<PianoKeyboard, IReadOnlyList<int>?>(nameof(MarkedNotes));
 
+    /// <summary>Notes that sound now, from this keyboard or elsewhere (a MIDI device), drawn lit.</summary>
+    public static readonly StyledProperty<IReadOnlyCollection<int>?> SoundingNotesProperty = AvaloniaProperty.Register<PianoKeyboard, IReadOnlyCollection<int>?>(nameof(SoundingNotes));
+
     private static readonly int[] WhiteOffsets = [0, 2, 4, 5, 7, 9, 11];
     private static readonly string[] Names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-    private int _pressed = -1;
+    /// <summary>The note each pointer holds, by pointer id.</summary>
+    private readonly Dictionary<int, int> _held = [];
 
     static PianoKeyboard()
     {
-        AffectsRender<PianoKeyboard>(LowestNoteProperty, HighestNoteProperty, MarkedNotesProperty, WhiteKeyWidthProperty);
+        AffectsRender<PianoKeyboard>(LowestNoteProperty, HighestNoteProperty, MarkedNotesProperty, WhiteKeyWidthProperty, SoundingNotesProperty);
         AffectsMeasure<PianoKeyboard>(LowestNoteProperty, HighestNoteProperty, WhiteKeyWidthProperty);
     }
 
-    /// <summary>Raised when a key is pressed.</summary>
+    /// <summary>Raised when a key is pressed, or a held pointer slides onto it.</summary>
     public event EventHandler<KeyPress>? NotePressed;
 
-    /// <summary>Raised when the key is released.</summary>
-    public event EventHandler? NoteReleased;
+    /// <summary>Raised with the note when its key is let go, or a held pointer slides off it onto another key.</summary>
+    public event EventHandler<int>? NoteReleased;
+
+    /// <inheritdoc cref="SoundingNotesProperty"/>
+    public IReadOnlyCollection<int>? SoundingNotes
+    {
+        get => GetValue(SoundingNotesProperty);
+        set => SetValue(SoundingNotesProperty, value);
+    }
 
     /// <inheritdoc cref="LowestNoteProperty"/>
     public int LowestNote
@@ -137,13 +150,15 @@ public sealed class PianoKeyboard : Control
         var outline = new Pen(new SolidColorBrush(Color.Parse("#0F172A")), 1);
         var label = new SolidColorBrush(Color.Parse("#475569"));
         var marked = new HashSet<int>(MarkedNotes ?? []);
+        var lit = new HashSet<int>(SoundingNotes ?? []);
+        lit.UnionWith(_held.Values);
 
         // White keys first, black keys on top.
         for (int i = 0; i < WhiteKeyCount; i++)
         {
             int midi = WhiteMidi(i);
             var rect = new Rect(i * w, 0, w, h);
-            context.DrawRectangle(midi == _pressed ? whitePressed : whiteFill, outline, rect, 3, 3);
+            context.DrawRectangle(lit.Contains(midi) ? whitePressed : whiteFill, outline, rect, 3, 3);
             if (marked.Contains(midi))
             {
                 context.DrawEllipse(mark, null, new Point(rect.Center.X, h - 14), 4, 4);
@@ -168,7 +183,7 @@ public sealed class PianoKeyboard : Control
 
             int black = midi + 1;
             var rect = new Rect(((i + 1) * w) - (bw / 2), 0, bw, bh);
-            context.DrawRectangle(black == _pressed ? blackPressed : blackFill, outline, rect, 2, 2);
+            context.DrawRectangle(lit.Contains(black) ? blackPressed : blackFill, outline, rect, 2, 2);
             if (marked.Contains(black))
             {
                 context.DrawEllipse(mark, null, new Point(rect.Center.X, bh - 10), 4, 4);
@@ -186,25 +201,79 @@ public sealed class PianoKeyboard : Control
             return;
         }
 
-        _pressed = midi;
-        InvalidateVisual();
-        double velocity = Math.Clamp(0.3 + (0.7 * (p.Y / Math.Max(1.0, Bounds.Height))), 0.1, 1.0);
-        NotePressed?.Invoke(this, new KeyPress(midi, Math.Round(velocity, 2)));
+        // A second mouse button pressed while one is held: the note starts again from here.
+        Release(e.Pointer.Id);
+        Press(e.Pointer.Id, midi, p);
         e.Pointer.Capture(this);
         e.Handled = true;
+
+        // A finger sliding over the keys plays them: a scroll viewer around the keyboard must not take it for a pan.
+        e.PreventGestureRecognition();
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        if (!_held.TryGetValue(e.Pointer.Id, out int note))
+        {
+            return;
+        }
+
+        e.PreventGestureRecognition();
+
+        // Off the keys the note is kept; onto another key it moves there.
+        Point p = e.GetPosition(this);
+        int midi = HitTest(p);
+        if (midi >= 0 && midi != note)
+        {
+            Release(e.Pointer.Id);
+            Press(e.Pointer.Id, midi, p);
+        }
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (_pressed >= 0)
-        {
-            _pressed = -1;
-            InvalidateVisual();
-            NoteReleased?.Invoke(this, EventArgs.Empty);
-        }
-
+        Release(e.Pointer.Id);
         e.Pointer.Capture(null);
+    }
+
+    /// <summary>A pointer taken away by something else, a window that lost the mouse: its note ends, never sticks.</summary>
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        Release(e.Pointer.Id);
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        foreach (int pointer in _held.Keys.ToArray())
+        {
+            Release(pointer);
+        }
+    }
+
+    /// <summary>Holds a note for a pointer at the velocity of the height it hit the key at: the bottom loud, the top soft.</summary>
+    private void Press(int pointer, int midi, Point p)
+    {
+        _held[pointer] = midi;
+        InvalidateVisual();
+        double velocity = Math.Clamp(0.3 + (0.7 * (p.Y / Math.Max(1.0, Bounds.Height))), 0.1, 1.0);
+        NotePressed?.Invoke(this, new KeyPress(midi, Math.Round(velocity, 2)));
+    }
+
+    /// <summary>Lets go of the note a pointer holds, if any; a note another pointer still holds goes on.</summary>
+    private void Release(int pointer)
+    {
+        if (_held.Remove(pointer, out int note))
+        {
+            InvalidateVisual();
+            if (!_held.ContainsValue(note))
+            {
+                NoteReleased?.Invoke(this, note);
+            }
+        }
     }
 
     private int WhiteMidi(int index)
