@@ -14,7 +14,8 @@ namespace HearSay.Studio;
 /// Only operators that can be heard are drawn. An operator filter is a strip at the bottom of its box, on the way
 /// out: a sketch of its response and its label. The shared noise source of a profile that has one is a box at the top
 /// left, its colour inside, with a dotted line into every operator it roughens (φ for phase, m for the elliptic
-/// parameter, with the amount) or that plays it.
+/// parameter, with the amount) or that plays it. A strip under the text of each box sketches the amplitude envelope; the
+/// pointer on a box shows everything about the operator.
 /// </summary>
 public sealed class FmDiagram : Control
 {
@@ -44,10 +45,17 @@ public sealed class FmDiagram : Control
     private static readonly Pen OutputPen = new(Muted, 1.5);
     private static readonly IBrush NoiseFill = new SolidColorBrush(Color.Parse("#26303F"));
     private static readonly Pen NoisePen = new(Muted, 1.2, new DashStyle([1.5, 3], 0));
+    private static readonly Pen EnvelopePen = new(Accent, 1.2);
+    private static readonly IBrush EnvelopeFill = new SolidColorBrush(Color.Parse("#22D3EE"), 0.15);
+
+    // Boxes of the last render, for the tooltip: operator index, or -1 for the shared noise box.
+    private readonly List<(Rect Box, int Op)> _hitBoxes = [];
+    private int _hover = int.MinValue;
 
     static FmDiagram()
     {
         AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty);
+        PatchProperty.Changed.AddClassHandler<FmDiagram>(static (d, _) => d.HideTip());
     }
 
     /// <inheritdoc cref="PatchProperty"/>
@@ -64,8 +72,51 @@ public sealed class FmDiagram : Control
         set => SetValue(SharedNoiseProperty, value);
     }
 
+    protected override void OnPointerMoved(Avalonia.Input.PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        Point at = e.GetPosition(this);
+        int hit = int.MinValue;
+        foreach ((Rect box, int op) in _hitBoxes)
+        {
+            if (box.Contains(at))
+            {
+                hit = op;
+            }
+        }
+
+        if (hit == _hover)
+        {
+            return;
+        }
+
+        HideTip();
+        _hover = hit;
+        if (hit != int.MinValue && Patch is { } patch)
+        {
+            ToolTip.SetTip(this, hit >= 0 ? PatchDescription.OperatorDetail(patch, hit) : NoiseDetail(patch.Noise));
+            ToolTip.SetIsOpen(this, true);
+        }
+    }
+
+    protected override void OnPointerExited(Avalonia.Input.PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        HideTip();
+    }
+
+    private void HideTip()
+    {
+        _hover = int.MinValue;
+        ToolTip.SetIsOpen(this, false);
+        ToolTip.SetTip(this, null);
+    }
+
     public override void Render(DrawingContext context)
     {
+        _hitBoxes.Clear();
+        // Transparent, but painted: the control then receives the pointer everywhere, for the tooltips.
+        context.FillRectangle(Brushes.Transparent, new Rect(Bounds.Size));
         OperatorMatrixPatch? patch = Patch;
         if (patch is null)
         {
@@ -133,10 +184,10 @@ public sealed class FmDiagram : Control
         double slot = usable / widest;
 
         // Wide enough gaps between neighbours for an arrow and its amount.
-        // Taller boxes when there is a filter strip to draw.
-        const double FilterH = 15;
+        // Room for the envelope strip under the text, and taller boxes when there is a filter strip to draw.
+        const double FilterH = 15, EnvelopeH = 13;
         bool anyFilter = shown.Any(i => patch.Operators[i].Filter is not null);
-        double boxW = Math.Min(96, Math.Max(56, slot - 44)), boxH = anyFilter ? 46 + FilterH : 46;
+        double boxW = Math.Min(96, Math.Max(56, slot - 44)), boxH = 46 + EnvelopeH + (anyFilter ? FilterH : 0);
         double busY = height - 28;
 
         // Room above the top row for self-feedback loops and their amounts.
@@ -341,6 +392,8 @@ public sealed class FmDiagram : Control
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
+            _hitBoxes.Add((rect, i));
+            DrawEnvelope(context, patch.Operators[i].AmplitudeEnvelope, new Rect(rect.X + 7, rect.Y + 45, boxW - 14, EnvelopeH - 3));
             // The third line: fine tuning and detune.
             OperatorPatch shownOp = patch.Operators[i];
             string tuning = DescribeTuning(shownOp);
@@ -365,6 +418,7 @@ public sealed class FmDiagram : Control
         if (noiseUsers.Count > 0)
         {
             context.DrawRectangle(NoiseFill, NoisePen, noiseBox, 6, 6);
+            _hitBoxes.Add((noiseBox, -1));
             DrawText(context, "NOISE", new Point(noiseBox.X + 7, noiseBox.Y + 2), 11, Text, FontWeight.SemiBold);
             DrawText(context, DescribeNoise(patch.Noise), new Point(noiseBox.X + 7, noiseBox.Y + 17), 10, Muted, maxWidth: noiseBox.Width - 10);
         }
@@ -510,10 +564,80 @@ public sealed class FmDiagram : Control
         }
         else if (op.Waveform != OperatorWaveform.Sine)
         {
-            frequency += " " + op.Waveform.ToString().ToLowerInvariant();
+            // Short names, so that they fit in a small box; the tooltip has them in full.
+            frequency += " " + op.Waveform switch
+            {
+                OperatorWaveform.Triangle => "tri",
+                OperatorWaveform.Square => "sqr",
+                OperatorWaveform.Pulse => "pls" + op.Shape.ToString("0.##", CultureInfo.InvariantCulture),
+                OperatorWaveform.SampleHoldNoise => "S&H",
+                OperatorWaveform.FilteredNoise => "fnoise",
+                var w => w.ToString().ToLowerInvariant(),
+            };
         }
 
         return frequency;
+    }
+
+    /// <summary>The shared noise in words, for the tooltip of its box.</summary>
+    private static string NoiseDetail(SharedNoise noise) => noise.Color == 0.0
+        ? "Shared noise: white.\nEvery operator joined to it plays it or is roughened by it."
+        : string.Create(CultureInfo.InvariantCulture, $"Shared noise: colour {noise.Color:0.##} (-1 low-passed, 1 high-passed), cutoff {noise.CutoffHz:0} Hz.\nEvery operator joined to it plays it or is roughened by it.");
+
+    /// <summary>
+    /// A sketch of an amplitude envelope in a strip: time runs on a square-root scale, so that a 5 ms attack and a 2 s
+    /// decay both show; a held level gets a flat stretch before the release.
+    /// </summary>
+    private static void DrawEnvelope(DrawingContext context, OperatorEnvelope envelope, Rect strip)
+    {
+        IReadOnlyList<EnvelopePoint> points = envelope.Points;
+        double peak = Math.Max(1e-9, points.Max(static p => Math.Abs(p.Level)));
+        var widths = new List<(double Width, double Level)>();
+        for (int i = 1; i < points.Count; i++)
+        {
+            if (i == envelope.ReleasePoint && envelope.SustainPoint is int held)
+            {
+                // The note held: a flat stretch at the sustained level.
+                widths.Add((0.6, points[held].Level));
+            }
+
+            widths.Add((Math.Sqrt(Math.Max(0.0, points[i].TimeSeconds)) + 0.02, points[i].Level));
+        }
+
+        double total = widths.Sum(static w => w.Width);
+        double Y(double level) => strip.Bottom - (Math.Abs(level) / peak * strip.Height);
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext g = geometry.Open())
+        {
+            double x = strip.X;
+            g.BeginFigure(new Point(x, strip.Bottom), true);
+            g.LineTo(new Point(x, Y(points[0].Level)));
+            foreach ((double width, double level) in widths)
+            {
+                x += width / total * strip.Width;
+                g.LineTo(new Point(x, Y(level)));
+            }
+
+            g.LineTo(new Point(x, strip.Bottom));
+            g.EndFigure(true);
+        }
+
+        context.DrawGeometry(EnvelopeFill, null, geometry);
+        var line = new StreamGeometry();
+        using (StreamGeometryContext g = line.Open())
+        {
+            double x = strip.X;
+            g.BeginFigure(new Point(x, Y(points[0].Level)), false);
+            foreach ((double width, double level) in widths)
+            {
+                x += width / total * strip.Width;
+                g.LineTo(new Point(x, Y(level)));
+            }
+
+            g.EndFigure(false);
+        }
+
+        context.DrawGeometry(null, EnvelopePen, line);
     }
 
     /// <summary>

@@ -62,6 +62,132 @@ public static class PatchDescription
         return string.Create(CultureInfo.InvariantCulture, $"filter {text}, Q {filter.Q:0.##}{sweep}");
     }
 
+    /// <summary>
+    /// Everything about one operator, a line per aspect, for the tooltip of its box in the block diagram: carrier or
+    /// modulator, frequency and tuning, waveform with its parameters, filter, shared noise, amplitude envelope, and how
+    /// it plays (velocity, key scaling, start phase). Lines with nothing to say are left out.
+    /// </summary>
+    /// <param name="patch">Patch.</param>
+    /// <param name="index">Zero-based operator index.</param>
+    public static string OperatorDetail(OperatorMatrixPatch patch, int index)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        OperatorPatch op = patch.Operators[index];
+        var lines = new List<string>
+        {
+            patch.OutputLevels[index] != 0.0
+                ? string.Create(CultureInfo.InvariantCulture, $"OP{index + 1} · carrier, output {patch.OutputLevels[index]:0.###}")
+                : $"OP{index + 1} · modulator",
+        };
+
+        var tuning = new List<string>
+        {
+            op.Frequency.Mode == OperatorFrequencyMode.Ratio
+                ? string.Create(CultureInfo.InvariantCulture, $"ratio ×{op.Frequency.Ratio:0.###}")
+                : string.Create(CultureInfo.InvariantCulture, $"fixed {op.Frequency.FixedFrequencyHz:0.#} Hz"),
+        };
+        if (op.FineTuneCents != 0.0)
+        {
+            tuning.Add(string.Create(CultureInfo.InvariantCulture, $"fine {op.FineTuneCents:0.#} ct"));
+        }
+
+        if (op.DetuneHz != 0.0)
+        {
+            tuning.Add(string.Create(CultureInfo.InvariantCulture, $"detune {op.DetuneHz:0.##} Hz"));
+        }
+
+        lines.Add(string.Join(", ", tuning));
+        string shape = op.Waveform switch
+        {
+            OperatorWaveform.Pulse => string.Create(CultureInfo.InvariantCulture, $", duty {op.Shape:0.###}"),
+            OperatorWaveform.FilteredNoise => string.Create(CultureInfo.InvariantCulture, $", response {op.Shape:0.###} (0 low-pass, 1 high-pass)"),
+            OperatorWaveform.Elliptic => string.Create(CultureInfo.InvariantCulture, $", m {op.Shape:0.######} (q {Synthesis.Oscillators.JacobiNome.FromParameter(op.Shape):0.###}), morph {op.Morph:0.##}"),
+            _ => string.Empty,
+        };
+        lines.Add(WaveformName(op.Waveform) + shape);
+        if (op.Filter is { } filter)
+        {
+            lines.Add(FilterDetail(filter));
+        }
+
+        var noise = new List<string>();
+        if (op.NoisePhase != 0.0 && op.Waveform != OperatorWaveform.Noise)
+        {
+            noise.Add(string.Create(CultureInfo.InvariantCulture, $"phase {op.NoisePhase:0.###} rad"));
+        }
+
+        if (op.NoiseM != 0.0 && op.Waveform == OperatorWaveform.Elliptic)
+        {
+            noise.Add(string.Create(CultureInfo.InvariantCulture, $"m {op.NoiseM:0.###}"));
+        }
+
+        if (noise.Count > 0)
+        {
+            lines.Add("shared noise: " + string.Join(", ", noise));
+        }
+
+        lines.Add("envelope " + EnvelopeText(op.AmplitudeEnvelope));
+        var playing = new List<string>();
+        if (op.VelocitySensitivity != 0.0)
+        {
+            playing.Add(string.Create(CultureInfo.InvariantCulture, $"velocity {op.VelocitySensitivity:0.##}"));
+        }
+
+        if (op.KeyScaling.LevelDbPerOctave != 0.0 || op.KeyScaling.RatePerOctave != 0.0)
+        {
+            playing.Add(string.Create(CultureInfo.InvariantCulture, $"key scaling {op.KeyScaling.LevelDbPerOctave:0.##} dB/oct, rate {op.KeyScaling.RatePerOctave:0.##}/oct"));
+        }
+
+        if (op.InitialPhase != 0.0)
+        {
+            playing.Add(string.Create(CultureInfo.InvariantCulture, $"start phase {op.InitialPhase:0.##} rad"));
+        }
+
+        if (playing.Count > 0)
+        {
+            lines.Add(string.Join(", ", playing));
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>A waveform in words: <c>sine</c>, <c>sample-and-hold noise</c>, …</summary>
+    /// <param name="waveform">Waveform.</param>
+    public static string WaveformName(OperatorWaveform waveform) => waveform switch
+    {
+        OperatorWaveform.SampleHoldNoise => "sample-and-hold noise",
+        OperatorWaveform.FilteredNoise => "filtered noise",
+        _ => waveform.ToString().ToLowerInvariant(),
+    };
+
+    /// <summary>The breakpoints of an envelope: <c>0 → 1 in 5 ms → 0.5 in 200 ms, held; release → 0 in 100 ms</c>.</summary>
+    /// <param name="envelope">Envelope.</param>
+    public static string EnvelopeText(OperatorEnvelope envelope)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        var text = new System.Text.StringBuilder(string.Create(CultureInfo.InvariantCulture, $"{envelope.Points[0].Level:0.##}"));
+        for (int i = 1; i < envelope.Points.Count; i++)
+        {
+            EnvelopePoint point = envelope.Points[i];
+            if (i == envelope.ReleasePoint)
+            {
+                text.Append("; release");
+            }
+
+            double seconds = point.TimeSeconds;
+            string time = seconds < 1.0
+                ? string.Create(CultureInfo.InvariantCulture, $"{seconds * 1000:0} ms")
+                : string.Create(CultureInfo.InvariantCulture, $"{seconds:0.##} s");
+            text.Append(CultureInfo.InvariantCulture, $" → {point.Level:0.##} in {time}");
+            if (i == envelope.SustainPoint)
+            {
+                text.Append(", held");
+            }
+        }
+
+        return text.ToString();
+    }
+
     /// <summary>Audible operators and the modulation matrix as text.</summary>
     /// <param name="patch">Patch to describe.</param>
     public static string Routing(OperatorMatrixPatch patch)

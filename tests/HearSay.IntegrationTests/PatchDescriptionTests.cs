@@ -18,4 +18,54 @@ public sealed class PatchDescriptionTests
         OperatorPatch op = OperatorPatch.Sine(OperatorFrequency.AtRatio(1)) with { Waveform = OperatorWaveform.Saw, Filter = OperatorFilter.BandPass(3, 6) };
         Assert.Contains("filter band-pass, centre 3x, Q 6", PatchDescription.WaveformDetail(op), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void OperatorDetail_OfACarrier_TellsItsTuningWaveformFilterEnvelopeAndPlaying()
+    {
+        OperatorPatch op = OperatorPatch.Sine(OperatorFrequency.AtRatio(1.41), OperatorEnvelope.Adsr(0.005, 0.2, 0.5, 0.1)) with
+        {
+            Waveform = OperatorWaveform.Pulse,
+            Shape = 0.1,
+            FineTuneCents = -3.7,
+            DetuneHz = 0.12,
+            VelocitySensitivity = 0.42,
+            KeyScaling = new KeyScaling(-1.5, 0.2),
+            Filter = OperatorFilter.LowPass(4, poles: 4),
+        };
+        OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(6).WithOperator(2, op).WithOutputLevel(2, 0.81);
+
+        Assert.Equal(
+            "OP3 · carrier, output 0.81\n"
+            + "ratio ×1.41, fine -3.7 ct, detune 0.12 Hz\n"
+            + "pulse, duty 0.1\n"
+            + "filter low-pass 4 poles, cutoff 4x, Q 0.71\n"
+            + "envelope 0 → 1 in 5 ms → 0.5 in 200 ms, held; release → 0 in 100 ms\n"
+            + "velocity 0.42, key scaling -1.5 dB/oct, rate 0.2/oct",
+            PatchDescription.OperatorDetail(patch, 2));
+    }
+
+    [Fact]
+    public void OperatorDetail_OfAModulator_TellsItsNoiseAndStartPhase_AndLeavesOutWhatItDoesNotUse()
+    {
+        OperatorPatch op = OperatorPatch.Sine(OperatorFrequency.AtFixed(440)) with
+        {
+            Waveform = OperatorWaveform.Elliptic,
+            Shape = 0.99,
+            Morph = 0.3,
+            NoisePhase = 0.4,
+            NoiseM = -0.2,
+            InitialPhase = 0.5,
+        };
+        OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(6).WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1))).WithOutputLevel(0, 1)
+            .WithOperator(1, op).WithEdge(new ModulationEdge(1, 0, true, 2));
+
+        Assert.Equal(
+            "OP2 · modulator\n"
+            + "fixed 440 Hz\n"
+            + "elliptic, m 0.99 (q 0.262), morph 0.3\n"
+            + "shared noise: phase 0.4 rad, m -0.2\n"
+            + "envelope 0 → 1 in 5 ms, held; release → 0 in 5 ms\n"
+            + "start phase 0.5 rad",
+            PatchDescription.OperatorDetail(patch, 1));
+    }
 }
