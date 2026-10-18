@@ -262,7 +262,7 @@
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="play the result" Classes="muted" FontSize="10" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="2" Text="lower on a key = louder · amber dots = target notes" Classes="muted" FontSize="9" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="hold a key to sustain · lower on a key = louder · amber dots = target notes" Classes="muted" FontSize="9" TextTrimming="None" VerticalAlignment="Center" />
                   </Grid>
                   <!-- The Fluent scrollbar is an overlay; the margin under the keys gives it a strip of its own, and it is always shown there. -->
                   <ScrollViewer x:Name="KeyboardScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled" AllowAutoHide="False" LayoutUpdated="OnKeyboardLayoutUpdated">

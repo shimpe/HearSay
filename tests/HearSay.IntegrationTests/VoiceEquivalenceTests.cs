@@ -177,6 +177,10 @@ public sealed class VoiceEquivalenceTests(ITestOutputHelper output)
 
         return new Dictionary<string, OperatorMatrixPatch>
         {
+            // A percussive envelope: no sustain point, so the release changes nothing.
+            ["one-shot-elliptic"] = OperatorMatrixPatch.Silent(6)
+                .WithOperator(0, Elliptic(1, 0.99, 0.25, new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(0.005, 1), new EnvelopePoint(0.4, 0)], SustainPoint: null, ReleasePoint: 3)))
+                .WithOutputLevel(0, 0.8),
             ["elliptic-stack"] = OperatorMatrixPatch.Silent(6)
                 .WithOperator(0, Elliptic(1, 0.99, 0.25, adsr))
                 .WithOperator(1, Elliptic(2, 0.9999, 1.0, OperatorEnvelope.Adsr(0.02, 0.3, 0.3, 0.4)))
@@ -217,6 +221,10 @@ public sealed class VoiceEquivalenceTests(ITestOutputHelper output)
         return new Dictionary<string, OperatorMatrixPatch>
         {
             ["saw-filter-sweep-up"] = Sweep(3),
+            // A percussive envelope: no sustain point, so the release changes nothing.
+            ["one-shot-saw"] = OperatorMatrixPatch.Silent(6)
+                .WithOperator(0, Wave(OperatorWaveform.Saw, 1, new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(0.005, 1), new EnvelopePoint(0.4, 0)], SustainPoint: null, ReleasePoint: 3)))
+                .WithOutputLevel(0, 0.8),
             ["saw-filter-sweep-down"] = Sweep(-3),
             ["pulse-edge-amount-envelope"] = OperatorMatrixPatch.Silent(6)
                 .WithOperator(0, Wave(OperatorWaveform.Sine, 1, adsr))

@@ -267,6 +267,38 @@ public sealed class VoiceMixerTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Tapped_OneShotWithASilentGap_RunsItsCourse()
+    {
+        // A click, then a carrier that starts at 0.3 s: the 290 ms of silence between them is part of the envelope.
+        OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(
+                OperatorFrequency.AtRatio(1),
+                new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(0.002, 1), new EnvelopePoint(0.01, 0)], SustainPoint: null, ReleasePoint: 3)))
+            .WithOperator(1, OperatorPatch.Sine(
+                OperatorFrequency.AtRatio(2),
+                new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(0.3, 0), new EnvelopePoint(0.305, 1), new EnvelopePoint(0.5, 0)], SustainPoint: null, ReleasePoint: 4)))
+            .WithOutputLevel(0, 0.8)
+            .WithOutputLevel(1, 0.8);
+        Sound sound = SoundOf(patch);
+        Assert.Null(PatchLifetime.SecondsAfterGateOff(sound.Patch));
+        var mixer = new VoiceMixer();
+        await mixer.PrepareAsync(sound);
+        mixer.NoteOn(60, 0.8, sound, Midi);
+
+        // The key goes up after 10 ms, as in a tap; a percussive envelope runs its course whatever the key does.
+        float[] mix = Render(mixer, Hold * 2);
+        mixer.NoteOff(60, Midi);
+        mix = [.. mix, .. Render(mixer, Samples(0.7) - (Hold * 2))];
+        float[] alone = Alone(sound, 60, 0.8, mix.Length, releaseAt: Hold * 2);
+        float[] afterGap = alone.AsSpan(Samples(0.3)).ToArray();
+        output.WriteLine($"Peak after the gap: voice {Peak(afterGap)}, mixer {Peak(mix.AsSpan(Samples(0.3)).ToArray())}.");
+        Assert.True(Peak(afterGap) > 0.05f);
+        AssertMix(mix, 0, alone);
+        Render(mixer, Rate);
+        Assert.Equal(0, mixer.ActiveVoices);
+    }
+
+    [Fact]
     public async Task Sustaining_HoldsUntilNoteOff()
     {
         Sound sound = SoundOf(Sustaining());

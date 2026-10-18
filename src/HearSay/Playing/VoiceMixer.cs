@@ -479,9 +479,10 @@ public sealed class VoiceMixer
 
                 voice.Ended = voice.FadeLeft == 0;
             }
-            else if (voice.HasSounded && voice.SilentRun >= _silenceSamples && (voice.Released || position >= voice.Sound.SilentFrom))
+            else if (voice.HasSounded && voice.SilentRun >= _silenceSamples && ((voice.Released && voice.Sound.SamplesAfterGateOff is not null) || position >= voice.Sound.SilentFrom))
             {
-                // Silent long enough after the note-off or after a one-shot envelope; a silent start does not count.
+                // Silent long enough after the note-off of a sustaining sound or after the envelope of a one-shot one (which runs its
+                // course whatever the key does); a silent start does not count.
                 voice.Ended = true;
             }
 

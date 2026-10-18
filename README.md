@@ -21,7 +21,7 @@ synth parameters → synth render → candidate audio → HearSay comparison →
   Silk.NET.OpenAL with OpenAL Soft (audio output) and OwnAudioSharp.Midi (MIDI input).
 * .NET 10, nullable reference types, XML documentation on every public API, warnings as errors.
 * Deterministic: the same input and configuration always give the same output.
-* Thread-safe core: all caches are immutable after initialization.
+* Thread-safe core: the caches are immutable after initialization; the only mutable state is the live voice mixer's gain cache (behind a lock) and its render-crew threads.
 
 <img src="docs/images/hearsay-logo.png" alt="HearSay: six operators on a ring, joined by the chords of a modulation matrix, with a wave through them" width="96" align="right" />
 
