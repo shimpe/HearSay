@@ -9,12 +9,8 @@ public sealed class MidiNoteDecoderTests
     public void Decode_NoteOn_NoteOff_AndZeroVelocity()
     {
         Assert.Equal(new NoteEvent(true, 60, 100 / 127.0), MidiNoteDecoder.Decode(0x90, 60, 100));
-        Assert.Equal(new NoteEvent(false, 60, 64 / 127.0).IsOn, MidiNoteDecoder.Decode(0x80, 60, 64)!.Value.IsOn);
-        Assert.Equal(60, MidiNoteDecoder.Decode(0x80, 60, 64)!.Value.Note);
-
-        NoteEvent zero = MidiNoteDecoder.Decode(0x93, 60, 0)!.Value;
-        Assert.False(zero.IsOn);
-        Assert.Equal(60, zero.Note);
+        Assert.Equal(new NoteEvent(false, 60, 64 / 127.0), MidiNoteDecoder.Decode(0x80, 60, 64));
+        Assert.Equal(new NoteEvent(false, 60, 0.0), MidiNoteDecoder.Decode(0x93, 60, 0));
 
         NoteEvent high = MidiNoteDecoder.Decode(0x9E, 72, 127)!.Value;
         Assert.True(high.IsOn);

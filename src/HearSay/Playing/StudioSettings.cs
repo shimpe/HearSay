@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace HearSay.Playing;
 
 /// <summary>The settings the Studio remembers between runs, kept in <c>%LOCALAPPDATA%\HearSay\studio-settings.json</c>.</summary>
@@ -14,7 +16,8 @@ public sealed record StudioSettings(string? MidiInput)
     {
         try
         {
-            return HearSayJson.Deserialize<StudioSettings>(File.ReadAllText(path ?? DefaultPath));
+            return JsonSerializer.Deserialize<StudioSettings>(File.ReadAllText(path ?? DefaultPath), HearSayJson.Options)
+                ?? new StudioSettings((string?)null);
         }
         catch (Exception)
         {

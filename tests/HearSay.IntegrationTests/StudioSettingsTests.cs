@@ -34,6 +34,8 @@ public sealed class StudioSettingsTests
         try
         {
             Assert.Null(StudioSettings.Load(path).MidiInput);
+            File.WriteAllText(path, "null");
+            Assert.Null(StudioSettings.Load(path).MidiInput);
         }
         finally
         {
