@@ -1,12 +1,15 @@
+using System.Diagnostics;
 using HearSay.Synthesis.Fmx6Compatible.Rendering;
 using HearSay.Synthesis.Fm7Compatible.Rendering;
+using HearSay.Synthesis.Nome6Compatible.Rendering;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Rendering;
+using Xunit.Abstractions;
 
 namespace HearSay.IntegrationTests;
 
 /// <summary>A voice held for a while and then released plays exactly the offline note of that duration.</summary>
-public sealed class VoiceEquivalenceTests
+public sealed class VoiceEquivalenceTests(ITestOutputHelper output)
 {
     private const int BlockSize = 64;
     private const int SampleRate = 48000;
@@ -79,13 +82,122 @@ public sealed class VoiceEquivalenceTests
         AssertSameAsOffline(new Fmx6CompatibleOperatorMatrixRenderer(), Fmx6Patches[name], heldBlocks);
 
     [Theory]
-    [InlineData("electric-piano", true)]
-    [InlineData("saw-filter-sweep-up", false)]
-    [InlineData("filtered-noise", false)]
-    public void Voice_ReleasedInTheMiddleOfAControlBlock_IsTheOfflineNote(string name, bool fm7)
+    [InlineData("fm7", "electric-piano")]
+    [InlineData("fmx6", "saw-filter-sweep-up")]
+    [InlineData("fmx6", "filtered-noise")]
+    [InlineData("nome6", "rough-elliptic-coloured-noise")]
+    public void Voice_ReleasedInTheMiddleOfAControlBlock_IsTheOfflineNote(string backend, string name)
     {
-        IOperatorMatrixRenderer renderer = fm7 ? new Fm7CompatibleOperatorMatrixRenderer() : new Fmx6CompatibleOperatorMatrixRenderer();
-        AssertSameAsOffline(renderer, fm7 ? Fm7Patches[name] : Fmx6Patches[name], heldBlocks: 20, releaseEarlySamples: 10);
+        (IOperatorMatrixRenderer renderer, OperatorMatrixPatch patch) = backend switch
+        {
+            "fm7" => ((IOperatorMatrixRenderer)new Fm7CompatibleOperatorMatrixRenderer(), Fm7Patches[name]),
+            "fmx6" => (new Fmx6CompatibleOperatorMatrixRenderer(), Fmx6Patches[name]),
+            _ => (new Nome6CompatibleOperatorMatrixRenderer(), Nome6Patches[name]),
+        };
+        AssertSameAsOffline(renderer, patch, heldBlocks: 20, releaseEarlySamples: 10);
+    }
+
+    private static readonly Dictionary<string, OperatorMatrixPatch> Nome6Patches = BuildNome6Patches();
+
+    public static TheoryData<string, int> Nome6Cases
+    {
+        get
+        {
+            var data = new TheoryData<string, int>();
+            foreach (string name in Nome6Patches.Keys)
+            {
+                foreach (int heldBlocks in new[] { 0, 20, 300 })
+                {
+                    data.Add(name, heldBlocks);
+                }
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Nome6Cases))]
+    public void Nome6Voice_HeldThenReleased_IsTheOfflineNote(string name, int heldBlocks) =>
+        AssertSameAsOffline(new Nome6CompatibleOperatorMatrixRenderer(), Nome6Patches[name], heldBlocks);
+
+    /// <summary>For the record, not a limit: how long one second of a six-operator Nome6 voice takes to render.</summary>
+    [Fact]
+    public void Nome6Voice_SixOperators_TimesOneSecond()
+    {
+        // A stack of six elliptic operators, every one roughened in phase and in m: the dearest path of the kernel.
+        OperatorEnvelope adsr = OperatorEnvelope.Adsr(0.01, 0.3, 0.6, 0.4);
+        OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(6) with { Noise = new SharedNoise(-0.4, 2000) };
+        for (int k = 0; k < 6; k++)
+        {
+            patch = patch.WithOperator(k, OperatorPatch.Sine(OperatorFrequency.AtRatio(k + 1), adsr) with
+            {
+                Waveform = OperatorWaveform.Elliptic,
+                Shape = 0.99,
+                Morph = 0.2 * (k % 3),
+                NoisePhase = 0.1,
+                NoiseM = 0.05,
+            });
+            if (k > 0)
+            {
+                patch = patch.WithEdge(new ModulationEdge(k, k - 1, true, 0.8));
+            }
+        }
+
+        patch = patch.WithOutputLevel(0, 0.8);
+        IVoiceRenderer renderer = Assert.IsAssignableFrom<IVoiceRenderer>(new Nome6CompatibleOperatorMatrixRenderer());
+        var request = new VoiceRequest(220.0, 57, 0.8, SampleRate);
+        var block = new float[BlockSize];
+
+        // Warm up the JIT on a voice of its own.
+        IOperatorMatrixVoice warmUp = renderer.StartVoice(patch, request);
+        for (int i = 0; i < SampleRate / BlockSize / 10; i++)
+        {
+            warmUp.Render(block);
+        }
+
+        IOperatorMatrixVoice voice = renderer.StartVoice(patch, request);
+        var second = new float[SampleRate];
+        var watch = Stopwatch.StartNew();
+        for (int position = 0; position < second.Length; position += BlockSize)
+        {
+            voice.Render(second.AsSpan(position, BlockSize));
+        }
+
+        watch.Stop();
+        output.WriteLine($"One second of a six-operator Nome6 voice at {SampleRate} Hz: {watch.Elapsed.TotalMilliseconds:F1} ms.");
+        Assert.Contains(second, static s => s != 0f);
+    }
+
+    private static Dictionary<string, OperatorMatrixPatch> BuildNome6Patches()
+    {
+        OperatorEnvelope adsr = OperatorEnvelope.Adsr(0.01, 0.2, 0.5, 0.3);
+        OperatorPatch Elliptic(double ratio, double m, double morph, OperatorEnvelope envelope) =>
+            OperatorPatch.Sine(OperatorFrequency.AtRatio(ratio), envelope) with { Waveform = OperatorWaveform.Elliptic, Shape = m, Morph = morph };
+
+        return new Dictionary<string, OperatorMatrixPatch>
+        {
+            ["elliptic-stack"] = OperatorMatrixPatch.Silent(6)
+                .WithOperator(0, Elliptic(1, 0.99, 0.25, adsr))
+                .WithOperator(1, Elliptic(2, 0.9999, 1.0, OperatorEnvelope.Adsr(0.02, 0.3, 0.3, 0.4)))
+                .WithOperator(2, Elliptic(3.5, 0.9, 0.0, adsr))
+                .WithOutputLevel(0, 0.8)
+                .WithEdge(new ModulationEdge(1, 0, true, 1.2))
+                .WithEdge(new ModulationEdge(2, 1, true, 0.7)),
+            ["rough-elliptic-coloured-noise"] = OperatorMatrixPatch.Silent(6)
+                .WithOperator(0, Elliptic(1, 0.99, 0.5, adsr) with { NoisePhase = 0.4, NoiseM = -0.2 })
+                .WithOperator(1, Elliptic(2, 0.95, 0.0, adsr) with { NoiseM = 0.15 })
+                .WithOutputLevel(0, 0.8)
+                .WithEdge(new ModulationEdge(1, 0, true, 0.6))
+                with { Noise = new SharedNoise(-0.6, 600) },
+            ["noise-operator"] = OperatorMatrixPatch.Silent(6)
+                .WithOperator(0, Elliptic(1, 0.99, 0.0, adsr))
+                .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtFixed(90), OperatorEnvelope.Adsr(0.005, 0.1, 0.2, 0.2)) with { Waveform = OperatorWaveform.Noise })
+                .WithOutputLevel(0, 0.6)
+                .WithOutputLevel(1, 0.3)
+                .WithEdge(new ModulationEdge(1, 0, true, 0.5))
+                with { Noise = new SharedNoise(0.3, 3000) },
+        };
     }
 
     private static Dictionary<string, OperatorMatrixPatch> BuildFmx6Patches()
