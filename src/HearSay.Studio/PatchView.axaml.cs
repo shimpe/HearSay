@@ -7,7 +7,7 @@ namespace HearSay.Studio;
 
 /// <summary>
 /// A patch as SuperCollider code and as a block diagram, in two tabs, with the toolbar of its editing (undo, redo,
-/// Original ⇄ Edited); used by the Search and Library tabs.
+/// Original ⇄ Edited) and, beside the diagram, the inspector of the part selected; used by the Search and Library tabs.
 /// </summary>
 public sealed partial class PatchView : UserControl
 {

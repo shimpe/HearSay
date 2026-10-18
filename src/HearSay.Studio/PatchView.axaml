@@ -28,9 +28,15 @@
         <TextBox Classes="mono" Text="{Binding Code, ElementName=Root}" Watermark="{Binding Watermark, ElementName=Root}" />
       </TabItem>
       <TabItem Header="Block diagram" FontSize="13">
-        <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-          <local:FmDiagram Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" Margin="8" />
-        </Border>
+        <!-- The inspector of the selected part beside the diagram, while something is selected -->
+        <Grid ColumnDefinitions="*,Auto">
+          <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+            <local:FmDiagram Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" Margin="8" />
+          </Border>
+          <local:PatchInspector x:Name="Inspector" Grid.Column="1" Width="272" Margin="8,0,0,0"
+                                DataContext="{Binding Editor, ElementName=Root}"
+                                IsVisible="{Binding Editor.Selected, ElementName=Root, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+        </Grid>
       </TabItem>
     </TabControl>
     <!-- Editing, on the right of the tab strip: undo, redo, and once edited the switch to compare with the original -->

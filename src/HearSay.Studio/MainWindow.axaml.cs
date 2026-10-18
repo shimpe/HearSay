@@ -13,6 +13,9 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Icon = new WindowIcon(new MemoryStream(HearSayLogo.RenderPng(256)));
+
+        // Before the focused control: a read-only text box, such as the code view, would take Ctrl+Z for itself.
+        AddHandler(KeyDownEvent, OnUndoKeys, RoutingStrategies.Tunnel);
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext!;
@@ -48,13 +51,14 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Ctrl+Z undoes the last edit of the visible tab's sound, Ctrl+Y and Ctrl+Shift+Z redo it (Cmd on macOS). A text box
-    /// that can be typed in keeps them for its own text.
+    /// Ctrl+Z undoes the last edit of the visible tab's sound, Ctrl+Y and Ctrl+Shift+Z redo it (Cmd on macOS), wherever
+    /// the focus is. A text box that can be typed in keeps them for its own text; a number box of the inspector only
+    /// while it holds typed text.
     /// </summary>
-    protected override void OnKeyDown(KeyEventArgs e)
+    private void OnUndoKeys(object? sender, KeyEventArgs e)
     {
-        base.OnKeyDown(e);
-        if (e.Handled || DataContext is not MainViewModel viewModel || FocusManager?.GetFocusedElement() is TextBox { IsReadOnly: false })
+        if (e.Handled || DataContext is not MainViewModel viewModel
+            || FocusManager?.GetFocusedElement() is TextBox { IsReadOnly: false } box && box is not NumberBox { IsEditing: false })
         {
             return;
         }

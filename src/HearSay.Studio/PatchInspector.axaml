@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="HearSay.Studio.PatchInspector">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+      <Setter Property="Margin" Value="0,6,0,0" />
+    </Style>
+    <Style Selector="TextBlock.row">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.drag">
+      <Setter Property="Cursor" Value="SizeWestEast" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MinHeight" Value="24" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBox:not(:focus)">
+      <Setter Property="Cursor" Value="SizeWestEast" />
+    </Style>
+    <Style Selector="ComboBox, Button, CheckBox">
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="ComboBox">
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Padding" Value="8,2" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Padding" Value="8,3" />
+    </Style>
+    <Style Selector="CheckBox">
+      <Setter Property="MinHeight" Value="24" />
+    </Style>
+  </UserControl.Styles>
+  <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="10,8,4,8">
+    <DockPanel>
+      <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,6,2">
+        <TextBlock x:Name="Title" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Content="×" FontSize="13" Padding="7,0" Background="Transparent" Click="OnClose" ToolTip.Tip="Close the inspector" />
+      </Grid>
+      <TextBlock x:Name="Subtitle" DockPanel.Dock="Top" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,6,4" />
+      <ScrollViewer x:Name="Scroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel x:Name="Body" Spacing="4" Margin="0,0,10,0" />
+      </ScrollViewer>
+    </DockPanel>
+  </Border>
+</UserControl>
