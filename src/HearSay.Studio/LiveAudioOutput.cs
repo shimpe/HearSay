@@ -21,15 +21,18 @@ namespace HearSay.Studio;
 /// one ran.
 /// </para>
 /// <para>
-/// When a buffer was not ready in time (the source ran dry and stopped, or fewer than <see cref="MinimumQueued"/>
-/// buffers were left queued), it drops the oldest voice (<see cref="VoiceMixer.Shed"/>), counts an underrun, refills
-/// the queue and restarts the source: a search running on every core keeps its full speed, and the notes may stutter
-/// then. The thread never throws: after an error it stops the source and starts again with the next note.
+/// Only a real underrun, the source having run dry and stopped while voices were fed, drops the oldest voice
+/// (<see cref="VoiceMixer.Shed"/>), counts in <see cref="Underruns"/>, and restarts the source after refilling it; a
+/// queue that is merely short is refilled at once. A search running on every core keeps its full speed, and the notes
+/// may stutter then. The thread never throws: an error is counted in <see cref="Errors"/>, and the thread stops the
+/// source and starts again with the next note.
 /// </para>
 /// <para>
-/// The device adds its own buffering: OpenAL Soft mixes in updates of the period_size in alsoft.ini next to the program
+/// The device adds its own buffering: OpenAL Soft mixes in updates of the period_size in the shipped alsoft.ini
 /// (256 samples asked for; Windows mixes every 10 ms in shared mode, and OpenAL Soft keeps 22 ms there), and without that
-/// file in updates of 960 samples, nearly the whole queue, so that the source keeps running dry.
+/// file in updates of 960 samples, nearly the whole queue, so that the source keeps running dry. <see cref="Warning"/>
+/// says so when the device mixes more than <see cref="LongestDeviceUpdate"/> samples at a time, or when the first second
+/// of live notes runs dry <see cref="StormUnderruns"/> times or more.
 /// </para>
 /// <para>Dispose it before the <see cref="AudioPlayer"/>, whose context it plays in.</para>
 /// </remarks>
@@ -44,8 +47,14 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     /// <summary>Buffers queued on the source.</summary>
     public const int BufferCount = 4;
 
-    /// <summary>Buffers that must still be queued when the thread looks; fewer means it fell behind.</summary>
-    private const int MinimumQueued = 2;
+    /// <summary>Longest device update the queue copes with: half of it, so that a refill fits between two updates.</summary>
+    private const int LongestDeviceUpdate = BufferCount * BufferSamples / 2;
+
+    /// <summary>Buffers in the first second of live notes, within which <see cref="StormUnderruns"/> raises <see cref="Warning"/>.</summary>
+    private const int FirstSecondBuffers = SampleRate / BufferSamples;
+
+    /// <summary>Underruns within the first second of live notes that mean the device does not suit the queue.</summary>
+    private const int StormUnderruns = 5;
 
     /// <summary>AL_SEC_OFFSET_LATENCY_SOFT: the playing offset and the device latency, in seconds, as two doubles.</summary>
     private const int SecondOffsetLatency = 0x1201;
@@ -72,8 +81,14 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     private volatile bool _stopping;
     private double _latencySeconds = BufferCount * BufferSamples / (double)SampleRate;
     private int _underruns;
+    private int _errors;
     private long _longestRenderTicks;
+    private volatile string? _warning;
     private int _disposed;
+
+    // Owned by the feeding thread: buffers queued and underruns, both counted up to the end of the first second.
+    private int _firstSecondBuffers;
+    private int _firstSecondUnderruns;
 
     /// <summary>
     /// Creates the streaming source on the device of a player and starts the thread that feeds it. Without an audio
@@ -122,6 +137,11 @@ public sealed unsafe class LiveAudioOutput : IDisposable
             _free.Push(buffer);
         }
 
+        if (device.DeviceUpdateSamples > LongestDeviceUpdate)
+        {
+            _warning = $"The audio device mixes {device.DeviceUpdateSamples} samples at a time, too many for the live notes, which will stutter: OpenAL Soft did not take the settings shipped in alsoft.ini.";
+        }
+
         IsAvailable = true;
         _mixer.SoundingNotesChanged += _onSoundingNotesChanged;
         _thread = new Thread(Run)
@@ -145,16 +165,31 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     /// </summary>
     public double MeasuredLatencyMilliseconds => 1000 * Volatile.Read(ref _latencySeconds);
 
-    /// <summary>Number of times a buffer was not ready in time and a voice was dropped, since <see cref="ResetStatistics"/>.</summary>
+    /// <summary>
+    /// Number of times the source ran dry while voices were fed and a voice was dropped, since
+    /// <see cref="ResetStatistics"/>.
+    /// </summary>
     public int Underruns => Volatile.Read(ref _underruns);
+
+    /// <summary>Number of errors the feeding thread caught and recovered from, since <see cref="ResetStatistics"/>.</summary>
+    public int Errors => Volatile.Read(ref _errors);
 
     /// <summary>Longest time the mixer took to render one buffer, in milliseconds, since <see cref="ResetStatistics"/>.</summary>
     public double LongestRenderMilliseconds => Volatile.Read(ref _longestRenderTicks) * 1000.0 / Stopwatch.Frequency;
 
-    /// <summary>Sets <see cref="Underruns"/> and <see cref="LongestRenderMilliseconds"/> back to zero.</summary>
+    /// <summary>
+    /// Why the live notes will stutter, for the status line; null while nothing is known to be wrong. Set when the
+    /// output is created, if the device mixes more than half the queue at a time (OpenAL Soft did not read the shipped
+    /// alsoft.ini), or during the first second of live notes, if the source runs dry 5 times or more in it. Once set it
+    /// stays.
+    /// </summary>
+    public string? Warning => _warning;
+
+    /// <summary>Sets <see cref="Underruns"/>, <see cref="Errors"/> and <see cref="LongestRenderMilliseconds"/> back to zero.</summary>
     public void ResetStatistics()
     {
         Interlocked.Exchange(ref _underruns, 0);
+        Interlocked.Exchange(ref _errors, 0);
         Interlocked.Exchange(ref _longestRenderTicks, 0);
     }
 
@@ -220,6 +255,7 @@ public sealed unsafe class LiveAudioOutput : IDisposable
             catch (Exception)
             {
                 // The audio thread must survive whatever goes wrong; it starts again with the next note.
+                Interlocked.Increment(ref _errors);
                 Rewind();
                 Thread.Sleep(10);
             }
@@ -244,10 +280,13 @@ public sealed unsafe class LiveAudioOutput : IDisposable
         while (!_stopping)
         {
             pacer.Wait();
-            Reclaim(al);
-            int queued = BufferCount - _free.Count;
+
+            // The state before reclaiming: a source seen stopped has played every buffer, and all of them are reclaimed
+            // below, so that a restart cannot play one again.
             al.GetSourceProperty(_source, GetSourceInteger.SourceState, out int state);
             bool playing = state == (int)SourceState.Playing;
+            Reclaim(al);
+            int queued = BufferCount - _free.Count;
             if (_mixer.ActiveVoices == 0)
             {
                 if (queued == 0 && !playing)
@@ -264,10 +303,9 @@ public sealed unsafe class LiveAudioOutput : IDisposable
                 continue;
             }
 
-            if (feeding && (!playing || queued < MinimumQueued))
+            if (feeding && !playing)
             {
-                _mixer.Shed(1);
-                Interlocked.Increment(ref _underruns);
+                Underrun();
             }
 
             feeding = true;
@@ -285,12 +323,31 @@ public sealed unsafe class LiveAudioOutput : IDisposable
         }
     }
 
+    /// <summary>
+    /// The source ran dry while voices were fed: drops the oldest voice, and warns when it happens again and again in
+    /// the first second of live notes.
+    /// </summary>
+    private void Underrun()
+    {
+        _mixer.Shed(1);
+        Interlocked.Increment(ref _underruns);
+        if (_firstSecondBuffers < FirstSecondBuffers && ++_firstSecondUnderruns >= StormUnderruns && _warning is null)
+        {
+            _warning = $"The live notes ran dry {_firstSecondUnderruns} times in their first second and will stutter: the audio device mixes too much at a time, or OpenAL Soft did not take the settings shipped in alsoft.ini.";
+        }
+    }
+
     /// <summary>Renders the next buffer and queues it.</summary>
     private void QueueNext(AL al)
     {
         long start = Stopwatch.GetTimestamp();
         _mixer.Render(_mix);
         long ticks = Stopwatch.GetTimestamp() - start;
+        if (_firstSecondBuffers < FirstSecondBuffers)
+        {
+            _firstSecondBuffers++;
+        }
+
         if (ticks > Volatile.Read(ref _longestRenderTicks))
         {
             Volatile.Write(ref _longestRenderTicks, ticks);

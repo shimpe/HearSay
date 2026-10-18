@@ -265,7 +265,14 @@ public sealed class VoiceMixer
 
         if (changed)
         {
-            SoundingNotesChanged?.Invoke();
+            try
+            {
+                SoundingNotesChanged?.Invoke();
+            }
+            catch (Exception)
+            {
+                // Called by the audio output when it falls behind: its thread must survive a faulty handler.
+            }
         }
     }
 

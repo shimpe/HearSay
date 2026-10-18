@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Text;
 using HearSay.Synthesis.Rendering;
 using Silk.NET.OpenAL;
 
@@ -11,8 +13,9 @@ namespace HearSay.Studio;
 /// <remarks>
 /// The device and its context are shared with a <see cref="LiveAudioOutput"/>, which streams live notes on a source of
 /// its own, so that both sound at the same time. The context mixes at 48 kHz and asks for updates of 256 samples, the
-/// size of the live buffers; OpenAL Soft 1.23 takes the update size from its settings instead, which alsoft.ini in
-/// the program's folder sets (Windows rounds it up to 10 ms in shared mode).
+/// size of the live buffers; OpenAL Soft 1.23 takes the update size from its settings instead, which alsoft.ini
+/// (alsoft.conf outside Windows) in the program's folder sets, pointed at through <c>ALSOFT_CONF</c> so that it is
+/// found however the program is started (Windows rounds the update up to 10 ms in shared mode).
 /// </remarks>
 public sealed unsafe class AudioPlayer : IDisposable
 {
@@ -21,6 +24,9 @@ public sealed unsafe class AudioPlayer : IDisposable
 
     /// <summary>ALC_REFRESH: how many times per second the device mixes an update.</summary>
     private const int ContextRefresh = 0x1008;
+
+    /// <summary>Environment variable that names a settings file OpenAL Soft reads after all others.</summary>
+    private const string SettingsVariable = "ALSOFT_CONF";
 
     private readonly object _lock = new();
     private readonly AL? _al;
@@ -33,6 +39,7 @@ public sealed unsafe class AudioPlayer : IDisposable
     /// <summary>Opens the default audio device.</summary>
     public AudioPlayer()
     {
+        UseShippedSettings();
         try
         {
             _alc = ALContext.GetApi(soft: true);
@@ -60,6 +67,7 @@ public sealed unsafe class AudioPlayer : IDisposable
             _alc.MakeContextCurrent(_context);
             _source = _al.GenSource();
             _buffer = _al.GenBuffer();
+            DeviceUpdateSamples = UpdateSamples(_alc, _device);
             IsAvailable = true;
         }
         catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or TypeInitializationException)
@@ -73,6 +81,12 @@ public sealed unsafe class AudioPlayer : IDisposable
 
     /// <summary>The OpenAL API whose context is current, for the live output's source; null when no device is open.</summary>
     internal AL? Api => IsAvailable ? _al : null;
+
+    /// <summary>
+    /// Samples the device mixes at a time, as OpenAL Soft reports it (its frequency over its refresh rate): 480 on
+    /// Windows with the shipped settings, 960 without them; 0 when no device is open or it does not say.
+    /// </summary>
+    internal int DeviceUpdateSamples { get; }
 
     /// <summary>Plays audio from the start, stopping whatever was playing.</summary>
     /// <param name="audio">Mono audio.</param>
@@ -117,6 +131,45 @@ public sealed unsafe class AudioPlayer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Points OpenAL Soft at the settings shipped next to the program, unless <c>ALSOFT_CONF</c> already names a file:
+    /// on its own it looks for them next to the process binary, which is dotnet itself for <c>dotnet HearSay.Studio.dll</c>
+    /// or a test host. Must run before OpenAL Soft is loaded; it reads its settings once per process. OpenAL Soft reads
+    /// the variable with the C runtime's <c>getenv</c>, which does not see <see cref="Environment.SetEnvironmentVariable(string, string)"/>
+    /// (the C runtime keeps its own copy on Windows, and .NET keeps its own elsewhere), so the C runtime's is set as well.
+    /// When that fails, <see cref="LiveAudioOutput.Warning"/> says so.
+    /// </summary>
+    private static void UseShippedSettings()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(SettingsVariable)))
+            {
+                return;
+            }
+
+            string path = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "alsoft.ini" : "alsoft.conf");
+            if (File.Exists(path))
+            {
+                Environment.SetEnvironmentVariable(SettingsVariable, path);
+                NativeEnvironment.Set(SettingsVariable, path);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            // Without the settings the live notes stutter, and LiveAudioOutput.Warning says why.
+        }
+    }
+
+    private static int UpdateSamples(ALContext alc, Device* device)
+    {
+        int frequency = 0;
+        int refresh = 0;
+        alc.GetContextProperty(device, (GetContextInteger)ContextFrequency, 1, &frequency);
+        alc.GetContextProperty(device, (GetContextInteger)ContextRefresh, 1, &refresh);
+        return frequency > 0 && refresh > 0 ? (int)Math.Round(frequency / (double)refresh) : 0;
+    }
+
     public void Dispose()
     {
         if (_al is null || _alc is null)
@@ -144,5 +197,34 @@ public sealed unsafe class AudioPlayer : IDisposable
                 _alc.CloseDevice(_device);
             }
         }
+    }
+
+    /// <summary>Sets a variable in the environment of the C runtime that OpenAL Soft reads it from.</summary>
+    private static class NativeEnvironment
+    {
+        public static void Set(string name, string value)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                // OpenAL Soft uses the shared Universal C Runtime.
+                _ = WindowsPutEnvironment(name, value);
+                return;
+            }
+
+            if ((NativeLibrary.TryLoad("libc.so.6", out IntPtr libc) || NativeLibrary.TryLoad("libc", out libc))
+                && NativeLibrary.TryGetExport(libc, "setenv", out IntPtr setenv))
+            {
+                byte[] nameBytes = Encoding.UTF8.GetBytes(name + '\0');
+                byte[] valueBytes = Encoding.UTF8.GetBytes(value + '\0');
+                fixed (byte* n = nameBytes)
+                fixed (byte* v = valueBytes)
+                {
+                    _ = ((delegate* unmanaged<byte*, byte*, int, int>)setenv)(n, v, 1);
+                }
+            }
+        }
+
+        [DllImport("ucrtbase.dll", EntryPoint = "_wputenv_s", CharSet = CharSet.Unicode)]
+        private static extern int WindowsPutEnvironment(string name, string value);
     }
 }
