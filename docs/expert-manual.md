@@ -353,7 +353,9 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   Search tab, the final loss, the similarity, the per-note similarity and the audio loss shown with an edit are the
   original's, marked *(original)*: they are not computed again; the routing and the matrix follow the edit.
 - **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
-  original's origin; the favourite of the original stays as it was. The edit plays at the loudness of the original (its
+  original's origin; the favourite of the original stays as it was. In the Library tab the edit then moves to the new
+  favourite: it is shown and selected, and the sound it was made from goes back to its original, without the edit's
+  history, so that the old favourite reads as before when it is chosen again. The edit plays at the loudness of the original (its
   gain is not normalised again, so a lower output level really is softer), and its favourite keeps that loudness: the
   gain is stored in `favourite.json` as `gain`. Favourites without it are normalised as before.
 - **Limits of the profile.** An edit always stays playable by the sound's backend. Values are clamped to the profile's

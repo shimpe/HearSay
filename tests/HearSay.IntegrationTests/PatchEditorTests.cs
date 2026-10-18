@@ -18,6 +18,30 @@ public sealed class PatchEditorTests
         => (patch, _) => EditOutcome.Done(patch.WithOperator(0, patch.Operators[0] with { Frequency = OperatorFrequency.AtRatio(ratio) }));
 
     [Fact]
+    public void Revert_ForgetsTheEditAndItsHistory()
+    {
+        var editor = new PatchEditor(Heard(), Fm7);
+        editor.Apply(SetRatio(2));
+        editor.Apply(SetRatio(3));
+        editor.Undo();
+        editor.BeginGesture();
+        editor.Preview(SetRatio(5));
+        editor.ShowingOriginal = true;
+        int changes = 0;
+        editor.Changed += (_, _) => changes++;
+
+        editor.Revert();
+
+        Assert.Equal(editor.Original.ComputeHash(), editor.Current.ComputeHash());
+        Assert.False(editor.IsEdited);
+        Assert.False(editor.CanUndo);
+        Assert.False(editor.CanRedo);
+        Assert.False(editor.InGesture);
+        Assert.False(editor.ShowingOriginal);
+        Assert.Equal(1, changes);
+    }
+
+    [Fact]
     public void Apply_ThenUndo_RestoresTheExactPatch()
     {
         var editor = new PatchEditor(Heard(), Fm7);

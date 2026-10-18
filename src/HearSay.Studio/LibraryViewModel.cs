@@ -436,15 +436,25 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>
     /// Keeps the version of the shown sound the switch shows as a favourite with the typed nickname, or renames it when it
     /// is one already. An edit that is not a favourite yet becomes a new one, <c>edited from …</c>, at the original's
-    /// gain; the original's own favourite is left as it is.
+    /// gain, and the edit moves there: the new favourite is shown, and the sound it was made from goes back to its
+    /// original, its own favourite left as it is.
     /// </summary>
     public async Task SaveShownFavouriteAsync()
     {
         if (_selection is { } s && Edits.DisplayedPatch is { } patch)
         {
             string origin = Edits.FavouriteOrigin;
+            PatchEditor? edited = Edits.ShowsEdit ? Edits.Editor : null;
             float? gain = await Edits.FavouriteGainAsync();
-            await SaveFavouriteAsync(FavouriteNickname, patch, s.Profile, origin, gain);
+            if (await SaveFavouriteAsync(FavouriteNickname, patch, s.Profile, origin, gain) is { } added && edited is not null)
+            {
+                edited.Revert();
+                if (Favourites.FirstOrDefault(f => f.Favourite.Directory == added.Directory) is { } item)
+                {
+                    SelectedFavourite = item;
+                    await PlaceFavouriteAsync(item);
+                }
+            }
         }
     }
 
@@ -466,7 +476,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="profile">Profile it plays on.</param>
     /// <param name="origin">Where it came from.</param>
     /// <param name="gain">Gain a new favourite plays at, for an edit the original's; null to normalise it as usual.</param>
-    public async Task SaveFavouriteAsync(string nickname, OperatorMatrixPatch patch, SynthesisProfile profile, string origin, float? gain = null)
+    /// <returns>The new favourite; null when an existing one was renamed or nothing could be saved.</returns>
+    public async Task<Favourite?> SaveFavouriteAsync(string nickname, OperatorMatrixPatch patch, SynthesisProfile profile, string origin, float? gain = null)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(profile);
@@ -475,16 +486,18 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             if (FindFavourite(patch, profile) is { } existing)
             {
                 RenameFavourite(existing, nickname);
-                return;
+                return null;
             }
 
             Favourite added = await Task.Run(() => _favouriteStore.Add(nickname, patch, profile, origin, gain));
             ReloadFavourites();
             _status($"\u2605 {added.Nickname} is a favourite; the Favourites list of the Library tab has it.");
+            return added;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             _status("The favourite could not be saved: " + e.Message);
+            return null;
         }
     }
 

@@ -197,6 +197,20 @@ public sealed class PatchEditor
         }
     }
 
+    /// <summary>
+    /// Goes back to the original and forgets the edit and its history, for an edit that now lives on elsewhere (kept as a
+    /// favourite of its own). A gesture in progress is dropped; the edit, not the original, is shown afterwards.
+    /// </summary>
+    public void Revert()
+    {
+        gestureStart = null;
+        undo.Clear();
+        redo.Clear();
+        Current = Original;
+        showingOriginal = false;
+        OnChanged();
+    }
+
     /// <summary>Goes back one step; a gesture in progress is committed first.</summary>
     public void Undo()
     {
