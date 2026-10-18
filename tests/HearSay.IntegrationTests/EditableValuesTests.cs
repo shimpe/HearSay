@@ -231,4 +231,63 @@ public sealed class EditableValuesTests
         Assert.Equal(Math.Log(32.0 * 16.0) / 20.0, coarse, 9);
         Assert.Equal(32.0, ratio.Nudge(1.0, 1e6, fine: false, snap: false));
     }
+
+    [Fact]
+    public void Nudge_OutputLevel_ReachesZeroSmoothly_AndStaysWithoutMovement()
+    {
+        // OP2 is a modulator, not heard: its output level is 0.
+        OperatorMatrixPatch patch = TwoOperators();
+        EditableValue output = Value(EditableValues.For(patch, Fm7.Capabilities, new PatchPart.OperatorPart(1)), "op2.output.level");
+        Assert.Equal(0.0, output.Get(patch));
+
+        // No movement, no change: a silent modulator stays silent, and a tiny level does not jump.
+        Assert.Equal(0.0, output.Nudge(0, 0, fine: false, snap: false));
+        Assert.Equal(0.0005, output.Nudge(0.0005, 0, fine: false, snap: false));
+        Assert.Equal(0.0005, output.Nudge(0.0005, 0, fine: true, snap: false));
+
+        // Out and back: the drag reports the distance from where it began, so back is 0 pixels again.
+        double up = output.Nudge(0, 30, fine: false, snap: false);
+        Assert.True(up > 0);
+        Assert.Equal(0.0, output.Nudge(0, 0, fine: false, snap: false));
+        Assert.Equal(0.0, output.Nudge(up, -30, fine: false, snap: false), 12);
+
+        // Smooth near 0: one pixel up from 0 is a small level, not a jump to the logarithmic floor.
+        double onePixel = output.Nudge(0, 1, fine: false, snap: false);
+        Assert.InRange(onePixel, 1e-6, 0.001);
+        Assert.True(output.Nudge(0, 2, fine: false, snap: false) > onePixel);
+
+        // Well above the knee it is nearly logarithmic: the same drag scales 0.1 and 0.4 alike, within a percent.
+        double low = output.Nudge(0.1, 20, false, false) / 0.1;
+        double high = output.Nudge(0.4, 20, false, false) / 0.4;
+        Assert.True(low > 1.5);
+        Assert.InRange(high / low, 0.99, 1.01);
+    }
+
+    [Fact]
+    public void Nudge_FollowsTheSchemasScale()
+    {
+        // The elliptic parameter moves along its nome: 50 pixels from m = 0.99 is a clear step, not the end of the range.
+        OperatorMatrixPatch patch = TwoOperators();
+        OperatorMatrixPatch elliptic = patch.WithOperator(0, patch.Operators[0].WithWaveform(OperatorWaveform.Elliptic));
+        EditableValue m = Value(EditableValues.For(elliptic, Nome6.Capabilities, new PatchPart.OperatorPart(0)), "op1.elliptic");
+        Assert.Equal(0.99, m.Get(elliptic));
+        double fifty = m.Nudge(0.99, 50, fine: false, snap: false);
+        Assert.True(fifty < OperatorPatch.MaxEllipticM);
+        Assert.True(fifty > 0.99 + 1e-4);
+        Assert.True(m.Nudge(0.99, 25, fine: false, snap: false) < fifty);
+        Assert.True(m.Nudge(0.99, 25, fine: false, snap: false) > 0.99);
+
+        // A soft-logarithmic value (detune, -8 .. 8 Hz) is finer near 0 than a linear step would be.
+        EditableValue detune = Value(EditableValues.For(patch, Fm7.Capabilities, new PatchPart.OperatorPart(0)), "op1.detune");
+        double linearStep = 2.0 / 200.0 * (detune.Maximum - detune.Minimum);
+        double soft = detune.Nudge(0, 2, fine: false, snap: false);
+        Assert.InRange(soft, 1e-6, linearStep / 2);
+        Assert.Equal(-soft, detune.Nudge(0, -2, fine: false, snap: false), 12);
+        Assert.Equal(8.0, detune.Nudge(0, 200, fine: false, snap: false), 9);
+
+        // A connection amount follows the schema's soft-logarithmic scale over the profile's whole range.
+        EditableValue amount = Assert.Single(EditableValues.For(patch, Fm7.Capabilities, new PatchPart.ConnectionPart(1, 0)));
+        Assert.InRange(amount.Nudge(0, 2, fine: false, snap: false), 1e-6, 2.0 / 200.0 * amount.Maximum / 2);
+        Assert.Equal(amount.Maximum, amount.Nudge(0, 200, fine: false, snap: false), 9);
+    }
 }

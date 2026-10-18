@@ -23,10 +23,10 @@ public sealed record EditableValue(string Id, string Label, string Unit, double 
     private const double PixelsPerRange = 200.0;
 
     /// <summary>
-    /// Where the logarithmic axis of a range that reaches zero starts, as a fraction of the maximum: a drag below it goes
-    /// to the minimum (an output level of 0, for example).
+    /// The scale a drag moves along, the schema's transform where it has the value; null for the scale
+    /// <see cref="Logarithmic"/> names (logarithmic or linear).
     /// </summary>
-    private const double LogarithmicFloor = 1e-3;
+    internal IParameterTransform? Transform { get; init; }
 
     /// <summary>Reads the value; null when the patch does not have it.</summary>
     internal Func<OperatorMatrixPatch, double?> Reader { get; init; } = static _ => null;
@@ -76,8 +76,10 @@ public sealed record EditableValue(string Id, string Label, string Unit, double 
     };
 
     /// <summary>
-    /// The value a sideways drag reaches: each pixel moves it 1/200 of the range (1/2000 when fine), in ratios when
-    /// logarithmic; the result stays within the range and, with <paramref name="snap"/>, goes to the nearest snap point.
+    /// The value a sideways drag reaches: each pixel moves it 1/200 of the range (1/2000 when fine) along its scale (the
+    /// schema's transform: in ratios when logarithmic, finer near zero when soft-logarithmic); the result stays within
+    /// the range and, with <paramref name="snap"/>, goes to the nearest snap point. No movement leaves the value as it
+    /// was.
     /// </summary>
     /// <param name="from">The value when the drag began.</param>
     /// <param name="pixels">How far the pointer moved since; negative to the left.</param>
@@ -85,27 +87,17 @@ public sealed record EditableValue(string Id, string Label, string Unit, double 
     /// <param name="snap">True to snap to the nearest of <see cref="SnapPoints"/>.</param>
     public double Nudge(double from, double pixels, bool fine, bool snap)
     {
-        if (!double.IsFinite(from))
+        from = double.IsFinite(from) ? Math.Clamp(from, Minimum, Maximum) : Minimum;
+        if (pixels == 0 || double.IsNaN(pixels))
         {
-            from = Minimum;
+            return from;
         }
 
-        double fraction = double.IsNaN(pixels) ? 0.0 : pixels / (fine ? 10.0 * PixelsPerRange : PixelsPerRange);
-        double value;
-        if (Logarithmic && Maximum > 0)
-        {
-            double floor = Minimum > 0 ? Minimum : Maximum * LogarithmicFloor;
-            value = Math.Exp(Math.Log(Math.Max(from, floor)) + (fraction * Math.Log(Maximum / floor)));
-            if (value < floor)
-            {
-                value = Minimum;
-            }
-        }
-        else
-        {
-            value = from + (fraction * (Maximum - Minimum));
-        }
-
+        IParameterTransform scale = Transform ?? (Logarithmic ? ParameterTransforms.Logarithmic : ParameterTransforms.Linear);
+        double low = scale.ToSearchSpace(Minimum);
+        double high = scale.ToSearchSpace(Maximum);
+        double fraction = pixels / (fine ? 10.0 * PixelsPerRange : PixelsPerRange);
+        double value = scale.ToNativeSpace(scale.ToSearchSpace(from) + (fraction * (high - low)));
         value = Math.Clamp(double.IsNaN(value) ? from : value, Minimum, Maximum);
         return snap ? Snapped(value) : value;
     }
@@ -152,6 +144,15 @@ public static class EditableValues
     /// <summary>Largest ratio an operator can be given.</summary>
     private const double MaxRatio = 32.0;
 
+    /// <summary>
+    /// The scale of an output level: logarithmic above the schema's smallest level (0.001) and linear below it, so that
+    /// a drag reaches 0, where the operator is no longer heard, smoothly.
+    /// </summary>
+    private static readonly IParameterTransform OutputScale = ParameterTransforms.SoftLogarithmic(0.001);
+
+    /// <summary>The schema's scale of a connection amount, for a connection the schema does not offer.</summary>
+    private static readonly IParameterTransform AmountScale = ParameterTransforms.SoftLogarithmic(0.25);
+
     /// <summary>The values of a part of a patch that exist on it; empty when the patch has no such part.</summary>
     /// <param name="patch">The patch.</param>
     /// <param name="c">Capabilities of the sound's profile.</param>
@@ -170,7 +171,7 @@ public static class EditableValues
                 break;
             case PatchPart.ConnectionPart { Source: var source, Destination: var destination }
                 when (uint)source < (uint)patch.OperatorCount && (uint)destination < (uint)patch.OperatorCount && patch.ModulationMatrix.Find(source, destination) is not null:
-                values.Add(Amount(patch, c, source, destination));
+                values.Add(Amount(schema, patch, c, source, destination));
                 break;
             case PatchPart.NoisePart when c.SupportsSharedNoise:
                 values.Add(Make(schema, patch, "noise.color", "colour", "", (-1.0, 1.0, false), static p => p.Noise.Color, static (p, v) => p with { Noise = p.Noise with { Color = v } }));
@@ -249,7 +250,8 @@ public static class EditableValues
             (0.0, 1.5, true),
             p => (uint)op < (uint)p.OperatorCount ? p.OutputLevels[op] : null,
             (p, v) => p.WithOutputLevel(op, v),
-            minimum: 0.0));
+            minimum: 0.0,
+            transform: OutputScale));
 
         Add("velocity", "velocity", "", (0.0, 1.0, false), Always, static o => o.VelocitySensitivity, static (o, v) => o with { VelocitySensitivity = v });
         Add("keyScaling.level", "key level", "dB/oct", (-12.0, 12.0, false), Always, static o => o.KeyScaling.LevelDbPerOctave, static (o, v) => o with { KeyScaling = o.KeyScaling with { LevelDbPerOctave = v } });
@@ -279,8 +281,9 @@ public static class EditableValues
     /// The amount of a connection: 0 up to the profile's modulation limit, and no further than what the other
     /// connections into the same operator leave.
     /// </summary>
-    private static EditableValue Amount(OperatorMatrixPatch patch, SynthesisCapabilities c, int source, int destination)
+    private static EditableValue Amount(PatchParameterSchema schema, OperatorMatrixPatch patch, SynthesisCapabilities c, int source, int destination)
     {
+        // The range is the profile's limit, not the schema's narrower search bound; the scale is the schema's.
         string id = string.Create(CultureInfo.InvariantCulture, $"edge.{source + 1}>{destination + 1}.amount");
         return Make(
             null,
@@ -290,7 +293,8 @@ public static class EditableValues
             "rad",
             (0.0, c.MaxModulationRadiansPerDestination, false),
             p => (uint)source < (uint)p.OperatorCount && (uint)destination < (uint)p.OperatorCount ? p.ModulationMatrix.Find(source, destination)?.Amount : null,
-            (p, v) => p.WithEdge(p.ModulationMatrix.Find(source, destination)! with { Amount = v })) with
+            (p, v) => p.WithEdge(p.ModulationMatrix.Find(source, destination)! with { Amount = v }),
+            transform: schema.Find(id)?.Transform ?? AmountScale) with
         {
             Limit = (p, caps) => AmountLimit(p, caps, source, destination),
         };
@@ -341,6 +345,7 @@ public static class EditableValues
     /// <param name="useSchema">False to ignore the schema, as for the ratio, a list of choices there.</param>
     /// <param name="snaps">Snap points.</param>
     /// <param name="minimum">A minimum that replaces the schema's.</param>
+    /// <param name="transform">A scale that replaces the schema's.</param>
     private static EditableValue Make(
         PatchParameterSchema? schema,
         OperatorMatrixPatch patch,
@@ -352,23 +357,27 @@ public static class EditableValues
         Func<OperatorMatrixPatch, double, OperatorMatrixPatch> write,
         bool useSchema = true,
         IReadOnlyList<double>? snaps = null,
-        double? minimum = null)
+        double? minimum = null,
+        IParameterTransform? transform = null)
     {
         (double min, double max, bool logarithmic) = model;
+        IParameterTransform scale = logarithmic ? ParameterTransforms.Logarithmic : ParameterTransforms.Linear;
         if (useSchema && schema?.Find(id) is { IsSmooth: true } parameter)
         {
             min = parameter.Minimum;
             max = parameter.Maximum;
             logarithmic = ReferenceEquals(parameter.Transform, ParameterTransforms.Logarithmic);
+            scale = parameter.Transform;
         }
 
         min = minimum ?? min;
+        scale = transform ?? scale;
         if (read(patch) is double current && double.IsFinite(current))
         {
             min = Math.Min(min, current);
             max = Math.Max(max, current);
         }
 
-        return new EditableValue(id, label, unit, min, max, logarithmic, snaps) { Reader = read, Writer = write };
+        return new EditableValue(id, label, unit, min, max, logarithmic, snaps) { Reader = read, Writer = write, Transform = scale };
     }
 }
