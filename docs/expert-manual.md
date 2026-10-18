@@ -335,7 +335,7 @@ nearest neighbours.
   here; the shown finalist or library sound in the Search tab, which has the same button). A favourite has a filled
   ★; clicking it again renames or removes it. Favourites are kept between sessions as ordinary exported-sound folders
   named by their nicknames under `%LOCALAPPDATA%\HearSay\favourites`, each with a `favourite.json` saying where it came
-  from. The **Favourites** side of the list beside the graph shows them all with their profiles: click one to place it
+  from. The **Favourites** side of the list beside the graph, first and shown by default, has them all with their profiles (importing a folder or *Find in library* switches to **Imported**): click one to place it
   among its neighbours in the library of its profile, selected and played, ready to copy or save; **Rename** and
   **Remove** act on the selected one (removing deletes its folder, after asking).
 - **Filter ▾** shows only some sounds: by the waveforms and filter types of the operators you can hear, brightness,

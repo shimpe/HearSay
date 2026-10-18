@@ -91,7 +91,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private SoundFilter _shownFilter = SoundFilter.None;
     private string? _filterSummary;
     private readonly FavouriteSounds _favouriteStore;
-    private bool _showFavourites;
+    private bool _showFavourites = true;
     private FavouriteItem? _selectedFavourite;
     private string _favouriteNickname = string.Empty;
 
@@ -329,7 +329,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>The side list is shown when there is something in it.</summary>
     public bool HasSideList => Imports.Count > 0 || Favourites.Count > 0;
 
-    /// <summary>The side list shows the favourites rather than the imported sounds.</summary>
+    /// <summary>The side list shows the favourites (the default) rather than the imported sounds.</summary>
     public bool ShowFavourites
     {
         get => _showFavourites;
@@ -542,6 +542,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         {
             Imports.Add(item);
             added++;
+            ShowImports = true;
         }
 
         if (scan.Sounds.Count == 0 && scan.Skipped.Count == 0)
@@ -630,6 +631,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             byte[] print = await Task.Run(() => ExportedSounds.Fingerprint(sound));
             item = found with { Print = print };
             Imports.Add(item);
+            ShowImports = true;
         }
 
         await ShowAmongNeighboursAsync(item, profile);

@@ -88,8 +88,8 @@
           <!-- Side list: the sounds imported this session, or the favourites kept between sessions -->
           <Grid Grid.Column="0" Width="170" RowDefinitions="Auto,*,Auto" RowSpacing="4" IsVisible="{Binding HasSideList}">
             <Grid Grid.Row="0" ColumnDefinitions="*,*" ColumnSpacing="4">
-              <RadioButton Grid.Column="0" Classes="segment" Content="Imported" GroupName="SideList" IsChecked="{Binding ShowImports}" FontSize="11" />
-              <RadioButton Grid.Column="1" Classes="segment" Content="Favourites" GroupName="SideList" IsChecked="{Binding ShowFavourites}" FontSize="11" />
+              <RadioButton Grid.Column="0" Classes="segment" Content="Favourites" GroupName="SideList" IsChecked="{Binding ShowFavourites}" FontSize="11" />
+              <RadioButton Grid.Column="1" Classes="segment" Content="Imported" GroupName="SideList" IsChecked="{Binding ShowImports}" FontSize="11" />
             </Grid>
             <ListBox Grid.Row="1" ItemsSource="{Binding Imports}" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6" IsVisible="{Binding ShowImports}" Tapped="OnImportTapped">
               <ListBox.ItemTemplate>
