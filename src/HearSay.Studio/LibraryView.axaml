@@ -95,7 +95,7 @@
           <Button Grid.Column="3" Content="Show in Search" Click="OnShowInSearch" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Show this sound as the patch of the Search tab" />
         </Grid>
         <TextBlock DockPanel.Dock="Bottom" Text="{Binding SelectionText}" Classes="muted" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
-        <local:PatchView Code="{Binding Scd}" Patch="{Binding ShownPatch}" Watermark="Click a node to see its code." />
+        <local:PatchView Code="{Binding Scd}" Patch="{Binding ShownPatch}" SharedNoise="{Binding ShownPatchSharesNoise}" Watermark="Click a node to see its code." />
       </DockPanel>
     </Border>
 

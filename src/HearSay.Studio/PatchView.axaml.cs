@@ -16,6 +16,9 @@ public sealed partial class PatchView : UserControl
     /// <summary>The patch drawn as a block diagram.</summary>
     public static readonly StyledProperty<OperatorMatrixPatch?> PatchProperty = AvaloniaProperty.Register<PatchView, OperatorMatrixPatch?>(nameof(Patch));
 
+    /// <summary>Whether the profile of the patch has a shared noise source; see <see cref="FmDiagram.SharedNoise"/>.</summary>
+    public static readonly StyledProperty<bool> SharedNoiseProperty = AvaloniaProperty.Register<PatchView, bool>(nameof(SharedNoise));
+
     /// <summary>Header of the code tab.</summary>
     public static readonly StyledProperty<string> CodeHeaderProperty = AvaloniaProperty.Register<PatchView, string>(nameof(CodeHeader), "SuperCollider · patch.scd");
 
@@ -43,6 +46,13 @@ public sealed partial class PatchView : UserControl
     {
         get => GetValue(PatchProperty);
         set => SetValue(PatchProperty, value);
+    }
+
+    /// <inheritdoc cref="SharedNoiseProperty"/>
+    public bool SharedNoise
+    {
+        get => GetValue(SharedNoiseProperty);
+        set => SetValue(SharedNoiseProperty, value);
     }
 
     /// <inheritdoc cref="CodeHeaderProperty"/>

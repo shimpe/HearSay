@@ -285,6 +285,13 @@ result's profile and places the shown finalist among the library sounds like it,
 selected and played, with its neighbours around it. It joins the imported sounds as *search best* or *search #2*, so
 several finalists can be compared there.
 
+**Block diagram.** The second tab of the patch card draws the operators that can be heard: carriers on the bottom row
+feeding OUT with their output levels, every modulator above what it modulates, edges with their amounts in radians
+(dashed amber when they feed back, a loop for self-feedback, `~` when the amount follows an envelope), and an operator
+filter as a strip at the bottom of its box. On Nome6, the shared noise source is a box at the top left with its colour
+(*white*, or for example *LP 60% · 1.9 kHz*), and a dotted line runs into every operator that plays it (*plays*) or
+that it roughens (*φ 0.4*: radians of phase, *m -0.2*: the elliptic parameter).
+
 Studio plays through OpenAL Soft. Without an audio device the keyboard is silent and a note says so; everything else
 works.
 

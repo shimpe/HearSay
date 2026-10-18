@@ -142,6 +142,9 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>The last clicked sound's patch.</summary>
     public OperatorMatrixPatch? ShownPatch => _selection?.Patch;
 
+    /// <summary>Whether its profile has a shared noise source, which the block diagram then draws.</summary>
+    public bool ShownPatchSharesNoise => _selection?.Profile.Capabilities.SupportsSharedNoise == true;
+
     /// <summary>Its SuperCollider code.</summary>
     public string Scd => _selection?.Scd ?? string.Empty;
 
@@ -743,6 +746,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     {
         _selection = selection;
         OnPropertyChanged(nameof(ShownPatch));
+        OnPropertyChanged(nameof(ShownPatchSharesNoise));
         OnPropertyChanged(nameof(Scd));
         OnPropertyChanged(nameof(SelectionText));
         OnPropertyChanged(nameof(HasSelection));

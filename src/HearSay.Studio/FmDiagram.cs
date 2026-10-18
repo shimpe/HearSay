@@ -12,12 +12,20 @@ namespace HearSay.Studio;
 /// every modulator one row above the highest operator it modulates. Edges going down are drawn straight; edges that
 /// go up or sideways (feedback through other operators) are dashed curves; self-feedback is a loop beside the operator.
 /// Only operators that can be heard are drawn. An operator filter is a strip at the bottom of its box, on the way
-/// out: a sketch of its response and its label.
+/// out: a sketch of its response and its label. The shared noise source of a profile that has one is a box at the top
+/// left, its colour inside, with a dotted line into every operator it roughens (φ for phase, m for the elliptic
+/// parameter, with the amount) or that plays it.
 /// </summary>
 public sealed class FmDiagram : Control
 {
     /// <summary>Patch to draw; nothing is drawn without one.</summary>
     public static readonly StyledProperty<OperatorMatrixPatch?> PatchProperty = AvaloniaProperty.Register<FmDiagram, OperatorMatrixPatch?>(nameof(Patch));
+
+    /// <summary>
+    /// Whether the profile has a shared noise source (Nome6): its noise operators play that source, so they are joined
+    /// to its box. Without one, a noise operator makes noise of its own and the box is drawn only for roughness.
+    /// </summary>
+    public static readonly StyledProperty<bool> SharedNoiseProperty = AvaloniaProperty.Register<FmDiagram, bool>(nameof(SharedNoise));
 
     private static readonly IBrush BoxFill = new SolidColorBrush(Color.Parse("#1E293B"));
     private static readonly IBrush CarrierFill = new SolidColorBrush(Color.Parse("#164E63"));
@@ -34,10 +42,12 @@ public sealed class FmDiagram : Control
     private static readonly Pen FeedbackPen = new(Amber, 1.5, new DashStyle([4, 3], 0));
     private static readonly Pen LoopPen = new(Amber, 1.5);
     private static readonly Pen OutputPen = new(Muted, 1.5);
+    private static readonly IBrush NoiseFill = new SolidColorBrush(Color.Parse("#26303F"));
+    private static readonly Pen NoisePen = new(Muted, 1.2, new DashStyle([1.5, 3], 0));
 
     static FmDiagram()
     {
-        AffectsRender<FmDiagram>(PatchProperty);
+        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty);
     }
 
     /// <inheritdoc cref="PatchProperty"/>
@@ -45,6 +55,13 @@ public sealed class FmDiagram : Control
     {
         get => GetValue(PatchProperty);
         set => SetValue(PatchProperty, value);
+    }
+
+    /// <inheritdoc cref="SharedNoiseProperty"/>
+    public bool SharedNoise
+    {
+        get => GetValue(SharedNoiseProperty);
+        set => SetValue(SharedNoiseProperty, value);
     }
 
     public override void Render(DrawingContext context)
@@ -303,6 +320,22 @@ public sealed class FmDiagram : Control
             }
         }
 
+        // The shared noise source at the top left, with a dotted line into the top of every operator that uses it; the
+        // operator boxes are drawn over the lines.
+        var noiseBox = new Rect(6, 6, 100, 32);
+        var noiseUsers = shown.Select(i => (Op: i, Use: NoiseUse(patch.Operators[i], SharedNoise))).Where(static u => u.Use.Length > 0).ToList();
+        foreach ((int op, string use) in noiseUsers)
+        {
+            var from = new Point(noiseBox.Right, noiseBox.Center.Y);
+            var to = new Point(centers[op].X - (boxW / 4), centers[op].Y - (boxH / 2));
+            context.DrawLine(NoisePen, from, to);
+            DrawArrowHead(context, Muted, from, to);
+            // Left of the arrowhead, above the box it points into: clear of the boxes the line may pass behind and of the
+            // edges that arrive at the middle of the box.
+            double labelWidth = new FormattedText(use, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Muted).Width;
+            labels.Add((use, new Point(to.X - 6 - labelWidth, to.Y - 15), Muted));
+        }
+
         // Operator boxes over the edges.
         foreach (int i in shown)
         {
@@ -327,6 +360,13 @@ public sealed class FmDiagram : Control
                 DrawText(context, Describe(patch.Operators[i]), new Point(rect.X + 7, rect.Y + 18), 10, Muted, maxWidth: boxW - 10);
                 DrawText(context, tuning, new Point(rect.X + 7, rect.Y + 31), 10, Muted, maxWidth: boxW - 10);
             }
+        }
+
+        if (noiseUsers.Count > 0)
+        {
+            context.DrawRectangle(NoiseFill, NoisePen, noiseBox, 6, 6);
+            DrawText(context, "NOISE", new Point(noiseBox.X + 7, noiseBox.Y + 2), 11, Text, FontWeight.SemiBold);
+            DrawText(context, DescribeNoise(patch.Noise), new Point(noiseBox.X + 7, noiseBox.Y + 17), 10, Muted, maxWidth: noiseBox.Width - 10);
         }
 
         // Labels on a patch of background, so that the lines under them do not cut through the digits.
@@ -415,7 +455,47 @@ public sealed class FmDiagram : Control
         }
     }
 
-    /// <summary>Frequency, and waveform when it is not a sine, in a few characters; a tilde marks noise roughness.</summary>
+    /// <summary>
+    /// How an operator uses the shared noise, for the label of its dotted line: "φ 0.4" for phase roughness in radians,
+    /// "m -0.2" for roughness of the elliptic parameter, "plays" for a noise operator of a profile with shared noise;
+    /// empty when it does not.
+    /// </summary>
+    private static string NoiseUse(OperatorPatch op, bool sharedNoise)
+    {
+        if (op.Waveform == OperatorWaveform.Noise)
+        {
+            return sharedNoise ? "plays" : string.Empty;
+        }
+
+        var uses = new List<string>();
+        if (op.NoisePhase != 0.0)
+        {
+            uses.Add(string.Create(CultureInfo.InvariantCulture, $"φ {op.NoisePhase:0.##}"));
+        }
+
+        if (op.NoiseM != 0.0 && op.Waveform == OperatorWaveform.Elliptic)
+        {
+            uses.Add(string.Create(CultureInfo.InvariantCulture, $"m {op.NoiseM:0.##}"));
+        }
+
+        return string.Join(" ", uses);
+    }
+
+    /// <summary>The colour of the shared noise: "white", or for example "LP 60% · 1.9 kHz" for a noise low-passed at 1.9 kHz with colour −0.6.</summary>
+    private static string DescribeNoise(SharedNoise noise)
+    {
+        if (noise.Color == 0.0)
+        {
+            return "white";
+        }
+
+        string cutoff = noise.CutoffHz >= 1000
+            ? string.Create(CultureInfo.InvariantCulture, $"{noise.CutoffHz / 1000:0.#} kHz")
+            : string.Create(CultureInfo.InvariantCulture, $"{noise.CutoffHz:0} Hz");
+        return string.Create(CultureInfo.InvariantCulture, $"{(noise.Color < 0 ? "LP" : "HP")} {Math.Abs(noise.Color) * 100:0}% · {cutoff}");
+    }
+
+    /// <summary>Frequency, and waveform when it is not a sine, in a few characters.</summary>
     private static string Describe(OperatorPatch op)
     {
         string frequency = op.Frequency.Mode == OperatorFrequencyMode.Fixed
@@ -433,9 +513,7 @@ public sealed class FmDiagram : Control
             frequency += " " + op.Waveform.ToString().ToLowerInvariant();
         }
 
-        // Roughened by the shared noise, in phase or in m.
-        bool rough = (op.NoisePhase != 0.0 && op.Waveform != OperatorWaveform.Noise) || (op.NoiseM != 0.0 && op.Waveform == OperatorWaveform.Elliptic);
-        return rough ? frequency + " ~" : frequency;
+        return frequency;
     }
 
     /// <summary>

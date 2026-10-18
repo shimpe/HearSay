@@ -9,7 +9,7 @@
     </TabItem>
     <TabItem Header="Block diagram" FontSize="13">
       <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-        <local:FmDiagram Patch="{Binding Patch, ElementName=Root}" Margin="8" />
+        <local:FmDiagram Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" Margin="8" />
       </Border>
     </TabItem>
   </TabControl>

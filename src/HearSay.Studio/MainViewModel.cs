@@ -186,6 +186,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _libraryPatch = patch;
         _shownPatch = patch.Patch;
         OnPropertyChanged(nameof(ShownPatch));
+        OnPropertyChanged(nameof(ShownPatchSharesNoise));
         Scd = patch.Scd;
         string routing = PatchDescription.Routing(patch.Patch);
         int matrixAt = routing.IndexOf("modulation matrix", StringComparison.Ordinal);
@@ -383,6 +384,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>The patch that is shown: the selected finalist; drawn as a block diagram.</summary>
     public OperatorMatrixPatch? ShownPatch => _shownPatch;
+
+    /// <summary>Whether the profile of the shown patch has a shared noise source, which the block diagram then draws.</summary>
+    public bool ShownPatchSharesNoise => (_libraryPatch?.Profile ?? _result?.Profile)?.Capabilities.SupportsSharedNoise == true;
 
     /// <summary>The generated SuperCollider code.</summary>
     public string Scd
@@ -672,6 +676,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _selectedAlternative = null;
         _shownPatch = null;
         OnPropertyChanged(nameof(ShownPatch));
+        OnPropertyChanged(nameof(ShownPatchSharesNoise));
         Alternatives.Clear();
         if (result is null)
         {
@@ -726,6 +731,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OperatorMatrixPatch patch = candidate.Patch;
         _shownPatch = patch;
         OnPropertyChanged(nameof(ShownPatch));
+        OnPropertyChanged(nameof(ShownPatchSharesNoise));
         bool[] audible = patch.FindAudibleOperators();
         OperatorNames.Clear();
         MatrixCells.Clear();

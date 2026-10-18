@@ -318,7 +318,7 @@
                 <Button Grid.Column="2" Content="Save result folder…" Click="OnSave" IsEnabled="{Binding HasPatch}" />
                 <Button Grid.Column="3" Content="Find in library" Click="OnFindInLibrary" IsEnabled="{Binding HasResult}" ToolTip.Tip="Show the selected finalist in the Library tab, placed among the library sounds like it" />
               </Grid>
-              <local:PatchView Code="{Binding Scd}" Watermark="{Binding ScdWatermark}" Patch="{Binding ShownPatch}" />
+              <local:PatchView Code="{Binding Scd}" Watermark="{Binding ScdWatermark}" Patch="{Binding ShownPatch}" SharedNoise="{Binding ShownPatchSharesNoise}" />
             </DockPanel>
           </Border>
         </Grid>
