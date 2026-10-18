@@ -16,7 +16,9 @@ namespace HearSay.Studio;
 /// left, its colour inside, with a dotted line into every operator it roughens (φ for phase, m for the elliptic
 /// parameter, with the amount) or that plays it. A strip under the text of each box sketches the amplitude envelope; the
 /// pointer on a box shows everything about the operator. A pitch envelope or vibrato is a box at the top right: the
-/// vibrato rate and depth, and the envelope sketched around a zero line.
+/// vibrato rate and depth, and the envelope sketched around a zero line. An edge amount that follows an envelope has
+/// its sketch beside the amount; the sweep of a filter is a violet line over the amplitude envelope of its operator
+/// (hanging from the top when it sweeps down). The pointer on an amount tells the edge in full.
 /// </summary>
 public sealed class FmDiagram : Control
 {
@@ -49,8 +51,10 @@ public sealed class FmDiagram : Control
     private static readonly Pen EnvelopePen = new(Accent, 1.2);
     private static readonly IBrush EnvelopeFill = new SolidColorBrush(Color.Parse("#22D3EE"), 0.15);
 
-    // Boxes of the last render, for the tooltip: operator index, -1 for the shared noise box, -2 for the pitch box.
+    // Boxes of the last render, for the tooltip: operator index, -1 for the shared noise box, -2 for the pitch box,
+    // -100 - k for the amount of edge k of _hitEdges.
     private readonly List<(Rect Box, int Op)> _hitBoxes = [];
+    private readonly List<ModulationEdge> _hitEdges = [];
     private int _hover = int.MinValue;
 
     static FmDiagram()
@@ -99,7 +103,8 @@ public sealed class FmDiagram : Control
             {
                 >= 0 => PatchDescription.OperatorDetail(patch, hit),
                 -1 => NoiseDetail(patch.Noise),
-                _ => PatchDescription.PitchDetail(patch.Pitch),
+                -2 => PatchDescription.PitchDetail(patch.Pitch),
+                _ => PatchDescription.EdgeDetail(_hitEdges[-100 - hit]),
             });
             ToolTip.SetIsOpen(this, true);
         }
@@ -121,6 +126,7 @@ public sealed class FmDiagram : Control
     public override void Render(DrawingContext context)
     {
         _hitBoxes.Clear();
+        _hitEdges.Clear();
         // Transparent, but painted: the control then receives the pointer everywhere, for the tooltips.
         context.FillRectangle(Brushes.Transparent, new Rect(Bounds.Size));
         OperatorMatrixPatch? patch = Patch;
@@ -259,7 +265,7 @@ public sealed class FmDiagram : Control
         }
 
         // Amounts and levels are drawn last, over everything else, so that no edge runs through them.
-        var labels = new List<(string Text, Point At, IBrush Brush)>();
+        var labels = new List<(string Text, Point At, IBrush Brush, ModulationEdge? Edge)>();
 
         // Output bus and the carriers feeding it.
         double[] carrierX = [.. shown.Where(i => carrier[i]).Select(i => centers[i].X)];
@@ -272,7 +278,7 @@ public sealed class FmDiagram : Control
             var to = new Point(centers[i].X, busY);
             context.DrawLine(OutputPen, from, to);
             DrawArrowHead(context, OutputPen.Brush!, from, to);
-            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted));
+            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted, null));
         }
 
         // Straight lines the curves should stay off: edges to the row below and the output lines.
@@ -292,14 +298,14 @@ public sealed class FmDiagram : Control
         foreach (ModulationEdge e in edges)
         {
             Point s = centers[e.SourceOperator], d = centers[e.DestinationOperator];
-            string amount = e.Amount.ToString("0.##", CultureInfo.InvariantCulture) + (e.AmountEnvelope is null ? string.Empty : " ~");
+            string amount = e.Amount.ToString("0.##", CultureInfo.InvariantCulture);
             if (e.IsSelfFeedback)
             {
                 // A loop out of the right side and back into the top-right corner.
                 var start = new Point(s.X + (boxW / 2), s.Y);
                 var end = new Point(s.X + (boxW / 2) - 10, s.Y - (boxH / 2));
                 DrawArrowCurve(context, LoopPen, Amber, start, new Point(start.X + 28, start.Y), new Point(end.X + 10, end.Y - 28), end);
-                labels.Add((amount, new Point(start.X + 16, end.Y - 26), Amber));
+                labels.Add((amount, new Point(start.X + 16, end.Y - 26), Amber, e));
             }
             else if (level[e.SourceOperator] == level[e.DestinationOperator])
             {
@@ -315,7 +321,7 @@ public sealed class FmDiagram : Control
                     var to = new Point(d.X - (direction * boxW / 2), y);
                     context.DrawLine(pen, from, to);
                     DrawArrowHead(context, brush, from, to);
-                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, direction > 0 ? y - 15 : y + 2), brush));
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, direction > 0 ? y - 15 : y + 2), brush, e));
                 }
                 else
                 {
@@ -325,7 +331,7 @@ public sealed class FmDiagram : Control
                     double peak = from.Y - 26 - (10 * arcs++);
                     DrawArrowCurve(context, pen, brush, from, new Point(from.X, peak), new Point(to.X, peak), to);
                     double highest = from.Y + (0.75 * (peak - from.Y));
-                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, highest - 15), brush));
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, highest - 15), brush, e));
                 }
             }
             else if (!feedback.Contains(e) && level[e.SourceOperator] == level[e.DestinationOperator] + 1)
@@ -334,7 +340,7 @@ public sealed class FmDiagram : Control
                 var to = new Point(d.X, d.Y - (boxH / 2));
                 context.DrawLine(EdgePen, from, to);
                 DrawArrowHead(context, Accent, from, to);
-                labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent));
+                labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent, e));
             }
             else
             {
@@ -380,7 +386,7 @@ public sealed class FmDiagram : Control
                 DrawArrowCurve(context, back ? FeedbackPen : EdgePen, brush, start, new Point(apex, start.Y), new Point(apex, end.Y), end);
                 // Beside the middle of the curve, on its outer side.
                 Point middle = Bezier(start, new Point(apex, start.Y), new Point(apex, end.Y), end, 0.5);
-                labels.Add((amount, new Point(chosen > 0 ? middle.X + 4 : middle.X - 30, middle.Y - 7 + (12 * (stacked % 3))), brush));
+                labels.Add((amount, new Point(chosen > 0 ? middle.X + 4 : middle.X - 30, middle.Y - 7 + (12 * (stacked % 3))), brush, e));
             }
         }
 
@@ -397,7 +403,7 @@ public sealed class FmDiagram : Control
             // Left of the arrowhead, above the box it points into: clear of the boxes the line may pass behind and of the
             // edges that arrive at the middle of the box.
             double labelWidth = new FormattedText(use, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Muted).Width;
-            labels.Add((use, new Point(to.X - 6 - labelWidth, to.Y - 15), Muted));
+            labels.Add((use, new Point(to.X - 6 - labelWidth, to.Y - 15), Muted, null));
         }
 
         // Operator boxes over the edges.
@@ -406,7 +412,12 @@ public sealed class FmDiagram : Control
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
             _hitBoxes.Add((rect, i));
-            DrawEnvelope(context, patch.Operators[i].AmplitudeEnvelope, new Rect(rect.X + 7, rect.Y + 45, boxW - 14, EnvelopeH - 3));
+            var envelopeStrip = new Rect(rect.X + 7, rect.Y + 45, boxW - 14, EnvelopeH - 3);
+            DrawEnvelope(context, patch.Operators[i].AmplitudeEnvelope, envelopeStrip);
+            if (patch.Operators[i].Filter is { Envelope: { } sweep, EnvelopeOctaves: not 0.0 } swept)
+            {
+                DrawEnvelope(context, sweep, envelopeStrip, hanging: swept.EnvelopeOctaves < 0, stroke: Violet);
+            }
             // The third line: fine tuning and detune.
             OperatorPatch shownOp = patch.Operators[i];
             string tuning = DescribeTuning(shownOp);
@@ -456,18 +467,32 @@ public sealed class FmDiagram : Control
             DrawText(context, DescribeNoise(patch.Noise), new Point(noiseBox.X + 7, noiseBox.Y + 17), 10, Muted, maxWidth: noiseBox.Width - 10);
         }
 
-        // Labels on a patch of background, so that the lines under them do not cut through the digits.
-        foreach ((string text, Point at, IBrush brush) in labels)
+        // Labels on a patch of background, so that the lines under them do not cut through the digits. An amount that
+        // follows an envelope has its sketch beside it; the pointer on an edge amount tells the edge.
+        const double SketchW = 22;
+        foreach ((string text, Point at, IBrush brush, ModulationEdge? edge) in labels)
         {
             var formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, brush);
-            context.DrawRectangle(LabelBackground, null, new Rect(at.X - 2, at.Y, formatted.Width + 4, formatted.Height), 3, 3);
+            double extra = edge?.AmountEnvelope is null ? 0 : SketchW + 3;
+            var back = new Rect(at.X - 2, at.Y, formatted.Width + 4 + extra, formatted.Height);
+            context.DrawRectangle(LabelBackground, null, back, 3, 3);
             context.DrawText(formatted, at);
+            if (edge?.AmountEnvelope is { } amountEnvelope)
+            {
+                DrawEnvelope(context, amountEnvelope, new Rect(at.X + formatted.Width + 3, at.Y + 2, SketchW, formatted.Height - 4), stroke: brush);
+            }
+
+            if (edge is not null)
+            {
+                _hitBoxes.Add((back, -100 - _hitEdges.Count));
+                _hitEdges.Add(edge);
+            }
         }
     }
 
     /// <summary>
-    /// The filter strip along the bottom of an operator box: a sketch of the response and the label, with a tilde when
-    /// an envelope sweeps the frequency.
+    /// The filter strip along the bottom of an operator box: a sketch of the response and the label. A sweep is drawn
+    /// with the amplitude envelope, not here.
     /// </summary>
     private static void DrawFilter(DrawingContext context, OperatorFilter filter, Rect strip, double boxW)
     {
@@ -492,8 +517,7 @@ public sealed class FmDiagram : Control
         }
 
         context.DrawGeometry(null, FilterPen, geometry);
-        bool sweeps = filter.Envelope is not null && filter.EnvelopeOctaves != 0.0;
-        DrawText(context, PatchDescription.FilterLabel(filter) + (sweeps ? " ~" : string.Empty), new Point(glyph.Right + 4, strip.Y + 1), 10, Violet, maxWidth: boxW - (glyph.Right - strip.X) - 8);
+        DrawText(context, PatchDescription.FilterLabel(filter), new Point(glyph.Right + 4, strip.Y + 1), 10, Violet, maxWidth: boxW - (glyph.Right - strip.X) - 8);
     }
 
     /// <summary>The shape of a filter response in a unit square, 0 at the top: low frequencies left.</summary>
@@ -620,9 +644,9 @@ public sealed class FmDiagram : Control
     /// <summary>
     /// A sketch of an envelope in a strip: time runs on a square-root scale, so that a 5 ms attack and a 2 s decay both
     /// show; a held level gets a flat stretch before the release. Signed (pitch in cents): around the middle of the
-    /// strip, up and down.
+    /// strip, up and down. Hanging: from the top, for a downward sweep. With a stroke: a line in that colour, unfilled.
     /// </summary>
-    private static void DrawEnvelope(DrawingContext context, OperatorEnvelope envelope, Rect strip, bool signed = false)
+    private static void DrawEnvelope(DrawingContext context, OperatorEnvelope envelope, Rect strip, bool signed = false, bool hanging = false, IBrush? stroke = null)
     {
         IReadOnlyList<EnvelopePoint> points = envelope.Points;
         double peak = Math.Max(1e-9, points.Max(static p => Math.Abs(p.Level)));
@@ -639,8 +663,10 @@ public sealed class FmDiagram : Control
         }
 
         double total = widths.Sum(static w => w.Width);
-        double baseline = signed ? strip.Center.Y : strip.Bottom;
-        double Y(double level) => signed ? baseline - (level / peak * strip.Height / 2) : baseline - (Math.Abs(level) / peak * strip.Height);
+        double baseline = signed ? strip.Center.Y : hanging ? strip.Top : strip.Bottom;
+        double Y(double level) => signed
+            ? baseline - (level / peak * strip.Height / 2)
+            : hanging ? baseline + (Math.Abs(level) / peak * strip.Height) : baseline - (Math.Abs(level) / peak * strip.Height);
         var geometry = new StreamGeometry();
         using (StreamGeometryContext g = geometry.Open())
         {
@@ -657,7 +683,7 @@ public sealed class FmDiagram : Control
             g.EndFigure(true);
         }
 
-        context.DrawGeometry(EnvelopeFill, null, geometry);
+        context.DrawGeometry(stroke is null ? EnvelopeFill : null, null, geometry);
         var line = new StreamGeometry();
         using (StreamGeometryContext g = line.Open())
         {
@@ -672,7 +698,7 @@ public sealed class FmDiagram : Control
             g.EndFigure(false);
         }
 
-        context.DrawGeometry(null, EnvelopePen, line);
+        context.DrawGeometry(null, stroke is null ? EnvelopePen : new Pen(stroke, 1.2), line);
     }
 
     /// <summary>

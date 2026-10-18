@@ -291,10 +291,12 @@ several finalists can be compared there.
 
 **Block diagram.** The second tab of the patch card draws the operators that can be heard: carriers on the bottom row
 feeding OUT with their output levels, every modulator above what it modulates, edges with their amounts in radians
-(dashed amber when they feed back, a loop for self-feedback, `~` when the amount follows an envelope), and an operator
-filter as a strip at the bottom of its box. Each box gives the frequency and a short waveform name (*tri*, *sqr*,
-*pls0.3* with its duty, *S&H*, *fnoise*, *ell q0.26* with the nome), and a sketch of its amplitude envelope, time on a
-square-root scale so that a 5 ms attack and a 2 s decay both show, with a flat stretch where the note is held. Resting
+(dashed amber when they feed back, a loop for self-feedback, and a small sketch beside the amount when it follows an
+envelope; the pointer on an amount shows the edge with its envelope breakpoints), and an operator filter as a strip at
+the bottom of its box. Each box gives the frequency and a short waveform name (*tri*, *sqr*, *pls0.3* with its duty,
+*S&H*, *fnoise*, *ell q0.26* with the nome), and a sketch of its amplitude envelope, time on a square-root scale so
+that a 5 ms attack and a 2 s decay both show, with a flat stretch where the note is held; a filter sweep is a violet
+line over it, rising for a sweep up and hanging from the top for a sweep down. Resting
 the pointer on a box shows everything about the operator in full: tuning, waveform parameters, filter, shared noise,
 the envelope breakpoints, velocity sensitivity, key scaling and start phase. On Nome6, the shared noise source is a box at the top left with its colour
 (*white*, or for example *LP 60% · 1.9 kHz*), and a dotted line runs into every operator that plays it (*plays*) or

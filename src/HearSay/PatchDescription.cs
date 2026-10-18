@@ -107,7 +107,7 @@ public static class PatchDescription
         lines.Add(WaveformName(op.Waveform) + shape);
         if (op.Filter is { } filter)
         {
-            lines.Add(FilterDetail(filter));
+            lines.Add(filter.Envelope is { } sweep && filter.EnvelopeOctaves != 0.0 ? FilterDetail(filter) + ", envelope " + EnvelopeText(sweep) : FilterDetail(filter));
         }
 
         var noise = new List<string>();
@@ -187,6 +187,21 @@ public static class PatchDescription
         }
 
         return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// A modulation edge, for the tooltip of its amount in the block diagram: the route, the amount, and the envelope
+    /// that multiplies the amount when it has one.
+    /// </summary>
+    /// <param name="edge">Edge.</param>
+    public static string EdgeDetail(ModulationEdge edge)
+    {
+        ArgumentNullException.ThrowIfNull(edge);
+        string route = edge.IsSelfFeedback
+            ? $"OP{edge.SourceOperator + 1} → OP{edge.DestinationOperator + 1} (self-feedback)"
+            : $"OP{edge.SourceOperator + 1} → OP{edge.DestinationOperator + 1}";
+        string text = string.Create(CultureInfo.InvariantCulture, $"{route}, {edge.Amount:0.###} rad");
+        return edge.AmountEnvelope is { } envelope ? text + "\namount × envelope " + EnvelopeText(envelope) : text;
     }
 
     /// <summary>A waveform in words: <c>sine</c>, <c>sample-and-hold noise</c>, …</summary>

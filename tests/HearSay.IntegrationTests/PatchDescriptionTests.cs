@@ -45,6 +45,30 @@ public sealed class PatchDescriptionTests
     }
 
     [Fact]
+    public void OperatorDetail_OfASweptFilter_TellsTheSweepEnvelope()
+    {
+        OperatorFilter swept = OperatorFilter.LowPass(4, poles: 4) with { EnvelopeOctaves = -1.5, Envelope = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1) };
+        OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(6).WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1)) with { Waveform = OperatorWaveform.Saw, Filter = swept }).WithOutputLevel(0, 1);
+
+        Assert.Contains(
+            "\nfilter low-pass 4 poles, cutoff 4x, Q 0.71, sweep -1.5 oct, envelope 0 → 1 in 10 ms → 0.3 in 200 ms, held; release → 0 in 100 ms\n",
+            PatchDescription.OperatorDetail(patch, 0),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EdgeDetail_TellsTheRouteTheAmountAndItsEnvelope()
+    {
+        var swell = new OperatorEnvelope([new EnvelopePoint(0, 0.2), new EnvelopePoint(0.3, 1)], null, 2);
+
+        Assert.Equal("OP2 → OP1, 2.04 rad", PatchDescription.EdgeDetail(new ModulationEdge(1, 0, true, 2.04)));
+        Assert.Equal("OP3 → OP3 (self-feedback), 0.59 rad", PatchDescription.EdgeDetail(new ModulationEdge(2, 2, true, 0.59)));
+        Assert.Equal(
+            "OP2 → OP1, 2.04 rad\namount × envelope 0.2 → 1 in 300 ms",
+            PatchDescription.EdgeDetail(new ModulationEdge(1, 0, true, 2.04, swell)));
+    }
+
+    [Fact]
     public void PitchDetail_TellsTheEnvelopeInCentsAndTheVibrato()
     {
         var envelope = new OperatorEnvelope([new EnvelopePoint(0, 37), new EnvelopePoint(0.05, 0)], null, 2);
