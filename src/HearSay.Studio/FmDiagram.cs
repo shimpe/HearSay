@@ -470,11 +470,14 @@ public sealed class FmDiagram : Control
         // Labels on a patch of background, so that the lines under them do not cut through the digits. An amount that
         // follows an envelope has its sketch beside it; the pointer on an edge amount tells the edge.
         const double SketchW = 22;
-        foreach ((string text, Point at, IBrush brush, ModulationEdge? edge) in labels)
+        var taken = _hitBoxes.Select(static b => b.Box).ToList();
+        foreach ((string text, Point anchor, IBrush brush, ModulationEdge? edge) in labels)
         {
             var formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, brush);
             double extra = edge?.AmountEnvelope is null ? 0 : SketchW + 3;
+            Point at = FreeSpot(anchor, formatted.Width + 4 + extra, formatted.Height, taken, width, height);
             var back = new Rect(at.X - 2, at.Y, formatted.Width + 4 + extra, formatted.Height);
+            taken.Add(back.Inflate(1));
             context.DrawRectangle(LabelBackground, null, back, 3, 3);
             context.DrawText(formatted, at);
             if (edge?.AmountEnvelope is { } amountEnvelope)
@@ -488,6 +491,37 @@ public sealed class FmDiagram : Control
                 _hitEdges.Add(edge);
             }
         }
+    }
+
+    /// <summary>
+    /// Where a label goes: at its anchor when that is free of the boxes and labels already drawn, else at the nearest
+    /// free spot around it, a line up or down first, then beside the anchor on either side; when nothing is free, the
+    /// spot it overlaps least.
+    /// </summary>
+    private static Point FreeSpot(Point anchor, double w, double h, List<Rect> taken, double width, double height)
+    {
+        Point best = anchor;
+        double bestOverlap = double.PositiveInfinity;
+        foreach (double dx in new[] { 0.0, 12, -12, w + 6, -(w + 6), 2 * (w + 6), -2 * (w + 6) })
+        {
+            foreach (double dy in new[] { 0.0, -12, 12, -24, 24 })
+            {
+                var spot = new Point(Math.Clamp(anchor.X + dx, 2, Math.Max(2, width - w)), Math.Clamp(anchor.Y + dy, 2, Math.Max(2, height - h)));
+                var rect = new Rect(spot.X - 2, spot.Y, w, h);
+                double overlap = taken.Sum(t => t.Intersect(rect) is { Width: > 0, Height: > 0 } i ? i.Width * i.Height : 0.0);
+                if (overlap == 0.0)
+                {
+                    return spot;
+                }
+
+                if (overlap < bestOverlap)
+                {
+                    (best, bestOverlap) = (spot, overlap);
+                }
+            }
+        }
+
+        return best;
     }
 
     /// <summary>
