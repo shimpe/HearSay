@@ -308,10 +308,11 @@ public sealed class ParameterTests
         Assert.All(f3, id => Assert.Contains(id, ids));
         Assert.DoesNotContain(schema.Parameters, static p => p.Id.Contains("formant4", StringComparison.Ordinal) || p.Id.Contains("formant5", StringComparison.Ordinal));
 
-        // Ratios and Qs on a log scale, the level linear, within the model's ranges.
+        // Ratios and Qs on a log scale, the level linear. The own Qs are searched relative to the filter's Q (1 = the
+        // same Q), from 1/8 to 8 times it.
         PatchParameter q2 = schema.Find("op1.operatorFilter.formantQ2")!, ratio3 = schema.Find(f3[0])!, level3 = schema.Find(f3[1])!, q3 = schema.Find(f3[2])!;
-        Assert.Equal((OperatorFilter.MinQ, OperatorFilter.MaxFormantQ), (q2.Minimum, q2.Maximum));
-        Assert.Equal((OperatorFilter.MinQ, OperatorFilter.MaxFormantQ), (q3.Minimum, q3.Maximum));
+        Assert.Equal((0.125, 8.0), (q2.Minimum, q2.Maximum));
+        Assert.Equal((0.125, 8.0), (q3.Minimum, q3.Maximum));
         Assert.Equal((OperatorFilter.MinQ, OperatorFilter.MaxFormantQ), (schema.Find("op1.operatorFilter.q")!.Minimum, schema.Find("op1.operatorFilter.q")!.Maximum));
         Assert.Equal((1.0, 16.0), (ratio3.Minimum, ratio3.Maximum));
         Assert.Equal((0.0, 1.0), (level3.Minimum, level3.Maximum));
@@ -319,12 +320,18 @@ public sealed class ParameterTests
         Assert.Same(ParameterTransforms.Logarithmic, ratio3.Transform);
         Assert.Same(ParameterTransforms.Logarithmic, q3.Transform);
         Assert.Same(ParameterTransforms.Linear, level3.Transform);
-        Assert.Equal((12.0, 5.6, 0.2, 18.0), (q2.Get(three), ratio3.Get(three), level3.Get(three), q3.Get(three)));
+        Assert.Equal((2.0, 5.6, 0.2, 3.0), (q2.Get(three), ratio3.Get(three), level3.Get(three), q3.Get(three)));
 
-        // Writing them sets the model's fields, clamped to its ranges.
+        // Writing them sets the model's fields, clamped to its ranges: 8 x Q 6 is an own Q of 48, 1/8 x 6 is 0.75.
         OperatorFilter written = q3.Set(level3.Set(ratio3.Set(q2.Set(three, 80.0), 40.0), 0.7), 0.1).Operators[0].Filter!;
-        Assert.Equal((50.0, 16.0, 0.7, 0.5), (written.FormantQ2, written.Formant3Ratio, written.Formant3Level, written.Formant3Q));
+        Assert.Equal((48.0, 16.0, 0.7, 0.75), (written.FormantQ2, written.Formant3Ratio, written.Formant3Level, written.Formant3Q));
         Assert.Empty(FilteredSaw(written).Validate());
+
+        // The effective own Q stays within 0.5..50 whatever the filter's Q: 8 x 20 is 50, 1/8 x 2 is 0.5.
+        OperatorMatrixPatch sharp = FilteredSaw(OperatorFilter.Formants(500, 20, new FormantPeak(2.4, 0.5, 0)));
+        Assert.Equal(50.0, q2.Set(sharp, 8.0).Operators[0].Filter!.FormantQ2);
+        OperatorMatrixPatch broad = FilteredSaw(OperatorFilter.Formants(500, 2, new FormantPeak(2.4, 0.5, 0)));
+        Assert.Equal(0.5, q2.Set(broad, 0.125).Operators[0].Filter!.FormantQ2);
 
         // Two formants: F2's own Q is searched, starting at the shared Q; F3 is off, so it adds no dead directions.
         // Reading and writing back the shared Q leaves "same as Q", so a first write changes nothing.
@@ -334,15 +341,60 @@ public sealed class ParameterTests
         Assert.Contains("op1.operatorFilter.formantQ2", ids);
         Assert.All(f3, id => Assert.DoesNotContain(id, ids));
         PatchParameter sharedQ2 = twoSchema.Find("op1.operatorFilter.formantQ2")!;
-        Assert.Equal(8.0, sharedQ2.Get(two), 10);
+        Assert.Equal(1.0, sharedQ2.Get(two), 10);
         Assert.Equal(two.ComputeHash(), sharedQ2.SetNormalized(two, sharedQ2.GetNormalized(two)).ComputeHash());
-        Assert.Equal(12.0, sharedQ2.Set(two, 12.0).Operators[0].Filter!.FormantQ2, 10);
+        Assert.Equal(12.0, sharedQ2.Set(two, 1.5).Operators[0].Filter!.FormantQ2, 10);
+
+        // A hand-made own Q far from the filter's Q widens the range, so the first write does not move it.
+        OperatorMatrixPatch narrow = FilteredSaw(OperatorFilter.Formants(500, 2, new(2.4, 0.5, 40), new(5.6, 0.2, 0)));
+        PatchParameter narrowQ2 = PatchParameterSchema.Build(narrow, fmx6).Find("op1.operatorFilter.formantQ2")!;
+        Assert.Equal(20.0, narrowQ2.Maximum, 10);
+        Assert.Equal(40.0, narrowQ2.SetNormalized(narrow, narrowQ2.GetNormalized(narrow)).Operators[0].Filter!.FormantQ2, 6);
+        OperatorMatrixPatch wide = FilteredSaw(OperatorFilter.Formants(500, 8, new(2.4, 0.5, 0), new(5.6, 0.2, 0.5)));
+        PatchParameter wideQ3 = PatchParameterSchema.Build(wide, fmx6).Find(f3[2])!;
+        Assert.Equal(0.0625, wideQ3.Minimum, 10);
+        Assert.Equal(0.5, wideQ3.SetNormalized(wide, wideQ3.GetNormalized(wide)).Operators[0].Filter!.Formant3Q, 6);
 
         // Other filter types have none of the formant values.
         OperatorMatrixPatch lowPass = FilteredSaw(OperatorFilter.LowPass(4));
         PatchParameterSchema lowSchema = PatchParameterSchema.Build(lowPass, fmx6);
         Assert.DoesNotContain(lowSchema.ActiveSmooth(lowPass), static p => p.Id.Contains("formant", StringComparison.Ordinal));
         Assert.Equal(OperatorFilter.MaxQ, lowSchema.Find("op1.operatorFilter.q")!.Maximum);
+    }
+
+    [Fact]
+    public void FormantQ2_IsRelativeToQ_SoMovingQAloneKeepsF2Tied()
+    {
+        // A two-formant filter without an own F2 Q, optimized over its Q and F2's own Q together.
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        OperatorMatrixPatch two = FilteredSaw(OperatorFilter.FormantAt(700, 1.8, 0.5, 8));
+        PatchParameterSchema schema = PatchParameterSchema.Build(two, fmx6);
+        PatchParameter q = schema.Find("op1.operatorFilter.q")!, q2 = schema.Find("op1.operatorFilter.formantQ2")!;
+        var set = new ActiveParameterSet([q, q2]);
+        double[] start = set.ToVector(two);
+
+        // The starting vector gives the patch back: F2 keeps "same as Q" and the hash is unchanged. (With Q in the set,
+        // Q itself comes back within an ulp from the log axis, as every log parameter does, so the exact hash is checked
+        // for F2's coordinate alone.)
+        OperatorFilter back = set.Apply(two, start).Operators[0].Filter!;
+        Assert.Equal(8.0, back.Q, 12);
+        Assert.Equal(0.0, back.FormantQ2);
+        Assert.False(back.UsesExtendedFormants);
+        var own2 = new ActiveParameterSet([q2]);
+        Assert.Equal(two.ComputeHash(), own2.Apply(two, own2.ToVector(two)).ComputeHash());
+
+        // Moving Q alone moves F2's Q with it: still "same as Q", so the export keeps today's rows.
+        double[] sharper = [q.Normalize(10.0), start[1]];
+        OperatorFilter moved = set.Apply(two, sharper).Operators[0].Filter!;
+        Assert.Equal(10.0, moved.Q, 10);
+        Assert.Equal(0.0, moved.FormantQ2);
+        Assert.False(moved.UsesExtendedFormants);
+
+        // Moving F2's coordinate gives it its own Q, relative to the filter's.
+        double[] own = [q.Normalize(10.0), q2.Normalize(1.5)];
+        OperatorFilter separate = set.Apply(two, own).Operators[0].Filter!;
+        Assert.Equal(15.0, separate.FormantQ2, 6);
+        Assert.True(separate.UsesExtendedFormants);
     }
 
     [Fact]

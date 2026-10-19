@@ -679,9 +679,11 @@ public sealed class TopologyMutator
                 variants.Add(new TopologyMutation(With(filter with { Type = OperatorFilterType.LowPass }), name + " low-pass"));
             }
 
-            if (filter.Type == OperatorFilterType.Formant && filter.Formant3Level == 0.0 && formant is { Formant3Level: > 0.0 } heard)
+            if (filter.Type == OperatorFilterType.Formant && filter.Formant3Level == 0.0 && formant is { Formant3Level: > 0.0 } heard
+                && heard.FixedHz * heard.Formant3Ratio > filter.FixedHz * filter.FormantRatio)
             {
-                // The target's third formant, at its frequency as a ratio to this filter's own F1, with its Q.
+                // The target's third formant, at its frequency as a ratio to this filter's own F1, with its Q; only
+                // above this filter's F2, where it is a third formant.
                 double ratio3 = Math.Clamp(heard.FixedHz * heard.Formant3Ratio / filter.FixedHz, 1.0, OperatorFilter.MaxFormantRatio);
                 double q3 = heard.Formant3Q > 0.0 ? heard.Formant3Q : heard.Q;
                 variants.Add(new TopologyMutation(With(filter with { Formant3Ratio = ratio3, Formant3Level = heard.Formant3Level, Formant3Q = q3 == filter.Q ? 0.0 : q3 }), name + " third formant"));

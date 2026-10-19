@@ -80,6 +80,23 @@ public sealed class FilterPriorTests
     }
 
     [Fact]
+    public void ThirdFormantVariant_IsNotOffered_WhenTheFiltersF2IsAboveTheTargetsF3()
+    {
+        TargetAnalysis analysis = Analyze(Saw(OperatorFilter.Formants(400, 8, new(3.0, 0.6, 0), new(7.0, 0.5, 0))), 110);
+        OperatorFilter heard = FilterPriors.Formant(analysis)!;
+        double f3 = heard.FixedHz * heard.Formant3Ratio;
+
+        // F1 above the heard F3, and F1 below it with F2 above it: a third peak there would not be the third.
+        foreach (OperatorFilter filter in new[] { OperatorFilter.FormantAt(f3 * 1.2, 1.5, 0.5, 8), OperatorFilter.FormantAt(f3 / 2, 2.5, 0.5, 8), OperatorFilter.FormantAt(f3 / 2, 2.0, 0.5, 8) })
+        {
+            Assert.DoesNotContain(TopologyMutator.FilterVariants(Saw(filter), analysis, [0]), static m => m.Description == "OP1 filter third formant");
+        }
+
+        // Just below it, it is offered.
+        Assert.Contains(TopologyMutator.FilterVariants(Saw(OperatorFilter.FormantAt(f3 / 2, 1.9, 0.5, 8)), analysis, [0]), static m => m.Description == "OP1 filter third formant");
+    }
+
+    [Fact]
     public void FormantPrior_TwoPeaks_LeaveF3Off()
     {
         TargetAnalysis analysis = Analyze(Saw(OperatorFilter.FormantAt(700, 1.7, 0.6, 8)), 110);

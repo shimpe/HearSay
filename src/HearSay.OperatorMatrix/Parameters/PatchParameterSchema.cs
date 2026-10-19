@@ -15,6 +15,10 @@ public sealed class PatchParameterSchema
     public static IReadOnlyList<double> DefaultRatios { get; } =
         [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16];
 
+    // Search range of a formant peak's own Q, as a multiple of the filter's Q.
+    private const double MinRelativeQ = 0.125;
+    private const double MaxRelativeQ = 8.0;
+
     private readonly Dictionary<string, PatchParameter> _byId;
 
     private PatchParameterSchema(List<PatchParameter> parameters)
@@ -134,15 +138,23 @@ public sealed class PatchParameterSchema
                 // it is off, its ratio and Q would be directions that do nothing.
                 static bool HasF3(OperatorFilter f) => IsFormant(f) && f.Formant3Level > 0.0;
 
+                // The own Qs of F2 and F3 are searched relative to the filter's Q: the coordinate is own Q / Q, and 1
+                // means "same as Q" (stored as 0). Moving Q alone then moves a peak without an own Q with it, as
+                // before; Q is written before these in every parameter set, as the schema lists it first. The range is
+                // 1/8..8 times Q (the table's F2 and F3 are up to about 6 times as narrow as F1), widened to a
+                // hand-made own Q, and the own Q itself always stays within 0.5..50.
+                (double lowQ2, double highQ2) = RelativeRange(present, static f => f.FormantQ2);
+                (double lowQ3, double highQ3) = RelativeRange(present, static f => f.Formant3Q);
+
                 list.Add(Smooth(filterId + ".cutoff", filterGroup, 0.25, 64.0, ParameterTransforms.Logarithmic, p => Read(p, static f => f.CutoffRatio, 4.0), (p, v) => WithFilter(p, f => f with { CutoffRatio = Math.Clamp(v, 0.25, 64.0) }), p => Has(p, static f => f.IsKeyTracked)));
                 list.Add(Smooth(filterId + ".fixedHz", filterGroup, lowHz, highHz, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FixedHz, 1000.0), (p, v) => WithFilter(p, f => f with { FixedHz = Math.Clamp(v, lowHz, highHz) }), p => Has(p, static f => !f.IsKeyTracked)));
                 list.Add(Smooth(filterId + ".q", filterGroup, OperatorFilter.MinQ, highQ, ParameterTransforms.Logarithmic, p => Read(p, static f => f.Q, OperatorFilter.ButterworthQ), (p, v) => WithFilter(p, f => f with { Q = Math.Clamp(v, OperatorFilter.MinQ, MaxQOf(f)) }), p => Has(p, static _ => true)));
                 list.Add(Smooth(filterId + ".formantRatio", filterGroup, 1.0, highRatio, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FormantRatio, 2.0), (p, v) => WithFilter(p, f => f with { FormantRatio = Math.Clamp(v, 1.0, highRatio) }), p => Has(p, IsFormant)));
                 list.Add(Smooth(filterId + ".formantLevel", filterGroup, 0.0, 1.0, ParameterTransforms.Linear, p => Read(p, static f => f.FormantLevel, 0.5), (p, v) => WithFilter(p, f => f with { FormantLevel = Math.Clamp(v, 0.0, 1.0) }), p => Has(p, IsFormant)));
-                list.Add(Smooth(filterId + ".formantQ2", filterGroup, OperatorFilter.MinQ, OperatorFilter.MaxFormantQ, ParameterTransforms.Logarithmic, p => Read(p, static f => EffectiveQ(f.FormantQ2, f.Q), 8.0), (p, v) => WithFilter(p, f => f with { FormantQ2 = OwnQ(v, f.Q) }), p => Has(p, IsFormant)));
+                list.Add(Smooth(filterId + ".formantQ2", filterGroup, lowQ2, highQ2, ParameterTransforms.Logarithmic, p => Read(p, static f => RelativeQ(f.FormantQ2, f.Q), 1.0), (p, v) => WithFilter(p, f => f with { FormantQ2 = OwnQ(v, f.Q) }), p => Has(p, IsFormant)));
                 list.Add(Smooth(filterId + ".formant3Ratio", filterGroup, 1.0, highRatio3, ParameterTransforms.Logarithmic, p => Read(p, static f => f.Formant3Ratio, 4.0), (p, v) => WithFilter(p, f => f with { Formant3Ratio = Math.Clamp(v, 1.0, highRatio3) }), p => Has(p, HasF3)));
                 list.Add(Smooth(filterId + ".formant3Level", filterGroup, 0.0, 1.0, ParameterTransforms.Linear, p => Read(p, static f => f.Formant3Level, 0.3), (p, v) => WithFilter(p, f => f with { Formant3Level = Math.Clamp(v, 0.0, 1.0) }), p => Has(p, HasF3)));
-                list.Add(Smooth(filterId + ".formant3Q", filterGroup, OperatorFilter.MinQ, OperatorFilter.MaxFormantQ, ParameterTransforms.Logarithmic, p => Read(p, static f => EffectiveQ(f.Formant3Q, f.Q), 8.0), (p, v) => WithFilter(p, f => f with { Formant3Q = OwnQ(v, f.Q) }), p => Has(p, HasF3)));
+                list.Add(Smooth(filterId + ".formant3Q", filterGroup, lowQ3, highQ3, ParameterTransforms.Logarithmic, p => Read(p, static f => RelativeQ(f.Formant3Q, f.Q), 1.0), (p, v) => WithFilter(p, f => f with { Formant3Q = OwnQ(v, f.Q) }), p => Has(p, HasF3)));
                 list.Add(Smooth(filterId + ".peakGain", filterGroup, -24.0, 24.0, ParameterTransforms.Linear, p => Read(p, static f => f.PeakGainDb, 6.0), (p, v) => WithFilter(p, f => f with { PeakGainDb = Math.Clamp(v, -24.0, 24.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Peak)));
                 list.Add(Smooth(filterId + ".octaves", filterGroup, -4.0, 4.0, ParameterTransforms.Linear, p => Read(p, static f => f.EnvelopeOctaves, 0.0), (p, v) => WithFilter(p, f => f with { EnvelopeOctaves = Math.Clamp(v, -4.0, 4.0) }), p => Has(p, static f => f.Envelope is not null)));
                 if (patch.Operators[op].Filter?.Envelope is { } filterShape)
@@ -380,15 +392,22 @@ public sealed class PatchParameterSchema
         }
     }
 
-    /// <summary>The Q a formant peak plays at: its own, or the filter's when it has none (0).</summary>
-    private static double EffectiveQ(double own, double shared) => own > 0.0 ? own : shared;
+    /// <summary>The smallest and largest relative own Q to search: 1/8..8, widened to the one the filter has.</summary>
+    private static (double Low, double High) RelativeRange(OperatorFilter? present, Func<OperatorFilter, double> own)
+    {
+        double relative = present is { Type: OperatorFilterType.Formant } f && own(f) > 0.0 ? own(f) / f.Q : 1.0;
+        return (Math.Min(MinRelativeQ, relative), Math.Max(MaxRelativeQ, relative));
+    }
+
+    /// <summary>A peak's own Q as a multiple of the filter's Q; 1 for a peak without one (0).</summary>
+    private static double RelativeQ(double own, double shared) => own > 0.0 ? own / shared : 1.0;
 
     /// <summary>
-    /// The own Q of a formant peak to store for a searched value: "same as Q" (0) when it is the filter's Q, so that
-    /// reading and writing back a peak without an own Q leaves the patch as it was; the value within 0.5..50 otherwise.
+    /// The own Q of a formant peak to store for a searched multiple of the filter's Q: "same as Q" (0) at 1, so that
+    /// reading and writing back a peak without an own Q leaves the patch as it was; the own Q within 0.5..50 otherwise.
     /// </summary>
-    private static double OwnQ(double value, double shared) =>
-        Math.Abs(value - shared) <= 1e-9 * shared ? 0.0 : Math.Clamp(value, OperatorFilter.MinQ, OperatorFilter.MaxFormantQ);
+    private static double OwnQ(double relative, double shared) =>
+        Math.Abs(relative - 1.0) <= 1e-9 ? 0.0 : Math.Clamp(relative * shared, OperatorFilter.MinQ, OperatorFilter.MaxFormantQ);
 
     private static OperatorEnvelope WithPoint(OperatorEnvelope envelope, int index, EnvelopePoint point)
     {
