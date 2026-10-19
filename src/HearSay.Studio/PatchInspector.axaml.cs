@@ -15,13 +15,20 @@ namespace HearSay.Studio;
 /// <summary>
 /// The values of the part of the sound selected in the block diagram, to edit: an operator, a connection, the shared
 /// noise or the pitch. Numbers are typed (committed on Enter or when the box is left) or dragged sideways on their name
-/// or box (Shift finer, Ctrl to the musical ratios); waveform, frequency mode and filter type are menus; what a part may
+/// or box (Shift finer, Ctrl to the musical ratios); waveform, frequency mode and filter type are menus, and a formant
+/// filter has vowel presets (a voice menu and a button per vowel) and folds F4 and F5 away; what a part may
 /// have or not (a sweep, a connection envelope, roughness, a pitch envelope, vibrato) is a toggle; envelopes are graphs
 /// with their breakpoints as numbers. Its data context is the tab's <see cref="PatchEditorViewModel"/>. While the
 /// original is shown it shows the original's values and cannot be changed. Refusals go to the status line.
 /// </summary>
 public sealed partial class PatchInspector : UserControl
 {
+    /// <summary>The voice of the vowel presets, the one used last while the Studio runs.</summary>
+    private static FormantVoice _lastVoice = FormantVoice.Soprano;
+
+    /// <summary>True when "more formants" (F4 and F5) was left open, while the Studio runs.</summary>
+    private static bool _moreFormantsExpanded;
+
     private readonly List<NumberBox> _boxes = [];
     private readonly List<EnvelopeEditor> _envelopes = [];
     private readonly Dictionary<string, EditableValue> _values = [];
@@ -257,12 +264,53 @@ public sealed partial class PatchInspector : UserControl
             Heading("Filter");
             (string, object)[] types = [("none", "none"), .. Enum.GetValues<OperatorFilterType>().Select(t => (FilterName(t), (object)t))];
             Menu("FilterType", "type", types, o.Filter?.Type is { } type ? type : "none", t => PatchEdits.SetFilter(op, t as OperatorFilterType?));
+            bool formant = o.Filter?.Type == OperatorFilterType.Formant;
+            if (formant)
+            {
+                FormantPresetRows(op);
+            }
+
             if (o.Filter is not null)
             {
                 Toggle("Sweep", "Sweep (an envelope moves the frequency)", o.Filter.Envelope is not null, on => PatchEdits.SetSweep(op, on));
             }
 
-            AddRows(values.Where(IsFilter));
+            // F4 and F5 fold away, in their place after F3: the search never sets them, and they matter mostly for the
+            // vowel presets.
+            static bool IsHigherFormant(EditableValue v) => v.Id.Contains(".operatorFilter.formant4", StringComparison.Ordinal) || v.Id.Contains(".operatorFilter.formant5", StringComparison.Ordinal);
+            List<EditableValue> filterValues = [.. values.Where(IsFilter)];
+            int higherAt = filterValues.FindIndex(IsHigherFormant);
+            AddRows(higherAt < 0 ? filterValues : filterValues.Take(higherAt));
+            if (formant)
+            {
+                var more = new StackPanel { Spacing = 4 };
+                AddRows(filterValues.Where(IsHigherFormant), more);
+                var expander = new Expander
+                {
+                    Name = "MoreFormants",
+                    Header = "more formants",
+                    IsExpanded = _moreFormantsExpanded,
+                    Content = more,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Padding = new Thickness(6, 4),
+                    FontSize = 12,
+                };
+                ToolTip.SetTip(expander, "F4 and F5: the vowel presets set them; the search leaves them off");
+                expander.PropertyChanged += (_, e) =>
+                {
+                    if (e.Property == Expander.IsExpandedProperty)
+                    {
+                        _moreFormantsExpanded = expander.IsExpanded;
+                    }
+                };
+                Body.Children.Add(expander);
+            }
+
+            if (higherAt >= 0)
+            {
+                AddRows(filterValues.Skip(higherAt).Where(v => !IsHigherFormant(v)));
+            }
         }
 
         if (PatchEdits.HasSharedNoise(caps) && !o.Waveform.IsNoise())
@@ -290,6 +338,57 @@ public sealed partial class PatchInspector : UserControl
         }
 
         AddEnvelopes(patch, part, "Amount envelope (× the amount)");
+    }
+
+    /// <summary>
+    /// The vowel presets of a formant filter: a voice menu (the voice used last, at first soprano) and a button per
+    /// vowel, which sets all five formants of that voice and vowel as one step and keeps the sweep.
+    /// </summary>
+    private void FormantPresetRows(int op)
+    {
+        var voices = new ComboBox { Name = "FormantVoice" };
+        ToolTip.SetTip(voices, "The voice of the vowel buttons, from the Csound formant table");
+        foreach (FormantVoice voice in Enum.GetValues<FormantVoice>())
+        {
+            var item = new ComboBoxItem { Content = FormantPresets.Name(voice), Tag = voice };
+            voices.Items.Add(item);
+            if (voice == _lastVoice)
+            {
+                voices.SelectedItem = item;
+            }
+        }
+
+        voices.SelectionChanged += (_, _) =>
+        {
+            if (voices.SelectedItem is ComboBoxItem { Tag: FormantVoice voice })
+            {
+                _lastVoice = voice;
+            }
+        };
+        AddRow(new TextBlock { Text = "preset", Classes = { "row" } }, voices, string.Empty);
+
+        // The five buttons in one line, over the box and unit columns.
+        FormantVowel[] all = Enum.GetValues<FormantVowel>();
+        var vowels = new Grid { ColumnDefinitions = new ColumnDefinitions(string.Join(",", all.Select(static _ => "*"))), ColumnSpacing = 3 };
+        foreach (FormantVowel vowel in all)
+        {
+            string name = FormantPresets.Name(vowel);
+            var button = new Button
+            {
+                Name = "Vowel:" + name,
+                Content = name,
+                Padding = new Thickness(0, 3),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+            };
+            ToolTip.SetTip(button, $"Set the five formants to the vowel \"{name}\" of the chosen voice");
+            button.Click += (_, _) => _editor!.Apply(PatchEdits.SetFormantPreset(op, _lastVoice, vowel));
+            Grid.SetColumn(button, (int)vowel);
+            vowels.Children.Add(button);
+        }
+
+        AddRow(new TextBlock { Text = "vowel", Classes = { "row" } }, vowels, string.Empty);
+        Grid.SetColumnSpan(vowels, 2);
     }
 
     /// <summary>
@@ -359,7 +458,9 @@ public sealed partial class PatchInspector : UserControl
     }
 
     /// <summary>One row per value: its name and box, both draggable sideways, and its unit.</summary>
-    private void AddRows(IEnumerable<EditableValue> values)
+    /// <param name="values">The values.</param>
+    /// <param name="into">The panel the rows go into; null for the body.</param>
+    private void AddRows(IEnumerable<EditableValue> values, Panel? into = null)
     {
         foreach (EditableValue value in values)
         {
@@ -378,11 +479,11 @@ public sealed partial class PatchInspector : UserControl
             var label = new TextBlock { Name = "label:" + id, Text = value.Label, Classes = { "row", "drag" } };
             ToolTip.SetTip(label, "Drag sideways to change; Shift for finer steps" + (value.SnapPoints is null ? "." : ", Ctrl for the musical ratios."));
             box.DragWith(label);
-            AddRow(label, box, value.Unit);
+            AddRow(label, box, value.Unit, into);
         }
     }
 
-    private void AddRow(Control label, Control box, string unit)
+    private void AddRow(Control label, Control box, string unit, Panel? into = null)
     {
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("92,*,44"), ColumnSpacing = 4 };
         Grid.SetColumn(box, 1);
@@ -391,7 +492,7 @@ public sealed partial class PatchInspector : UserControl
         row.Children.Add(label);
         row.Children.Add(box);
         row.Children.Add(units);
-        Body.Children.Add(row);
+        (into ?? Body).Children.Add(row);
         if (box is NumberBox number)
         {
             _boxes.Add(number);

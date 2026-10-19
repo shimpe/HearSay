@@ -126,7 +126,16 @@ sample-exactly like the UGen.
 | low-pass, high-pass (2 or 4 poles) | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
 | band-pass, notch | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
 | peak | `FixedHz` 80..8000 Hz | `Q` 0.5..20, `PeakGainDb` -24..24 |
-| formant | F1 = `FixedHz` 80..8000 Hz, F2 = F1 x `FormantRatio` 1..8 | `Q` 0.5..20 (both peaks), `FormantLevel` 0..1 (F2) |
+| formant | F1 = `FixedHz` 80..8000 Hz, F2 = F1 x `FormantRatio` 1..8, F3 = F1 x `Formant3Ratio` 1..16 | `Q` 0.5..50 (F1, and every formant without a Q of its own), F2: `FormantLevel` 0..1 and its own Q; F3, once it is on: `Formant3Level` 0..1 and its own Q |
+
+The formant filter has up to five formants, each a band-pass peak of unity gain: F1 in hertz (`FixedHz`) with the
+filter's `Q`, and F2..F5 at a ratio to F1 (1..32, so that moving F1 moves the whole vowel), each with a level
+relative to F1 (0..1; F3, F4 and F5 at 0 are off) and its own Q (0.5..50; 0, the default, plays at the filter's `Q`).
+The search uses F1–F3: it gives F2 its own Q and F3 its ratio, level and own Q (both own Qs relative to `Q`, so that
+moving `Q` alone moves a formant without a Q of its own with it), and never sets F4 or F5. Those come from the vowel
+presets of the Studio editor (section 9, *Editing a sound*) or from typing them. A formant filter with only F1 and F2
+at one Q exports the filter rows of before; with an own Q on F2 or F3..F5 on, its rows carry the extra formants and
+need the FMX6 plugin with five formants.
 
 An optional envelope moves the frequency, `frequency x 2^(EnvelopeOctaves x env)` with `EnvelopeOctaves` -4..4 and
 levels 0..1; it uses the operator's key scaling of time. Key-tracked frequencies follow the note, not the pitch
@@ -136,8 +145,9 @@ type and the number of poles are structural: the search changes them only by mut
 Where filters come from:
 
 - **Priors.** The formant prior fits a smooth envelope through the harmonic levels, compared with a sawtooth, and
-  proposes a saw or pulse carrier through a formant filter on its two strongest maxima (and variants with one peak and
-  with F1 + F3); its accuracy is about half the fundamental. The subtractive prior proposes a saw or square through a
+  proposes a saw or pulse carrier through a formant filter on its three strongest maxima, F1, F2 and F3 by frequency (and variants
+  with the two strongest, with one peak and with F1 + F3), each peak with the Q of its width; its accuracy is about
+  half the fundamental. The subtractive prior proposes a saw or square through a
   low-pass at the roll-off of the harmonics, 4 poles when they fall 18 dB per octave or faster, with a sweep when the
   brightness moves during the note.
 - **Mutations.** Screened like the other structural steps: add a low-pass, high-pass, band-pass, peak or formant
@@ -333,6 +343,14 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   nothing until that operator is heard. A new connection starts at 1 rad and is selected, so that its amount can be
   typed or dragged at once. *Remove* switches an operator off with its own connections;
   the last carrier that is heard cannot be removed.
+- **Formant filters.** A formant filter shows F1 (in Hz) and Q1, then F2 and F3 (ratio, level and Q each), and folds
+  F4 and F5 under *more formants*, closed at first; it stays open or closed as left while the Studio runs. Ratios go up
+  to 32 and every Q up to 50. A formant without a Q of its own shows the Q it plays at, Q1; typing or dragging its Q
+  gives it one. Under the filter type, *preset* chooses a voice (soprano, alto, countertenor, tenor or bass; the voice
+  used last, at first soprano), and the buttons *a e i o u* set all five formants to that vowel from the Csound formant
+  table: F1 in Hz, Q1 = F1 / its bandwidth, and for F2..F5 the ratio to F1, the level 10^(dB/20) relative to F1 and
+  the Q = frequency / bandwidth. A preset is one step to undo and keeps the filter's sweep and the rest of the
+  operator. The search never sets F4 and F5 (section 4, *Operator filters*); the presets do.
 - **Numbers.** Type a number and press Enter (or leave the box). Or drag sideways, on the box or its name in the
   inspector, or on the dashed-underlined numbers of the diagram itself (frequency ratio or fixed frequency, connection
   amounts, output levels) while a note plays: 200 pixels cross the whole range, along its scale (a ratio in equal
@@ -347,7 +365,7 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   The pitch envelope has no exponential curves: they cannot go below zero, and its cents go either way of the note.
 - **Undo and Redo** (the arrows right of the tabs, Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to the sound
   as it was. One step is one drag from press to release, one typed number, one menu choice, one part added or removed,
-  one envelope point dragged. While a box holds typed text, Ctrl+Z undoes the typing; during a drag the keys do
+  one envelope point dragged, one vowel preset. While a box holds typed text, Ctrl+Z undoes the typing; during a drag the keys do
   nothing.
 - **Original ⇄ Edited.** Once a sound is edited, a switch beside the arrows shows the original or the edit: the
   diagram, the code and the keys follow, to compare by ear. The original can be inspected but not changed; an edit,
@@ -601,7 +619,8 @@ Per operator: `Enabled`, `Mode`, `Waveform`, `Frequency` (`AtRatio(r)` or `AtFix
 `DetuneHz`, `InitialPhase`, `AmplitudeEnvelope` (points with level, time, curve and an optional sustain point;
 `Adsr`, `TwoStageDecay` and `Constant` build common ones), `VelocitySensitivity`, `KeyScaling` (level dB per octave,
 rate per octave, reference note), for FMX6 `Shape` (pulse duty), `HarmonicLimit` and `Filter` (`OperatorFilter.LowPass`,
-`HighPass`, `BandPass`, `Notch`, `PeakAt` and `FormantAt` build one; null for none), and for Nome6 `Shape`
+`HighPass`, `BandPass`, `Notch`, `PeakAt`, `FormantAt` and `Formants`, up to five formants, build one;
+`FormantPresets.Filter` gives a vowel of the formant table; null for none), and for Nome6 `Shape`
 (elliptic m), `Morph`, `NoisePhase` and `NoiseM`. Per patch: `OutputLevels`, `ModulationMatrix` (edges
 `SourceOperator`, `DestinationOperator`, `Enabled`, `Amount` in radians, optional `AmountEnvelope`), `Pitch`
 (envelope and vibrato) and, for Nome6, `Noise` (colour and cutoff of the shared noise).

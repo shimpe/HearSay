@@ -114,6 +114,78 @@ public sealed class EditableValuesTests
     }
 
     [Fact]
+    public void For_FormantFilter_ListsFiveFormants()
+    {
+        // F1 at 500 Hz, Q 6; F2 with no Q of its own; F3 on with Q 24; F4 and F5 off.
+        OperatorFilter formant = OperatorFilter.Formants(500, 6, new FormantPeak(2.0, 0.5, 0), new FormantPeak(5.0, 0.2, 24.0));
+        OperatorMatrixPatch patch = TwoOperators();
+        patch = patch.WithOperator(0, patch.Operators[0] with { Filter = formant });
+        IReadOnlyList<EditableValue> values = [.. EditableValues.For(patch, Fmx6.Capabilities, new PatchPart.OperatorPart(0)).Where(static v => v.Id.Contains(".operatorFilter.", StringComparison.Ordinal))];
+        string[] names = ["fixedHz", "q", "formantRatio", "formantLevel", "formantQ2", "formant3Ratio", "formant3Level", "formant3Q", "formant4Ratio", "formant4Level", "formant4Q", "formant5Ratio", "formant5Level", "formant5Q"];
+        Assert.Equal(names.Select(static n => "op1.operatorFilter." + n), values.Select(static v => v.Id));
+        Assert.Equal(
+            ["F1", "Q1", "F2 ratio", "F2 level", "F2 Q", "F3 ratio", "F3 level", "F3 Q", "F4 ratio", "F4 level", "F4 Q", "F5 ratio", "F5 level", "F5 Q"],
+            values.Select(static v => v.Label));
+        Assert.Equal("Hz", Value(values, "op1.operatorFilter.fixedHz").Unit);
+
+        // The model's ranges: ratios up to 32, levels 0..1, every Q 0.5..50, absolute (not the search's Q2 / Q).
+        foreach (string n in new[] { "formantRatio", "formant3Ratio", "formant4Ratio", "formant5Ratio" })
+        {
+            EditableValue ratio = Value(values, "op1.operatorFilter." + n);
+            Assert.Equal((1.0, 32.0, true), (ratio.Minimum, ratio.Maximum, ratio.Logarithmic));
+        }
+
+        foreach (string n in new[] { "formantLevel", "formant3Level", "formant4Level", "formant5Level" })
+        {
+            EditableValue level = Value(values, "op1.operatorFilter." + n);
+            Assert.Equal((0.0, 1.0, false), (level.Minimum, level.Maximum, level.Logarithmic));
+        }
+
+        foreach (string n in new[] { "q", "formantQ2", "formant3Q", "formant4Q", "formant5Q" })
+        {
+            EditableValue q = Value(values, "op1.operatorFilter." + n);
+            Assert.Equal((0.5, 50.0, true), (q.Minimum, q.Maximum, q.Logarithmic));
+        }
+
+        // An own Q that is "same as Q" shows the Q it plays at; setting it stores it.
+        EditableValue q2 = Value(values, "op1.operatorFilter.formantQ2");
+        Assert.Equal(6.0, q2.Get(patch));
+        Assert.Equal(24.0, Value(values, "op1.operatorFilter.formant3Q").Get(patch));
+        Assert.Equal(6.0, Value(values, "op1.operatorFilter.formant4Q").Get(patch));
+        Assert.Equal(1.0, Value(values, "op1.operatorFilter.formant5Ratio").Get(patch));
+        Assert.Equal(0.0, Value(values, "op1.operatorFilter.formant5Level").Get(patch));
+        Assert.Same(patch, Done(patch, Fmx6, q2.Set(6.0)));
+        OperatorMatrixPatch ownQ = Done(patch, Fmx6, q2.Set(40.0));
+        Assert.Equal(40.0, ownQ.Operators[0].Filter!.FormantQ2);
+        Assert.Equal(6.0, ownQ.Operators[0].Filter!.Q);
+        Assert.Equal(50.0, Done(patch, Fmx6, q2.Set(80.0)).Operators[0].Filter!.FormantQ2);
+
+        // The values reach the model's limits: Q 45, an F2 at 30 times F1, F5 on.
+        OperatorMatrixPatch wide = Done(patch, Fmx6, Value(values, "op1.operatorFilter.q").Set(45.0));
+        Assert.Equal(45.0, wide.Operators[0].Filter!.Q);
+        wide = Done(wide, Fmx6, Value(values, "op1.operatorFilter.formantRatio").Set(30.0));
+        Assert.Equal(30.0, wide.Operators[0].Filter!.FormantRatio);
+        wide = Done(wide, Fmx6, Value(values, "op1.operatorFilter.formant5Level").Set(0.01));
+        Assert.Equal(0.01, wide.Operators[0].Filter!.Formant5Level);
+        wide = Done(wide, Fmx6, Value(values, "op1.operatorFilter.formant5Ratio").Set(9.0));
+        Assert.Equal(9.0, wide.Operators[0].Filter!.Formant5Ratio);
+
+        // Another filter type keeps one Q, up to 20, labelled "Q", and has no formants.
+        OperatorMatrixPatch lowPass = patch.WithOperator(0, patch.Operators[0] with { Filter = OperatorFilter.LowPass(4) });
+        IReadOnlyList<EditableValue> lowValues = EditableValues.For(lowPass, Fmx6.Capabilities, new PatchPart.OperatorPart(0));
+        EditableValue lowQ = Value(lowValues, "op1.operatorFilter.q");
+        Assert.Equal(("Q", 0.5, 20.0), (lowQ.Label, lowQ.Minimum, lowQ.Maximum));
+        Assert.DoesNotContain(lowValues, static v => v.Id.Contains("formant", StringComparison.Ordinal));
+
+        // A formant filter on an operator that is not heard (no schema values) has the same rows and ranges.
+        OperatorMatrixPatch silent = patch.WithOutputLevel(0, 0.0).WithOperator(1, patch.Operators[1] with { Filter = formant });
+        IReadOnlyList<EditableValue> unheard = [.. EditableValues.For(silent, Fmx6.Capabilities, new PatchPart.OperatorPart(1)).Where(static v => v.Id.Contains(".operatorFilter.", StringComparison.Ordinal))];
+        Assert.Equal(names.Select(static n => "op2.operatorFilter." + n), unheard.Select(static v => v.Id));
+        Assert.Equal(50.0, Value(unheard, "op2.operatorFilter.q").Maximum);
+        Assert.Equal(32.0, Value(unheard, "op2.operatorFilter.formantRatio").Maximum);
+    }
+
+    [Fact]
     public void For_Connection_ListsTheAmount()
     {
         OperatorMatrixPatch patch = TwoOperators();

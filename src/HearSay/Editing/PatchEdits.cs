@@ -269,9 +269,9 @@ public static class PatchEdits
             return EditOutcome.Done(old is null ? patch : patch.WithOperator(op, patch.Operators[op] with { Filter = null }));
         }
 
-        if (!c.SupportsOperatorFilters)
+        if (NoFilters(c) is { } noFilters)
         {
-            return EditOutcome.Refused(patch, "This profile has no operator filters.");
+            return EditOutcome.Refused(patch, noFilters);
         }
 
         if (old?.Type == newType)
@@ -285,6 +285,30 @@ public static class PatchEdits
             filter = filter with { EnvelopeOctaves = old.EnvelopeOctaves, Envelope = old.Envelope };
         }
 
+        return EditOutcome.Done(patch.WithOperator(op, patch.Operators[op] with { Filter = filter }));
+    };
+
+    /// <summary>
+    /// Sets an operator's filter to a vowel of the formant table (<see cref="FormantPresets"/>): all five formants, with
+    /// their levels and own Qs. The sweep of the filter it replaces stays; an operator without a filter, or with another
+    /// type, gets a formant filter. Refused on a profile without filters.
+    /// </summary>
+    /// <param name="op">The operator.</param>
+    /// <param name="voice">The voice.</param>
+    /// <param name="vowel">The vowel.</param>
+    public static PatchEdit SetFormantPreset(int op, FormantVoice voice, FormantVowel vowel) => (patch, c) =>
+    {
+        if (Missing(patch, op) is { } missing)
+        {
+            return EditOutcome.Refused(patch, missing);
+        }
+
+        if (NoFilters(c) is { } noFilters)
+        {
+            return EditOutcome.Refused(patch, noFilters);
+        }
+
+        OperatorFilter filter = FormantPresets.Filter(voice, vowel, patch.Operators[op].Filter);
         return EditOutcome.Done(patch.WithOperator(op, patch.Operators[op] with { Filter = filter }));
     };
 
@@ -444,6 +468,10 @@ public static class PatchEdits
             ? patch
             : patch with { ModulationMatrix = new PhaseModulationMatrix(patch.OperatorCount, edges) };
     }
+
+    /// <summary>Why the profile cannot give an operator a filter; null when it can.</summary>
+    private static string? NoFilters(SynthesisCapabilities c)
+        => HasFilters(c) ? null : "This profile has no operator filters.";
 
     private static string? Missing(OperatorMatrixPatch patch, int op)
         => (uint)op < (uint)patch.OperatorCount ? null : $"There is no OP{op + 1}; the patch has {patch.OperatorCount} operators.";

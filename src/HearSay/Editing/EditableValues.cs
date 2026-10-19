@@ -215,7 +215,7 @@ public static class EditableValues
         }
 
         // A value of this operator's filter, for the filter types that use it.
-        void AddFilter(string name, string label, string unit, (double, double, bool) model, Func<OperatorFilter, bool> uses, Func<OperatorFilter, double> get, Func<OperatorFilter, double, OperatorFilter> set)
+        void AddFilter(string name, string label, string unit, (double, double, bool) model, Func<OperatorFilter, bool> uses, Func<OperatorFilter, double> get, Func<OperatorFilter, double, OperatorFilter> set, bool useSchema = true)
             => Add(
                 "operatorFilter." + name,
                 label,
@@ -223,7 +223,20 @@ public static class EditableValues
                 model,
                 o => o.Filter is { } f && uses(f),
                 o => get(o.Filter!),
-                (o, v) => o with { Filter = set(o.Filter!, v) });
+                (o, v) => o with { Filter = set(o.Filter!, v) },
+                useSchema);
+
+        // A formant F2..F5 (n = 2..5): its ratio to F1, its level and its own Q. The model's ranges, not the search's:
+        // the search keeps the ratios lower, and has the own Qs of F2 and F3 relative to Q (own Q / Q) where the editor
+        // shows the Q itself. An own Q that is "same as Q" (0) shows the Q the formant plays at; setting it stores it.
+        void AddFormant(int n, string ratioName, string levelName, string qName, Func<OperatorFilter, FormantPeak> get, Func<OperatorFilter, FormantPeak, OperatorFilter> set)
+        {
+            string label = "F" + n.ToString(CultureInfo.InvariantCulture);
+            static bool IsFormant(OperatorFilter f) => f.Type == OperatorFilterType.Formant;
+            AddFilter(ratioName, label + " ratio", "", (1.0, OperatorFilter.MaxFormantRatio, true), IsFormant, f => get(f).Ratio, (f, v) => set(f, get(f) with { Ratio = v }), useSchema: false);
+            AddFilter(levelName, label + " level", "", (0.0, 1.0, false), IsFormant, f => get(f).Level, (f, v) => set(f, get(f) with { Level = v }));
+            AddFilter(qName, label + " Q", "", (OperatorFilter.MinQ, OperatorFilter.MaxFormantQ, true), IsFormant, f => get(f).Q > 0.0 ? get(f).Q : f.Q, (f, v) => set(f, get(f) with { Q = v }), useSchema: false);
+        }
 
         static bool AtRatio(OperatorPatch o) => o.Frequency.Mode == OperatorFrequencyMode.Ratio;
         static bool Always(OperatorPatch _) => true;
@@ -258,10 +271,13 @@ public static class EditableValues
         Add("keyScaling.rate", "key rate", "/oct", (-1.0, 1.0, false), Always, static o => o.KeyScaling.RatePerOctave, static (o, v) => o with { KeyScaling = o.KeyScaling with { RatePerOctave = v } });
 
         AddFilter("cutoff", "cutoff", "x note", (0.25, 64.0, true), static f => f.IsKeyTracked, static f => f.CutoffRatio, static (f, v) => f with { CutoffRatio = v });
-        AddFilter("fixedHz", present.Filter?.Type == OperatorFilterType.Formant ? "F1" : "centre", "Hz", (10.0, 20000.0, true), static f => !f.IsKeyTracked, static f => f.FixedHz, static (f, v) => f with { FixedHz = v });
-        AddFilter("q", "Q", "", (OperatorFilter.MinQ, OperatorFilter.MaxQ, true), static _ => true, static f => f.Q, static (f, v) => f with { Q = v });
-        AddFilter("formantRatio", "F2 ratio", "", (1.0, 16.0, true), static f => f.Type == OperatorFilterType.Formant, static f => f.FormantRatio, static (f, v) => f with { FormantRatio = v });
-        AddFilter("formantLevel", "F2 level", "", (0.0, 1.0, false), static f => f.Type == OperatorFilterType.Formant, static f => f.FormantLevel, static (f, v) => f with { FormantLevel = v });
+        bool formant = present.Filter?.Type == OperatorFilterType.Formant;
+        AddFilter("fixedHz", formant ? "F1" : "centre", "Hz", (10.0, 20000.0, true), static f => !f.IsKeyTracked, static f => f.FixedHz, static (f, v) => f with { FixedHz = v });
+        AddFilter("q", formant ? "Q1" : "Q", "", (OperatorFilter.MinQ, formant ? OperatorFilter.MaxFormantQ : OperatorFilter.MaxQ, true), static _ => true, static f => f.Q, static (f, v) => f with { Q = v });
+        AddFormant(2, "formantRatio", "formantLevel", "formantQ2", static f => f.FormantPeaks[0], static (f, p) => f with { FormantRatio = p.Ratio, FormantLevel = p.Level, FormantQ2 = p.Q });
+        AddFormant(3, "formant3Ratio", "formant3Level", "formant3Q", static f => f.FormantPeaks[1], static (f, p) => f with { Formant3Ratio = p.Ratio, Formant3Level = p.Level, Formant3Q = p.Q });
+        AddFormant(4, "formant4Ratio", "formant4Level", "formant4Q", static f => f.FormantPeaks[2], static (f, p) => f with { Formant4Ratio = p.Ratio, Formant4Level = p.Level, Formant4Q = p.Q });
+        AddFormant(5, "formant5Ratio", "formant5Level", "formant5Q", static f => f.FormantPeaks[3], static (f, p) => f with { Formant5Ratio = p.Ratio, Formant5Level = p.Level, Formant5Q = p.Q });
         AddFilter("peakGain", "gain", "dB", (-24.0, 24.0, false), static f => f.Type == OperatorFilterType.Peak, static f => f.PeakGainDb, static (f, v) => f with { PeakGainDb = v });
         AddFilter("octaves", "sweep", "oct", (-4.0, 4.0, false), static f => f.Envelope is not null, static f => f.EnvelopeOctaves, static (f, v) => f with { EnvelopeOctaves = v });
 
