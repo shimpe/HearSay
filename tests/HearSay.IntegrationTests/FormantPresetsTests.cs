@@ -371,7 +371,7 @@ public sealed class FormantPresetsTests
         Assert.Equal(986.0, filter.FixedHz);
 
         // The rest of the operator stays as it was, but for the voice source the saw became.
-        Assert.Equal(VoiceSourceCarrier(OperatorFilter.LowPass(3)).Operators[0] with { Filter = null, AmplitudeEnvelope = lowPass.Operators[0].AmplitudeEnvelope }, editor.Current.Operators[0] with { Filter = null });
+        Assert.Equal(VoiceSourceCarrier(filter).ComputeHash(), editor.Current.ComputeHash());
 
         // Without a filter, the preset gives the operator one, without a sweep.
         var bare = new PatchEditor(Carrier(), Fmx6);

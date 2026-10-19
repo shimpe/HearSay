@@ -8,8 +8,9 @@ namespace HearSay.OperatorMatrix.Priors;
 /// Hypotheses for voice-like targets on profiles with operator filters: the voice source (<see cref="VoiceSource"/>, a
 /// 1 % pulse with 64 harmonics) through a formant filter whose peaks are the target's formants
 /// (<see cref="FilterPriors.FormantPeaks"/>): with three peaks (F1 to F3) when there are three, with the two strongest,
-/// with the strongest alone, and with the first and the third when there are three. Every one of these filters has F3, as the search tunes F1 to F3 on every formant filter: the heard
-/// third peak in the first, the search's default (at the level floor) in the others.
+/// with the strongest alone, and with the first and the third when there are three. Every one of these filters has F3,
+/// as the search tunes F1 to F3 on every formant filter: the heard third peak in the first, the search's default (at
+/// the level floor) in the others.
 /// </summary>
 public sealed class FormantPriorProvider : ISynthesisPriorProvider
 {

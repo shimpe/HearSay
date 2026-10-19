@@ -420,7 +420,8 @@ public sealed class FilterPriorTests
         IReadOnlyList<TopologyMutation> screened = mutator.ProposeScreened(start, prepared.Analysis, evaluator, new Random(1), 12);
         Assert.NotEmpty(screened);
         Assert.All(screened, p => Assert.NotEqual(start.ComputeHash(), p.Patch.ComputeHash()));
-        Assert.All(screened.Where(static p => p.Description.StartsWith("OP1 waveform", StringComparison.Ordinal) && !p.Description.Contains("harmonics", StringComparison.Ordinal)), static p => Assert.True(p.Patch.Operators[0].Waveform.IsNoise(), p.Description));    }
+        Assert.All(screened.Where(static p => p.Description.StartsWith("OP1 waveform", StringComparison.Ordinal) && !p.Description.Contains("harmonics", StringComparison.Ordinal)), static p => Assert.True(p.Patch.Operators[0].Waveform.IsNoise(), p.Description));
+    }
 
     [Fact]
     public void TunedPulseWidth_OfAFormantOperator_IsKept()
@@ -463,5 +464,17 @@ public sealed class FilterPriorTests
             Assert.StartsWith("voice source with ", h.Origin, StringComparison.Ordinal);
         });
         Assert.Equal(hypotheses.Count, hypotheses.Select(static h => h.Patch.Operators[0].Filter).Distinct().Count());
+    }
+
+    [Fact]
+    public void ScreenedProposals_AreEachADifferentPatch()
+    {
+        // An older sine with a formant filter: its triangle, saw and square candidates all become the same voice source.
+        // That patch is screened and proposed once, not once per description.
+        OperatorMatrixPatch sine = DullSaw(Vowel600, 16).WithOperator(0, DullSaw(Vowel600, 16).Operators[0] with { Waveform = OperatorWaveform.Sine });
+        (PreparedObjectiveTarget prepared, PatchEvaluator evaluator) = Screening();
+        IReadOnlyList<TopologyMutation> screened = new TopologyMutator(Fmx6).ProposeScreened(sine, prepared.Analysis, evaluator, new Random(1), 24);
+        Assert.NotEmpty(screened);
+        Assert.Equal(screened.Count, screened.Select(static p => p.Patch.ComputeHash()).Distinct().Count());
     }
 }

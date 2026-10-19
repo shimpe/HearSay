@@ -247,10 +247,10 @@ public sealed class TopologyMutator
         }
 
         // Every tonal operator with a formant filter is a voice source; a variant that comes back to the patch itself
-        // (fewer harmonics, or another tonal waveform, for a formant operator) is no variant.
-        string unchanged = patch.ComputeHash();
-        candidates = [.. candidates.Select(c => c with { Patch = WithVoiceSources(patch, c.Patch) })];
-        candidates.RemoveAll(c => c.Patch.ComputeHash() == unchanged);
+        // (fewer harmonics, or another tonal waveform, for a formant operator) is no variant, and a patch that two
+        // candidates came to (an older sine's triangle, saw and square all become the voice source) is screened once.
+        var distinct = new HashSet<string>(StringComparer.Ordinal) { patch.ComputeHash() };
+        candidates = [.. candidates.Select(c => c with { Patch = WithVoiceSources(patch, c.Patch) }).Where(c => distinct.Add(c.Patch.ComputeHash()))];
         candidates.RemoveAll(c => !PatchCompatibilityValidator.Instance.Validate(c.Patch, _capabilities).IsCompatible);
         if (candidates.Count > maxScreened)
         {
@@ -318,6 +318,8 @@ public sealed class TopologyMutator
             }
         }
 
+        // Random mutations fill up the list, each a structure and a patch not proposed yet.
+        var proposed = new HashSet<string>(result.Select(static r => r.Patch.ComputeHash()), StringComparer.Ordinal);
         foreach (TopologyMutation mutation in Propose(patch, analysis, random, count * 2))
         {
             if (result.Count >= count)
@@ -325,7 +327,7 @@ public sealed class TopologyMutator
                 break;
             }
 
-            if (seen.Add(mutation.Description))
+            if (!proposed.Contains(mutation.Patch.ComputeHash()) && seen.Add(mutation.Description))
             {
                 result.Add(mutation);
             }
