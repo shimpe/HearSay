@@ -245,6 +245,23 @@ public sealed class PatchEditorViewModelTests
     }
 
     [Fact]
+    public async Task Copy_WhenAnotherSoundIsShownMeanwhile_CarriesTheGainOfTheSoundShown()
+    {
+        // Copy and Save wait for the gain; a sound shown meanwhile is the one they then carry, with its own gain.
+        var gains = new FakeGains { Next = _ => new TaskCompletionSource<float>().Task };
+        var vm = new PatchEditorViewModel(new EditSessions(), gains.Of);
+        vm.Show(Original(3), Fmx6, StructureLibrary.ReferenceRequest, "first");
+        Task<float?> copy = vm.DisplayedGainAsync();
+        Assert.False(copy.IsCompleted);
+
+        vm.Show(Original(), Fmx6, StructureLibrary.ReferenceRequest, "second", OriginalGain);
+        Assert.Equal(OriginalGain, await copy.WaitAsync(TimeSpan.FromSeconds(10)));
+        string code = vm.DisplayedCode(["second"]);
+        Assert.Contains("Out.ar(out, (signal * amp * 0.5) ! 2);", code, StringComparison.Ordinal);
+        Assert.Contains("(freq * 1.0)", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MatchLoudness_ReportsOnlyAFailedComputation()
     {
         // The gain cannot be computed: the status line says so, and the edit keeps its gain.

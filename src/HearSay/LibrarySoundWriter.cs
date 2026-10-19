@@ -43,14 +43,18 @@ public static class LibrarySoundWriter
         WriteText(Path.Combine(directory, "patch.json"), patch.ToJson());
         string preview = Path.Combine(directory, "preview.wav");
 
-        // The reference request is at full velocity: the preview is the render the gain of the sound comes from
-        // (Sound.ComputeGain), so its peak is reused.
-        RenderedAudio reference = SynthesisBackends.RendererFor(profile).Render(patch, StructureLibrary.ReferenceRequest);
+        IOperatorMatrixRenderer renderer = SynthesisBackends.RendererFor(profile);
+        RenderRequest request = StructureLibrary.ReferenceRequest;
+        RenderedAudio reference = renderer.Render(patch, request);
         reference.WriteWav(preview, normalizePeakTo: 0.7f);
         written.Add(preview);
         if (SynthesisBackends.ExporterFor(profile) is { } exporter)
         {
-            var options = new PatchExportOptions { HeaderComments = headerComments, Gain = gain ?? PlaybackLevel.GainFor(reference.Peak) };
+            // The gain comes from the reference note at full velocity (Sound.ComputeGain): the preview's peak when the
+            // preview is that render, else rendered once.
+            RenderRequest gainReference = request with { Velocity = 1.0 };
+            float Computed() => PlaybackLevel.GainFor((gainReference == request ? reference : renderer.Render(patch, gainReference)).Peak);
+            var options = new PatchExportOptions { HeaderComments = headerComments, Gain = gain ?? Computed() };
             WriteText(Path.Combine(directory, "patch" + exporter.FileExtension), exporter.Export(patch, options));
         }
 

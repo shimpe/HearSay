@@ -53,6 +53,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     private bool _gainKnown;
     private float? _gain;
     private Task<float?> _gainTask = Task.FromResult<float?>(null);
+    private TaskCompletionSource _shownChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _isEdited;
     private PatchPart? _selected;
     private IReadOnlyList<EditableValue> _selectedValues = [];
@@ -191,12 +192,21 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// <see cref="DisplayedGain"/> once the original's gain is known, or could not be computed: for Save and Copy, which
-    /// then carry the gain even when they are asked for before it is known.
+    /// then carry the gain even when they are asked for before it is known. When another sound is shown meanwhile, its
+    /// gain is waited for instead, so that the gain returned is that of the sound shown when it returns (on the interface
+    /// thread, where the caller reads the rest of what is shown).
     /// </summary>
     public async Task<float?> DisplayedGainAsync()
     {
-        await _gainTask;
-        return DisplayedGain;
+        while (true)
+        {
+            Task<float?> gain = _gainTask;
+            await Task.WhenAny(gain, _shownChanged.Task);
+            if (ReferenceEquals(gain, _gainTask) && gain.IsCompleted)
+            {
+                return DisplayedGain;
+            }
+        }
     }
 
     /// <summary>True when Match loudness can be clicked: the edit is displayed and its gain is not being computed.</summary>
@@ -432,6 +442,21 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     private PatchEditor EditorOrThrow() => _editor ?? throw new InvalidOperationException("No sound is shown to edit.");
 
     private void FetchGain(Sound? sound)
+    {
+        try
+        {
+            FetchGainOf(sound);
+        }
+        finally
+        {
+            // Whoever waits for the gain of the sound shown before waits for this one's now.
+            TaskCompletionSource changed = _shownChanged;
+            _shownChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            changed.TrySetResult();
+        }
+    }
+
+    private void FetchGainOf(Sound? sound)
     {
         int shown = ++_shown;
         if (sound is null)

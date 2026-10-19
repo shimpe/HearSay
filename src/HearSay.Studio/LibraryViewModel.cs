@@ -560,21 +560,29 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Gives a favourite another nickname; its code is written again, at the gain it plays at, which may render its
-    /// reference note, so this runs off the interface thread.
+    /// reference note, so this runs off the interface thread. The renamed favourite is selected, unless another one was
+    /// selected meanwhile. A favourite that cannot be renamed, also one that no longer renders, is left as it was and the
+    /// status line says why.
     /// </summary>
     /// <param name="item">Favourite.</param>
     /// <param name="nickname">New nickname.</param>
     public async Task RenameFavouriteAsync(FavouriteItem item, string nickname)
     {
         ArgumentNullException.ThrowIfNull(item);
+        FavouriteItem? selected = SelectedFavourite;
         try
         {
             Favourite renamed = await Task.Run(() => _favouriteStore.Rename(item.Favourite, nickname));
+            bool selectedMeanwhile = !ReferenceEquals(SelectedFavourite, selected);
             ReloadFavourites();
-            SelectedFavourite = Favourites.FirstOrDefault(f => f.Favourite.Directory == renamed.Directory);
+            if (!selectedMeanwhile)
+            {
+                SelectedFavourite = Favourites.FirstOrDefault(f => f.Favourite.Directory == renamed.Directory);
+            }
+
             _status($"Renamed to {renamed.Nickname}.");
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or PatchNotSupportedException)
         {
             _status("The favourite could not be renamed: " + e.Message);
         }
@@ -863,7 +871,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="directory">Destination folder.</param>
     public async Task SaveAsync(string directory)
     {
-        // The gain the shown version plays at, which its code carries; waited for while it is being computed.
+        // The gain the shown version plays at, which its code carries, waited for while it is being computed. Everything
+        // else is read after it: a sound shown meanwhile is the one saved, with its own gain.
         float? gain = await Edits.DisplayedGainAsync();
         if (_selection is not { } selection || Edits.DisplayedPatch is not { } patch)
         {
@@ -900,7 +909,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>What Copy puts on the clipboard: <see cref="Scd"/> once the gain of the version shown is known.</summary>
     public async Task<string> CodeToCopyAsync()
     {
-        await Edits.WhenGainKnownAsync();
+        // The gain of the version shown when it arrives: a sound shown meanwhile is the one copied, with its gain.
+        await Edits.DisplayedGainAsync();
         ShowCode();
         return Scd;
     }

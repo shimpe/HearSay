@@ -94,6 +94,27 @@ public sealed class FavouriteSoundsTests : IDisposable
         Assert.Equal(bell, GainIn(Code(favourites.Update(renamed, Bell, SynthesisProfiles.SuperColliderFm7))));
     }
 
+    /// <summary>A sawtooth carrier, which FM7 cannot play: a favourite whose patch no longer renders on its profile.</summary>
+    internal static OperatorMatrixPatch Unplayable =>
+        OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Constant()) with { Waveform = OperatorWaveform.Saw })
+            .WithOutputLevel(0, 1.0);
+
+    [Fact]
+    public void Rename_OfAFavouriteThatNoLongerRenders_LeavesItAsItWas()
+    {
+        var favourites = new FavouriteSounds(_directory);
+        Favourite added = favourites.Add("pad", Piano, SynthesisProfiles.SuperColliderFm7, "search best");
+        string code = File.ReadAllText(Path.Combine(added.Directory, "patch.scd"));
+        Favourite broken = added with { Sound = added.Sound with { Patch = Unplayable } };
+
+        Assert.Throws<HearSay.Synthesis.Rendering.PatchNotSupportedException>(() => favourites.Rename(broken, "warm pad"));
+
+        Assert.Equal([added.Directory], Directory.GetDirectories(_directory));
+        Assert.Equal(code, File.ReadAllText(Path.Combine(added.Directory, "patch.scd")));
+        Assert.Equal("pad", Assert.Single(favourites.Load()).Nickname);
+    }
+
     [Theory]
     [InlineData("-1")]
     [InlineData("0")]

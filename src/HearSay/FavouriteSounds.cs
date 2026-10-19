@@ -4,6 +4,7 @@ using HearSay.Playing;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
+using HearSay.Synthesis.Rendering;
 
 namespace HearSay;
 
@@ -135,15 +136,28 @@ public sealed class FavouriteSounds
 
     /// <summary>
     /// Gives a favourite another nickname: its folder is renamed and its code says the new name, at the gain it plays at.
-    /// Renders its reference note when it keeps no gain, so not for an interface thread.
+    /// Renders its reference note when it keeps no gain, so not for an interface thread. The code is made before anything
+    /// moves: a favourite that cannot be rendered or exported any more is left as it was.
     /// </summary>
     /// <param name="favourite">Favourite.</param>
     /// <param name="nickname">New name; a name that is taken gets a number.</param>
+    /// <exception cref="NotSupportedException">No renderer implements the favourite's profile.</exception>
+    /// <exception cref="PatchNotSupportedException">The profile cannot play or export the favourite's patch.</exception>
     public Favourite Rename(Favourite favourite, string nickname)
     {
         ArgumentNullException.ThrowIfNull(favourite);
         string name = FreeName(SafeName(nickname), except: favourite.Directory);
         string folder = Path.Combine(DirectoryPath, name);
+        ExportedSound sound = favourite.Sound with { Name = name, PatchFile = Path.Combine(folder, "patch.json") };
+        (string File, string Text)? code = null;
+        if (SynthesisBackends.ExporterFor(sound.Profile) is { } exporter)
+        {
+            // The gain the Library plays it at: the kept one, else that of the library's reference note.
+            float gain = new Sound(sound.Patch, sound.Profile, StructureLibrary.ReferenceRequest) { FixedGain = favourite.Gain }.ComputeGain();
+            var options = new PatchExportOptions { HeaderComments = Header(name, favourite.Origin), Gain = gain };
+            code = ("patch" + exporter.FileExtension, exporter.Export(sound.Patch, options));
+        }
+
         if (!string.Equals(folder, favourite.Directory, StringComparison.Ordinal))
         {
             // Through a temporary name, so that a change of case alone also renames the folder on Windows.
@@ -152,13 +166,9 @@ public sealed class FavouriteSounds
             System.IO.Directory.Move(temporary, folder);
         }
 
-        ExportedSound sound = favourite.Sound with { Name = name, PatchFile = Path.Combine(folder, "patch.json") };
-        if (SynthesisBackends.ExporterFor(sound.Profile) is { } exporter)
+        if (code is { } written)
         {
-            // The gain the Library plays it at: the kept one, else that of the library's reference note.
-            float gain = new Sound(sound.Patch, sound.Profile, StructureLibrary.ReferenceRequest) { FixedGain = favourite.Gain }.ComputeGain();
-            var options = new PatchExportOptions { HeaderComments = Header(name, favourite.Origin), Gain = gain };
-            File.WriteAllText(Path.Combine(folder, "patch" + exporter.FileExtension), exporter.Export(sound.Patch, options));
+            File.WriteAllText(Path.Combine(folder, written.File), written.Text);
         }
 
         return favourite with { Nickname = name, Directory = folder, Sound = sound };

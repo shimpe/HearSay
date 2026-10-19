@@ -569,7 +569,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>What Copy puts on the clipboard: <see cref="Scd"/> once the gain of the version shown is known.</summary>
     public async Task<string> CodeToCopyAsync()
     {
-        await Edits.WhenGainKnownAsync();
+        // The gain of the version shown when it arrives: a sound shown meanwhile is the one copied, with its gain.
+        await Edits.DisplayedGainAsync();
         ShowDetails();
         return Scd;
     }
@@ -889,7 +890,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <param name="directory">Destination folder.</param>
     public async Task SaveAsync(string directory)
     {
-        // The gain the shown version plays at, which its code carries; waited for while it is being computed.
+        // The gain the shown version plays at, which its code carries, waited for while it is being computed. Everything
+        // else is read after it: a sound shown meanwhile is the one saved, with its own gain.
         float? gain = await Edits.DisplayedGainAsync();
         if (_libraryPatch is { } library)
         {
