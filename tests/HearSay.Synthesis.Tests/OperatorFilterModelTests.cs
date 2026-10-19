@@ -183,7 +183,7 @@ public sealed class OperatorFilterModelTests
         Assert.True(fmx6.SupportsOperatorFilters);
         Assert.False(fmx6.IsSubsetOf(fmx6 with { SupportsOperatorFilters = false }));
         Assert.True((fmx6 with { SupportsOperatorFilters = false }).IsSubsetOf(fmx6));
-        Assert.Equal(5, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
+        Assert.Equal(6, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
         Assert.Equal(1, SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion);
         Assert.Equal(2, SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion);
     }
@@ -202,7 +202,17 @@ public sealed class OperatorFilterModelTests
             Assert.Empty(b.Validate());
             Assert.True(PatchCompatibilityValidator.Instance.Validate(b, fmx6).IsCompatible);
             withFilter += b.Operators.Count(static o => o.Filter is not null);
-            OperatorMatrixPatch stripped = b with { Operators = [.. b.Operators.Select(static o => o with { Filter = null })] };
+
+            // A formant filter brings at least 64 harmonics; everything else is what the seed gave.
+            for (int i = 0; i < b.OperatorCount; i++)
+            {
+                int expected = b.Operators[i].Filter?.Type == OperatorFilterType.Formant
+                    ? Math.Max(a.Operators[i].HarmonicLimit, RandomPatchGenerator.FormantHarmonics)
+                    : a.Operators[i].HarmonicLimit;
+                Assert.Equal(expected, b.Operators[i].HarmonicLimit);
+            }
+
+            OperatorMatrixPatch stripped = b with { Operators = [.. b.Operators.Select((o, i) => o with { Filter = null, HarmonicLimit = a.Operators[i].HarmonicLimit })] };
             Assert.Equal(a.ComputeHash(), stripped.ComputeHash());
         }
 
@@ -239,6 +249,28 @@ public sealed class OperatorFilterModelTests
             Assert.InRange(f.Formant3Q, 8.0, 30.0);
             Assert.Equal((1.0, 0.0, 0.0, 1.0, 0.0, 0.0), (f.Formant4Ratio, f.Formant4Level, f.Formant4Q, f.Formant5Ratio, f.Formant5Level, f.Formant5Q));
         });
+    }
+
+    [Fact]
+    public void Generator_EveryFormantOperator_HasAtLeast64Harmonics()
+    {
+        // A formant filter shapes harmonics up to F3 and beyond; a band-limited waveform with fewer than 64 harmonics
+        // leaves the upper formants with nothing to shape at ordinary notes. Other limits are left as drawn.
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var generator = new RandomPatchGenerator(fmx6, new RandomPatchOptions { FilterProbability = 1.0 });
+        var formant = new List<OperatorPatch>();
+        var other = new List<OperatorPatch>();
+        for (int seed = 0; seed < 400; seed++)
+        {
+            foreach (OperatorPatch op in generator.Generate(seed).Operators.Where(static o => o.Enabled && o.Filter is not null))
+            {
+                (op.Filter!.Type == OperatorFilterType.Formant ? formant : other).Add(op);
+            }
+        }
+
+        Assert.True(formant.Count > 100, $"{formant.Count} formant operators");
+        Assert.All(formant, static o => Assert.True(o.HarmonicLimit >= 64, $"{o.Waveform} with {o.HarmonicLimit} harmonics"));
+        Assert.Contains(other, static o => o.HarmonicLimit < 64);
     }
 
     [Fact]

@@ -161,9 +161,10 @@ Where filters come from:
   filter with starting values from the target; remove a filter; switch 2 and 4 poles or low-pass and band-pass; move
   a formant filter's F3 to the target's third formant (when that lies above the filter's F2); add the sweep read from
   the target's brightness.
-- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 5 for FMX6
-  only (every one of its formant filters has a third formant), so it is rebuilt once after upgrading; the FM7 and
-  Nome6 libraries are kept.
+- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 6 for FMX6
+  only (every one of its formant filters has a third formant, and every operator with a formant filter has at least
+  64 harmonics, so that the upper formants have harmonics to shape), so it is rebuilt once after upgrading; the FM7
+  and Nome6 libraries are kept.
 
 A filter adds 0.05 to the complexity and its envelope another 0.03, so between two patches that sound alike the one
 without a filter wins. A patch without filters exports exactly as before and runs on FMX6 builds without operator

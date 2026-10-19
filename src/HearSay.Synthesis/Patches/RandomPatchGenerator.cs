@@ -59,6 +59,9 @@ public sealed class RandomPatchGenerator
 {
     private static readonly double[] Ratios = [0.5, 1, 1, 1, 2, 2, 3, 3.5, 4, 5, 7, 1.41, 2.73];
 
+    /// <summary>The fewest harmonics an operator with a formant filter is given.</summary>
+    public const int FormantHarmonics = 64;
+
     private readonly SynthesisCapabilities _capabilities;
     private readonly RandomPatchOptions _options;
 
@@ -201,7 +204,16 @@ public sealed class RandomPatchGenerator
             {
                 if (filterRandom.NextDouble() < _options.FilterProbability)
                 {
-                    operators[i] = operators[i] with { Filter = RandomFilter(filterRandom) };
+                    OperatorFilter filter = RandomFilter(filterRandom);
+                    operators[i] = operators[i] with { Filter = filter };
+
+                    // A formant filter shapes the harmonics up to F3 and beyond: at least 64 of them, so that a band-limited
+                    // waveform gives its upper formants something to shape. No random draw, so every other patch stays as
+                    // its seed gave it.
+                    if (filter.Type == OperatorFilterType.Formant)
+                    {
+                        operators[i] = operators[i] with { HarmonicLimit = Math.Max(operators[i].HarmonicLimit, FormantHarmonics) };
+                    }
                 }
             }
         }
