@@ -319,6 +319,41 @@ public static class PatchEdits
         return EditOutcome.Done(patch.WithOperator(op, patch.Operators[op] with { Filter = filter }));
     };
 
+    /// <summary>Duty cycle of a voice source: a pulse this narrow has many harmonics of nearly the same strength.</summary>
+    public const double VoiceSourceWidth = 0.01;
+
+    /// <summary>Harmonics of a voice source: enough for the formants of a vowel up to F5 on a low note.</summary>
+    public const int VoiceSourceHarmonics = 64;
+
+    /// <summary>
+    /// Makes an operator a vowel source: a narrow pulse (<see cref="VoiceSourceWidth"/>, 1 %) with
+    /// <see cref="VoiceSourceHarmonics"/> harmonics, as one step; its filter and everything else stay. A formant filter
+    /// shapes the harmonics it is given, so a vowel needs many, equally strong ones. Refused on a profile without a pulse
+    /// waveform.
+    /// </summary>
+    /// <param name="op">The operator.</param>
+    public static PatchEdit SetVoiceSource(int op) => (patch, c) =>
+    {
+        if (Missing(patch, op) is { } missing)
+        {
+            return EditOutcome.Refused(patch, missing);
+        }
+
+        if (!c.SupportedWaveforms.Contains(OperatorWaveform.Pulse))
+        {
+            string available = string.Join(", ", WaveformsFor(c).Select(PatchDescription.WaveformName));
+            return EditOutcome.Refused(patch, $"This profile has no pulse waveform for a voice source; it has {available}.");
+        }
+
+        OperatorPatch source = patch.Operators[op].WithWaveform(OperatorWaveform.Pulse) with
+        {
+            Shape = VoiceSourceWidth,
+            HarmonicLimit = VoiceSourceHarmonics,
+            NoiseM = 0.0,
+        };
+        return EditOutcome.Done(patch.WithOperator(op, source));
+    };
+
     /// <summary>
     /// Adds or removes the sweep of an operator's filter: an envelope that moves its frequency, 2 octaves at the peak.
     /// Refused when the operator has no filter.

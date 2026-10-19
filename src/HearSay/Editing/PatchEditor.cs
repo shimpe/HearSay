@@ -56,6 +56,7 @@ public sealed class PatchEditor
     private readonly List<OperatorMatrixPatch> redo = [];
     private OperatorMatrixPatch? gestureStart;
     private bool showingOriginal;
+    private float? matchedGain;
 
     /// <summary>Starts editing a sound; the original is never changed.</summary>
     /// <param name="original">The patch as it was.</param>
@@ -80,6 +81,26 @@ public sealed class PatchEditor
 
     /// <summary>The patch as edited.</summary>
     public OperatorMatrixPatch Current { get; private set; }
+
+    /// <summary>
+    /// The gain the edit plays at once its loudness was matched (the gain a new sound of the edit would get); null to
+    /// play it at the original's. Kept through later edits, undo and redo while the program runs, and forgotten by
+    /// <see cref="Revert"/>; it is not computed again by itself. Setting another value raises <see cref="Changed"/>.
+    /// </summary>
+    public float? MatchedGain
+    {
+        get => matchedGain;
+        set
+        {
+            if (matchedGain == value)
+            {
+                return;
+            }
+
+            matchedGain = value;
+            OnChanged();
+        }
+    }
 
     /// <summary>True when the edited patch differs from the original.</summary>
     public bool IsEdited => Current.ComputeHash() != Original.ComputeHash();
@@ -199,7 +220,8 @@ public sealed class PatchEditor
 
     /// <summary>
     /// Goes back to the original and forgets the edit and its history, for an edit that now lives on elsewhere (kept as a
-    /// favourite of its own). A gesture in progress is dropped; the edit, not the original, is shown afterwards.
+    /// favourite of its own). A gesture in progress is dropped, and the edit's <see cref="MatchedGain"/> goes with it; the
+    /// edit, not the original, is shown afterwards.
     /// </summary>
     public void Revert()
     {
@@ -208,6 +230,7 @@ public sealed class PatchEditor
         redo.Clear();
         Current = Original;
         showingOriginal = false;
+        matchedGain = null;
         OnChanged();
     }
 

@@ -257,7 +257,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Shows the Library tab with the selected finalist placed among its neighbours, as an imported sound: the version the
-    /// Original ⇄ Edited switch shows, an edit at the original's gain.
+    /// Original ⇄ Edited switch shows, an edit at the gain it plays at (the original's, or the matched one).
     /// </summary>
     public async Task FindInLibraryAsync()
     {
@@ -298,7 +298,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Keeps the shown version as a favourite with the typed nickname, or renames it when it is one already. An edit that
-    /// is not a favourite yet becomes a new one, <c>edited from …</c>, at the original's gain; the original's own
+    /// is not a favourite yet becomes a new one, <c>edited from …</c>, at the gain it plays at; the original's own
     /// favourite is left as it is.
     /// </summary>
     public async Task SaveFavouriteAsync()
@@ -784,8 +784,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// The sound the Search tab plays: the shown finalist, at the gain of the searched note, or a library sound shown
-    /// here, at the gain of the library's reference note; an edit of either at the original's gain; null when nothing is
-    /// shown.
+    /// here, at the gain of the library's reference note; an edit of either at the original's gain or its matched gain;
+    /// null when nothing is shown.
     /// </summary>
     private Sound? SearchSound() => Edits.DisplayedSound;
 
@@ -1079,6 +1079,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 break;
             case nameof(PatchEditorViewModel.LastRefusal) when Edits.LastRefusal is { } refusal:
                 Status = refusal;
+                break;
+            case nameof(PatchEditorViewModel.Notice) when Edits.Notice is { } notice:
+                Status = notice;
                 break;
         }
     }

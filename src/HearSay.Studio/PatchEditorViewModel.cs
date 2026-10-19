@@ -11,9 +11,10 @@ namespace HearSay.Studio;
 
 /// <summary>
 /// The editing of the sound a tab shows: which version the diagram, the code view and the keyboard get (the original or
-/// the edit), undo and redo, the part selected for the inspector, and the gain the edit plays at, which is the
-/// original's. Each tab has one; the tabs share the edits of a sound through one <see cref="EditSessions"/>, so that the
-/// same patch shown in both has one edited copy and one history.
+/// the edit), undo and redo, the part selected for the inspector, and the gain the edit plays at: the original's, until
+/// Match loudness gives the edit a gain of its own. Each tab has one; the tabs share the edits of a sound through one
+/// <see cref="EditSessions"/>, so that the same patch shown in both has one edited copy, one history and one matched
+/// gain.
 /// </summary>
 /// <remarks>
 /// Used on the interface thread only. The original's gain is fetched when a sound is shown; a fetch that completes after
@@ -23,6 +24,9 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
 {
     /// <summary>The line added to the header comments of the code of an edited version.</summary>
     public const string EditedHeaderLine = "Edited in HearSay Studio.";
+
+    /// <summary>The status line once Match loudness is done.</summary>
+    public const string MatchedNotice = "Loudness matched: the edit now plays as loud as a new sound would.";
 
     /// <summary>
     /// The header comments of an edited version: the original's with <see cref="EditedHeaderLine"/> added, unless they
@@ -52,6 +56,8 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     private PatchPart? _selected;
     private IReadOnlyList<EditableValue> _selectedValues = [];
     private string? _lastRefusal;
+    private string? _notice;
+    private bool _matching;
 
     /// <summary>Creates the editing of a tab, with nothing shown.</summary>
     /// <param name="sessions">The edits of every sound, shared by the tabs.</param>
@@ -131,9 +137,10 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     public IReadOnlyList<EditableValue> SelectedValues => _selectedValues;
 
     /// <summary>
-    /// The sound a new note plays: the original as the tab plays it, or, while the edit is displayed, the edit at the
-    /// original's gain. Null when nothing is shown, and while the edit is displayed but the original's gain is not known
-    /// yet. When the original's gain could not be computed, the edit is normalised on its own.
+    /// The sound a new note plays: the original as the tab plays it, or, while the edit is displayed, the edit at its
+    /// matched gain (<see cref="MatchLoudnessAsync"/>) or else at the original's. Null when nothing is shown, and while
+    /// the edit is displayed without a matched gain but the original's gain is not known yet. When the original's gain
+    /// could not be computed, the edit is normalised on its own.
     /// </summary>
     public Sound? DisplayedSound
     {
@@ -149,7 +156,30 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
                 return original;
             }
 
+            if (editor.MatchedGain is float matched)
+            {
+                return original with { Patch = editor.Current, FixedGain = matched };
+            }
+
             return _gainKnown ? original with { Patch = editor.Current, FixedGain = _gain } : null;
+        }
+    }
+
+    /// <summary>True when Match loudness can be clicked: the edit is displayed and its gain is not being computed.</summary>
+    public bool CanMatchLoudness => ShowsEdit && !_matching;
+
+    /// <summary>The gain the edit plays at since its loudness was matched; null when it plays at the original's.</summary>
+    public float? MatchedGain => _editor?.MatchedGain;
+
+    /// <summary>A line for the status line about an editing action that was done, such as Match loudness; null for none.</summary>
+    public string? Notice
+    {
+        get => _notice;
+        private set
+        {
+            // Said again when the same action is done again.
+            _notice = value;
+            OnPropertyChanged(nameof(Notice));
         }
     }
 
@@ -285,9 +315,55 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>The gain a favourite of the displayed version keeps: the original's for an edit, waited for when still being computed.</summary>
+    /// <summary>
+    /// Plays the edit from now on as loud as a new sound of it would be: its own gain, computed as for a fresh sound (the
+    /// original with the edited patch and no fixed gain) off the interface thread, becomes the edit session's
+    /// <see cref="PatchEditor.MatchedGain"/>, which the same sound in the other tab shares and later edits keep. Clicking
+    /// again computes it again for the edit as it then is. Nothing while the edit is not displayed.
+    /// </summary>
+    public async Task MatchLoudnessAsync()
+    {
+        if (!CanMatchLoudness || _editor is not { } editor || _original is not { } original)
+        {
+            return;
+        }
+
+        Sound fresh = original with { Patch = editor.Current, FixedGain = null };
+        _matching = true;
+        OnPropertyChanged(nameof(CanMatchLoudness));
+        try
+        {
+            float gain = await _gainOf(fresh);
+            editor.MatchedGain = gain;
+            Notice = MatchedNotice;
+        }
+        catch (Exception e)
+        {
+            // The reference note of the edit could not be rendered (as for the original's gain, whatever the reason):
+            // the edit keeps the gain it had.
+            LastRefusal = "The loudness of the edit could not be computed: " + e.Message;
+        }
+        finally
+        {
+            _matching = false;
+            Refresh();
+        }
+    }
+
+    /// <summary>
+    /// The gain a favourite of the displayed version keeps: for an edit its matched gain, else the original's, waited for
+    /// when still being computed.
+    /// </summary>
     /// <returns>The gain; null to normalise the favourite as usual.</returns>
-    public async Task<float?> FavouriteGainAsync() => ShowsEdit ? await _gainTask : _original?.FixedGain;
+    public async Task<float?> FavouriteGainAsync()
+    {
+        if (!ShowsEdit)
+        {
+            return _original?.FixedGain;
+        }
+
+        return _editor?.MatchedGain is float matched ? matched : await _gainTask;
+    }
 
     /// <summary>
     /// Waits until the original's gain is known, or could not be computed; once it completes, on the interface thread,
@@ -390,6 +466,8 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
         OnPropertyChanged(nameof(OriginalGain));
+        OnPropertyChanged(nameof(CanMatchLoudness));
+        OnPropertyChanged(nameof(MatchedGain));
         OnPropertyChanged(nameof(DisplayedSound));
         OnPropertyChanged(nameof(FavouriteOrigin));
         UpdateSelectedValues(force: false);

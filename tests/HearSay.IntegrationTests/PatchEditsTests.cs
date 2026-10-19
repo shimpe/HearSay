@@ -176,6 +176,52 @@ public sealed class PatchEditsTests
     }
 
     [Fact]
+    public void SetVoiceSource_SetsPulseOnePercent64Harmonics()
+    {
+        // A triangle left at 8 harmonics through a vowel: it becomes a 1 % pulse with 64 harmonics; the filter and the
+        // rest of the patch stay as they were.
+        OperatorFilter vowel = FormantPresets.Filter(FormantPresets.Sets[0], FormantPresets.Sets[0].Speakers[0], FormantPresets.Sets[0].Vowels[0].Key, null);
+        OperatorMatrixPatch patch = WithOperator(TwoOperators(), 0, op => op.WithWaveform(OperatorWaveform.Triangle) with { HarmonicLimit = 8, Filter = vowel });
+        OperatorMatrixPatch edited = Done(patch, Fmx6, PatchEdits.SetVoiceSource(0));
+        OperatorPatch source = edited.Operators[0];
+        Assert.Equal((OperatorWaveform.Pulse, 0.01, 64), (source.Waveform, source.Shape, source.HarmonicLimit));
+        Assert.Equal(vowel, source.Filter);
+        Assert.Equal(patch.ComputeHash(), edited.WithOperator(0, patch.Operators[0]).ComputeHash());
+
+        // A sine without a filter becomes the same source; there is no OP7.
+        OperatorPatch sine = Done(TwoOperators(), Fmx6, PatchEdits.SetVoiceSource(1)).Operators[1];
+        Assert.Equal((OperatorWaveform.Pulse, 0.01, 64), (sine.Waveform, sine.Shape, sine.HarmonicLimit));
+        Assert.Contains("OP7", Refused(TwoOperators(), Fmx6, PatchEdits.SetVoiceSource(6)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SetVoiceSource_IsOneStep()
+    {
+        OperatorMatrixPatch patch = WithOperator(TwoOperators(), 0, static op => op.WithWaveform(OperatorWaveform.Saw) with { HarmonicLimit = 8 });
+        var editor = new PatchEditor(patch, Fmx6);
+        Assert.False(editor.Apply(PatchEdits.SetVoiceSource(0)).IsRefused);
+        Assert.Equal((OperatorWaveform.Pulse, 0.01, 64), (editor.Current.Operators[0].Waveform, editor.Current.Operators[0].Shape, editor.Current.Operators[0].HarmonicLimit));
+
+        editor.Undo();
+        Assert.Equal(patch.ComputeHash(), editor.Current.ComputeHash());
+        Assert.False(editor.CanUndo);
+
+        // Already a voice source: no step.
+        editor.Redo();
+        Assert.False(editor.Apply(PatchEdits.SetVoiceSource(0)).IsRefused);
+        editor.Undo();
+        Assert.False(editor.CanUndo);
+    }
+
+    [Fact]
+    public void SetVoiceSource_OnFm7_IsRefused()
+    {
+        string why = Refused(TwoOperators(), Fm7, PatchEdits.SetVoiceSource(0));
+        Assert.Contains("pulse", why, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pulse", Refused(TwoOperators(), Nome6, PatchEdits.SetVoiceSource(0)), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void SetFrequencyMode_KeepsThePitchAtA4()
     {
         // OP2 at ratio 2, tuned up by 7 cents: it plays at 880 Hz × 2^(7/1200) on A4.
@@ -397,7 +443,7 @@ public sealed class PatchEditsTests
         }
 
         OperatorWaveform[] waveforms = Enum.GetValues<OperatorWaveform>();
-        switch (random.Next(12))
+        switch (random.Next(13))
         {
             case 0:
             {
@@ -471,6 +517,12 @@ public sealed class PatchEditsTests
             {
                 bool on = On();
                 return ($"SetVibrato({on})", PatchEdits.SetVibrato(on));
+            }
+
+            case 11:
+            {
+                int op = Op();
+                return ($"SetVoiceSource({op})", PatchEdits.SetVoiceSource(op));
             }
 
             default:

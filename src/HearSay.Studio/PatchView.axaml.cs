@@ -7,9 +7,9 @@ using HearSay.Synthesis.Patches;
 namespace HearSay.Studio;
 
 /// <summary>
-/// A patch as SuperCollider code and as a block diagram, in two tabs, with the toolbar of its editing (undo, redo,
-/// Original ⇄ Edited) and, beside the diagram, the inspector of the part selected; a click on the diagram selects a
-/// part and a sideways drag of one of its numbers changes it. Used by the Search and Library tabs.
+/// A patch as SuperCollider code and as a block diagram, in two tabs, with the toolbar of its editing (undo, redo, Match
+/// loudness, Original ⇄ Edited) and, beside the diagram, the inspector of the part selected; a click on the diagram
+/// selects a part and a sideways drag of one of its numbers changes it. Used by the Search and Library tabs.
 /// </summary>
 public sealed partial class PatchView : UserControl
 {
@@ -56,6 +56,8 @@ public sealed partial class PatchView : UserControl
     private void OnUndo(object? sender, RoutedEventArgs e) => Editor?.Undo();
 
     private void OnRedo(object? sender, RoutedEventArgs e) => Editor?.Redo();
+
+    private async void OnMatchLoudness(object? sender, RoutedEventArgs e) => await (Editor?.MatchLoudnessAsync() ?? Task.CompletedTask);
 
     private void OnPartClicked(object? sender, PatchPart? part)
     {

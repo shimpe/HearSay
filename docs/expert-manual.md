@@ -375,6 +375,19 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   measured (English F2..F5, Dutch F4 and F5) from a cascade model of the vocal tract, five two-pole resonances on a
   source falling 6 dB per octave, the Dutch F4 and F5 relative to the measured F3; every level at most F1's. The means
   were computed from the per-speaker data that Praat distributes.
+
+  **A vowel needs a source.** A formant filter only shapes the harmonics it is given: a vowel is heard when the operator
+  sends many harmonics of about the same strength, so that every formant finds some to lift. A narrow pulse does that;
+  a saw does not (its harmonics fall 6 dB per octave, so F3..F5 have little to work with), and a sine has nothing above
+  the fundamental. The number of harmonics matters as much: a waveform built from 8 harmonics sends nothing above
+  8 × the note's frequency, so on A3 (220 Hz) nothing above 1760 Hz reaches F2 and higher. *Voice source*, under the
+  vowel buttons, makes the operator such a source in one step: a pulse 1 % wide (*pulse width* 0.01) with 64
+  harmonics, its filter and everything else left as they are. It is refused on a profile without a pulse waveform.
+- **Harmonics.** A triangle, saw, square or pulse operator (FMX6) has a *harmonics* row: the number of harmonics its
+  waveform is built from, 1..128 (the FMX6 UGen's range), as in the export. It is a whole number: a typed value is
+  rounded, and a drag moves in equal ratios. Sounds from the library may have only 8 or 16: few harmonics make a mellow
+  waveform but leave nothing for a filter to shape higher up. Sine, noise and elliptic operators have no such row. It
+  is not one of the numbers the search fine-tunes (its structural moves only halve or double it).
 - **Numbers.** Type a number and press Enter (or leave the box). Or drag sideways, on the box or its name in the
   inspector, or on the dashed-underlined numbers of the diagram itself (frequency ratio or fixed frequency, connection
   amounts, output levels) while a note plays: 200 pixels cross the whole range, along its scale (a ratio in equal
@@ -389,8 +402,20 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   The pitch envelope has no exponential curves: they cannot go below zero, and its cents go either way of the note.
 - **Undo and Redo** (the arrows right of the tabs, Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to the sound
   as it was. One step is one drag from press to release, one typed number, one menu choice, one part added or removed,
-  one envelope point dragged, one vowel preset. While a box holds typed text, Ctrl+Z undoes the typing; during a drag
-  the keys do nothing.
+  one envelope point dragged, one vowel preset, one *Voice source*. While a box holds typed text, Ctrl+Z undoes the
+  typing; during a drag the keys do nothing.
+- **Match loudness.** An edit plays at the loudness of the original: its gain is the original's, not normalised again
+  after each edit, so that turning an output level down really makes it softer. An edit that changes the sound a lot
+  can therefore be much quieter (or louder) than the original: a triangle turned into a 1 % pulse through narrow
+  formants can be some 30 dB quieter, and an output level cannot go above 1.5 to make up for it. *Match loudness*,
+  beside the arrows (enabled while the edit is shown), computes the gain the edit would get as a new sound (its
+  reference note normalised, as every sound of the library) and plays the edit at that gain from then on; the status
+  line says *Loudness matched: the edit now plays as loud as a new sound would.* The matched loudness belongs to the
+  sound's edit (the same sound in both tabs shares it) and stays while the Studio runs: later edits keep it, it is not
+  matched again by itself; click again to match the edit as it then is. *Original* still plays at the original's
+  loudness, and undoing back to the original shows it as before. ☆ and *Update* on an edit keep the matched gain in the
+  favourite. (The `preview.wav` of *Save edited sound…* is normalised on its own, to a peak of 0.7, which is why it can
+  sound louder than an unmatched edit.)
 - **Original ⇄ Edited.** Once a sound is edited, a switch beside the arrows shows the original or the edit: the
   diagram, the code and the keys follow, to compare by ear. The original can be inspected but not changed; an edit,
   undo or redo returns to the edit. Copy, Save…, Show in Search, Find in library and ☆ act on the version shown; while
@@ -404,8 +429,9 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   ☆ on an edit of a favourite offers *Update "name"*; after *Overwrite* the favourite keeps its nickname and origin and
   holds the edit (its old version is gone). In the Library tab it is then shown as it now is, with no history; in the
   Search tab the edit stays shown, now as that favourite. The edit plays at the loudness of the original (its
-  gain is not normalised again, so a lower output level really is softer), and its favourite keeps that loudness: the
-  gain is stored in `favourite.json` as `gain`. Favourites without it are normalised as before.
+  gain is not normalised again, so a lower output level really is softer) or, after *Match loudness*, at its own, and
+  its favourite keeps that loudness: the gain is stored in `favourite.json` as `gain`. Favourites without it are
+  normalised as before.
 - **Limits of the profile.** An edit always stays playable by the sound's backend. Values are clamped to the profile's
   ranges (those of the search's parameter schema where it has the value). Connection amounts stop at the backend's
   modulation limit: 24 rad into one operator in all, shared by every connection into it (an amount that follows an
@@ -648,7 +674,9 @@ rate per octave, reference note), for FMX6 `Shape` (pulse duty), `HarmonicLimit`
 `FormantPresets.Sets`; null for none), and for Nome6 `Shape`
 (elliptic m), `Morph`, `NoisePhase` and `NoiseM`. Per patch: `OutputLevels`, `ModulationMatrix` (edges
 `SourceOperator`, `DestinationOperator`, `Enabled`, `Amount` in radians, optional `AmountEnvelope`), `Pitch`
-(envelope and vibrato) and, for Nome6, `Noise` (colour and cutoff of the shared noise).
+(envelope and vibrato) and, for Nome6, `Noise` (colour and cutoff of the shared noise). A vowel preset needs a source
+with many harmonics: the edit `PatchEdits.SetVoiceSource(op)` (applied through a `PatchEditor`, as the Studio does)
+makes an operator a 1 % pulse with 64 harmonics.
 
 Validation refuses what no backend can play (amounts beyond the profile's radians per destination, shapes outside
 0.01..0.99, harmonic limits outside 1..128); the exporter of a profile refuses what that UGen lacks (a saw operator

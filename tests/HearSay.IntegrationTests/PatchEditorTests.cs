@@ -218,4 +218,45 @@ public sealed class PatchEditorTests
         Assert.Equal(start, editor.Current.ComputeHash());
         Assert.False(editor.CanUndo);
     }
+
+    [Fact]
+    public void MatchedGain_StaysThroughLaterEdits_AndIsShared()
+    {
+        var sessions = new EditSessions();
+        PatchEditor editor = sessions.For(Heard(), Fm7);
+        Assert.Null(editor.MatchedGain);
+        int changes = 0;
+        editor.Changed += (_, _) => changes++;
+
+        editor.Apply(SetRatio(2));
+        editor.MatchedGain = 3.5f;
+        Assert.Equal(2, changes);
+
+        // Later edits, undo and redo keep it; it is not computed again by itself.
+        editor.Apply(SetRatio(3));
+        editor.Undo();
+        editor.Undo();
+        editor.Redo();
+        editor.ShowingOriginal = true;
+        editor.ShowingOriginal = false;
+        Assert.Equal(3.5f, editor.MatchedGain);
+
+        // The same sound shown elsewhere has it too; setting it again to the same value says nothing.
+        Assert.Equal(3.5f, sessions.For(Heard(), Fm7).MatchedGain);
+        int before = changes;
+        editor.MatchedGain = 3.5f;
+        Assert.Equal(before, changes);
+        editor.MatchedGain = 5f;
+        Assert.Equal(before + 1, changes);
+    }
+
+    [Fact]
+    public void MatchedGain_IsForgottenByRevert()
+    {
+        var editor = new PatchEditor(Heard(), Fm7);
+        editor.Apply(SetRatio(2));
+        editor.MatchedGain = 3.5f;
+        editor.Revert();
+        Assert.Null(editor.MatchedGain);
+    }
 }

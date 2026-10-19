@@ -362,4 +362,80 @@ public sealed class EditableValuesTests
         Assert.InRange(amount.Nudge(0, 2, fine: false, snap: false), 1e-6, 2.0 / 200.0 * amount.Maximum / 2);
         Assert.Equal(amount.Maximum, amount.Nudge(0, 200, fine: false, snap: false), 9);
     }
+
+    [Fact]
+    public void For_PulseOperator_HasHarmonics()
+    {
+        // A pulse that the library sound left at 8 harmonics: the row shows them, right after the pulse width.
+        OperatorMatrixPatch patch = TwoOperators();
+        OperatorMatrixPatch pulse = patch.WithOperator(0, patch.Operators[0].WithWaveform(OperatorWaveform.Pulse) with { HarmonicLimit = 8 });
+        IReadOnlyList<EditableValue> values = EditableValues.For(pulse, Fmx6.Capabilities, new PatchPart.OperatorPart(0));
+        EditableValue harmonics = Value(values, "op1.harmonics");
+        Assert.Equal(("harmonics", "", 1.0, 128.0, true), (harmonics.Label, harmonics.Unit, harmonics.Minimum, harmonics.Maximum, harmonics.Logarithmic));
+        Assert.True(harmonics.WholeNumbers);
+        Assert.Equal(8.0, harmonics.Get(pulse));
+        List<string> ids = [.. values.Select(static v => v.Id)];
+        Assert.Equal(ids.IndexOf("op1.shape") + 1, ids.IndexOf("op1.harmonics"));
+        Assert.Equal(64, Done(pulse, Fmx6, harmonics.Set(64)).Operators[0].HarmonicLimit);
+
+        // Every waveform the FMX6 renderer builds from harmonics has the row.
+        foreach (OperatorWaveform waveform in new[] { OperatorWaveform.Triangle, OperatorWaveform.Saw, OperatorWaveform.Square })
+        {
+            OperatorMatrixPatch other = patch.WithOperator(1, patch.Operators[1].WithWaveform(waveform));
+            Assert.Equal(32.0, Value(EditableValues.For(other, Fmx6.Capabilities, new PatchPart.OperatorPart(1)), "op2.harmonics").Get(other));
+        }
+
+        // It is the editor's own: no parameter of the search has its id.
+        PatchParameterSchema schema = PatchParameterSchema.Build(pulse, Fmx6.Capabilities);
+        Assert.DoesNotContain(schema.Parameters, static p => p.Id.EndsWith(".harmonics", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Harmonics_AreWholeNumbers_1To128()
+    {
+        OperatorMatrixPatch patch = TwoOperators();
+        OperatorMatrixPatch saw = patch.WithOperator(0, patch.Operators[0].WithWaveform(OperatorWaveform.Saw) with { HarmonicLimit = 8 });
+        EditableValue harmonics = Value(EditableValues.For(saw, Fmx6.Capabilities, new PatchPart.OperatorPart(0)), "op1.harmonics");
+
+        // Typed values are rounded and kept within 1..128, as the UGen clamps them.
+        Assert.Equal(10, Done(saw, Fmx6, harmonics.Set(10.4)).Operators[0].HarmonicLimit);
+        Assert.Equal(11, Done(saw, Fmx6, harmonics.Set(10.6)).Operators[0].HarmonicLimit);
+        Assert.Equal(1, Done(saw, Fmx6, harmonics.Set(0)).Operators[0].HarmonicLimit);
+        Assert.Equal(1, Done(saw, Fmx6, harmonics.Set(-3)).Operators[0].HarmonicLimit);
+        Assert.Equal(128, Done(saw, Fmx6, harmonics.Set(500)).Operators[0].HarmonicLimit);
+        Assert.Same(saw, Done(saw, Fmx6, harmonics.Set(8.2)));
+
+        // A drag moves in ratios and lands on whole numbers: half the range up from 8 is 8 × √128 ≈ 90.5.
+        Assert.Equal(8.0, harmonics.Nudge(8, 0, fine: false, snap: false));
+        Assert.Equal(91.0, harmonics.Nudge(8, 100, fine: false, snap: false));
+        Assert.Equal(128.0, harmonics.Nudge(8, 1000, fine: false, snap: false));
+        Assert.Equal(1.0, harmonics.Nudge(8, -1000, fine: false, snap: false));
+        for (int pixels = -60; pixels <= 60; pixels += 7)
+        {
+            double value = harmonics.Nudge(8, pixels, fine: pixels % 2 == 0, snap: false);
+            Assert.Equal(Math.Round(value), value);
+            Assert.InRange(value, 1.0, 128.0);
+        }
+
+        // Other values are not rounded.
+        Assert.False(Value(EditableValues.For(saw, Fmx6.Capabilities, new PatchPart.OperatorPart(0)), "op1.detune").WholeNumbers);
+    }
+
+    [Fact]
+    public void For_SineOperator_HasNoHarmonics()
+    {
+        OperatorMatrixPatch patch = TwoOperators();
+        static bool HasHarmonics(OperatorMatrixPatch p, SynthesisProfile profile)
+            => EditableValues.For(p, profile.Capabilities, new PatchPart.OperatorPart(0)).Any(static v => v.Id == "op1.harmonics");
+
+        // A sine (FM7 has nothing else), the noises and an elliptic operator are not built from a number of harmonics.
+        Assert.False(HasHarmonics(patch, Fm7));
+        Assert.False(HasHarmonics(patch, Fmx6));
+        foreach (OperatorWaveform waveform in new[] { OperatorWaveform.Noise, OperatorWaveform.SampleHoldNoise, OperatorWaveform.FilteredNoise })
+        {
+            Assert.False(HasHarmonics(patch.WithOperator(0, patch.Operators[0].WithWaveform(waveform)), Fmx6));
+        }
+
+        Assert.False(HasHarmonics(patch.WithOperator(0, patch.Operators[0].WithWaveform(OperatorWaveform.Elliptic)), Nome6));
+    }
 }

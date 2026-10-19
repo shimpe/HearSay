@@ -51,13 +51,17 @@
         </Grid>
       </TabItem>
     </TabControl>
-    <!-- Editing, on the right of the tab strip: undo, redo, and once edited the switch to compare with the original -->
+    <!-- Editing, on the right of the tab strip: undo, redo, Match loudness, and once edited the switch to compare with the
+         original -->
     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,0,0"
                 IsVisible="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}">
       <Button x:Name="UndoButton" Content="↶" FontSize="15" Padding="9,1" Click="OnUndo"
               IsEnabled="{Binding Editor.CanUndo, ElementName=Root, FallbackValue=False}" ToolTip.Tip="Undo the last edit (Ctrl+Z)" />
       <Button x:Name="RedoButton" Content="↷" FontSize="15" Padding="9,1" Click="OnRedo"
               IsEnabled="{Binding Editor.CanRedo, ElementName=Root, FallbackValue=False}" ToolTip.Tip="Redo the edit undone last (Ctrl+Y or Ctrl+Shift+Z)" />
+      <Button x:Name="MatchLoudnessButton" Content="Match loudness" FontSize="11" Padding="8,3" VerticalAlignment="Center" Click="OnMatchLoudness"
+              IsEnabled="{Binding Editor.CanMatchLoudness, ElementName=Root, FallbackValue=False}"
+              ToolTip.Tip="An edit plays at the original's loudness: play it as loud as a new sound of it would be (later edits keep this loudness; click again to match the edit as it then is)" />
       <Border x:Name="EditSwitch" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6" Padding="2" VerticalAlignment="Center"
               IsVisible="{Binding Editor.IsEdited, ElementName=Root, FallbackValue=False}"
               ToolTip.Tip="What the diagram and the code show and the keys play: the sound as it was, or as edited">

@@ -28,6 +28,12 @@ public sealed record EditableValue(string Id, string Label, string Unit, double 
     /// </summary>
     internal IParameterTransform? Transform { get; init; }
 
+    /// <summary>
+    /// True for a count, such as the number of harmonics: a typed value is rounded to the nearest whole number and a drag
+    /// lands on whole numbers.
+    /// </summary>
+    public bool WholeNumbers { get; init; }
+
     /// <summary>Reads the value; null when the patch does not have it.</summary>
     internal Func<OperatorMatrixPatch, double?> Reader { get; init; } = static _ => null;
 
@@ -65,7 +71,7 @@ public sealed record EditableValue(string Id, string Label, string Unit, double 
             return EditOutcome.Refused(patch, $"This part of the patch has no {Label} (any more).");
         }
 
-        double clamped = Math.Clamp(value, Minimum, Maximum);
+        double clamped = Math.Clamp(WholeNumbers ? Math.Round(value, MidpointRounding.AwayFromZero) : value, Minimum, Maximum);
         if (Limit is { } limit)
         {
             double most = limit(patch, c);
@@ -99,6 +105,11 @@ public sealed record EditableValue(string Id, string Label, string Unit, double 
         double fraction = pixels / (fine ? 10.0 * PixelsPerRange : PixelsPerRange);
         double value = scale.ToNativeSpace(scale.ToSearchSpace(from) + (fraction * (high - low)));
         value = Math.Clamp(double.IsNaN(value) ? from : value, Minimum, Maximum);
+        if (WholeNumbers)
+        {
+            value = Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), Minimum, Maximum);
+        }
+
         return snap ? Snapped(value) : value;
     }
 
@@ -133,8 +144,9 @@ public sealed record EditableValue(string Id, string Label, string Unit, double 
 
 /// <summary>
 /// The numbers of each part of a patch: an operator, a connection, the shared noise or the pitch model. Only the values
-/// that exist on that part are listed: a ratio only in ratio mode, a pulse width only on a pulse, the values of a filter
-/// only on an operator that has one, and so on. Envelopes are edited with <see cref="EnvelopeEdits"/>.
+/// that exist on that part are listed: a ratio only in ratio mode, a pulse width only on a pulse, the number of harmonics
+/// only on a waveform built from them, the values of a filter only on an operator that has one, and so on. Envelopes
+/// are edited with <see cref="EnvelopeEdits"/>.
 /// </summary>
 public static class EditableValues
 {
@@ -152,6 +164,15 @@ public static class EditableValues
 
     /// <summary>The schema's scale of a connection amount, for a connection the schema does not offer.</summary>
     private static readonly IParameterTransform AmountScale = ParameterTransforms.SoftLogarithmic(0.25);
+
+    /// <summary>
+    /// True for the waveforms built from a limited number of harmonics (<see cref="OperatorPatch.HarmonicLimit"/>):
+    /// triangle, saw, square and pulse, as the FMX6 renderer builds them; sine, the noises and the elliptic waveform do
+    /// not use it.
+    /// </summary>
+    /// <param name="waveform">The waveform.</param>
+    public static bool UsesHarmonics(OperatorWaveform waveform)
+        => waveform is OperatorWaveform.Triangle or OperatorWaveform.Saw or OperatorWaveform.Square or OperatorWaveform.Pulse;
 
     /// <summary>The values of a part of a patch that exist on it; empty when the patch has no such part.</summary>
     /// <param name="patch">The patch.</param>
@@ -194,7 +215,7 @@ public static class EditableValues
         OperatorPatch present = patch.Operators[op];
 
         // A value of this operator, when the operator, as it is in the patch being edited, has it.
-        void Add(string name, string label, string unit, (double, double, bool) model, Func<OperatorPatch, bool> has, Func<OperatorPatch, double> get, Func<OperatorPatch, double, OperatorPatch> set, bool useSchema = true, IReadOnlyList<double>? snaps = null)
+        void Add(string name, string label, string unit, (double, double, bool) model, Func<OperatorPatch, bool> has, Func<OperatorPatch, double> get, Func<OperatorPatch, double, OperatorPatch> set, bool useSchema = true, IReadOnlyList<double>? snaps = null, bool wholeNumbers = false)
         {
             if (!has(present))
             {
@@ -211,7 +232,7 @@ public static class EditableValues
                 p => (uint)op < (uint)p.OperatorCount && has(p.Operators[op]) ? get(p.Operators[op]) : null,
                 (p, v) => p.WithOperator(op, set(p.Operators[op], v)),
                 useSchema,
-                snaps));
+                snaps) with { WholeNumbers = wholeNumbers });
         }
 
         // A value of this operator's filter, for the filter types that use it.
@@ -248,6 +269,10 @@ public static class EditableValues
         Add("detune", "detune", "Hz", (-8.0, 8.0, false), Always, static o => o.DetuneHz, static (o, v) => o with { DetuneHz = v });
         Add("phase", "phase", "rad", (0.0, 2.0 * Math.PI, false), Always, static o => o.InitialPhase, static (o, v) => o with { InitialPhase = v });
         Add("shape", "pulse width", "", (0.01, 0.99, false), static o => o.Waveform == OperatorWaveform.Pulse, static o => o.Shape, static (o, v) => o with { Shape = v });
+
+        // The number of harmonics a band-limited waveform is built from (the FMX6 UGen's 1..128): the editor's own, no
+        // parameter of the search's schema. Few of them leave nothing above them for a formant filter to shape.
+        Add("harmonics", "harmonics", "", (1.0, 128.0, true), o => UsesHarmonics(o.Waveform) && c.SupportedWaveforms.Contains(o.Waveform), static o => o.HarmonicLimit, static (o, v) => o with { HarmonicLimit = (int)Math.Round(v, MidpointRounding.AwayFromZero) }, useSchema: false, wholeNumbers: true);
         Add("filter", "response", "", (0.0, 1.0, false), static o => o.Waveform == OperatorWaveform.FilteredNoise, static o => o.Shape, static (o, v) => o with { Shape = v });
         Add("elliptic", "elliptic m", "", (0.0, OperatorPatch.MaxEllipticM, false), static o => o.Waveform == OperatorWaveform.Elliptic, static o => o.Shape, static (o, v) => o with { Shape = v });
         Add("morph", "morph", "", (0.0, 1.0, false), static o => o.Waveform == OperatorWaveform.Elliptic, static o => o.Morph, static (o, v) => o with { Morph = v });

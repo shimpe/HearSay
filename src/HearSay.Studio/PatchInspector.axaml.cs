@@ -367,7 +367,7 @@ public sealed partial class PatchInspector : UserControl
     /// sung), a menu of the set's speakers (the one used last for that set, at first its first) and a button per vowel of
     /// the set, labelled with its word, which sets all five formants of that speaker and vowel as one step and keeps the
     /// sweep. A button applies what this inspector's own menus show: another inspector (the other tab) may have chosen
-    /// another set or speaker since.
+    /// another set or speaker since. Under them, Voice source makes the operator a narrow pulse with many harmonics.
     /// </summary>
     private void FormantPresetRows(int op)
     {
@@ -438,6 +438,9 @@ public sealed partial class PatchInspector : UserControl
         AddRow(new TextBlock { Text = "preset", Classes = { "row" } }, sets, string.Empty);
         AddRow(new TextBlock { Text = "speaker", Classes = { "row" } }, speakers, string.Empty);
         Body.Children.Add(vowels);
+
+        // A vowel needs a source with many equally strong harmonics for its formants to shape.
+        Buttons(Action("VoiceSource", "Voice source", "Make this operator a vowel source: a narrow pulse (1 %) with 64 harmonics", () => _editor!.Apply(PatchEdits.SetVoiceSource(op))));
     }
 
     /// <summary>

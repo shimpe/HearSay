@@ -435,9 +435,9 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Keeps the version of the shown sound the switch shows as a favourite with the typed nickname, or renames it when it
-    /// is one already. An edit that is not a favourite yet becomes a new one, <c>edited from …</c>, at the original's
-    /// gain, and the edit moves there: the new favourite is shown, and the sound it was made from goes back to its
-    /// original, its own favourite left as it is.
+    /// is one already. An edit that is not a favourite yet becomes a new one, <c>edited from …</c>, at the gain it
+    /// plays at (the original's, or the matched one), and the edit moves there: the new favourite is shown, and the sound
+    /// it was made from goes back to its original, its own favourite left as it is.
     /// </summary>
     public async Task SaveShownFavouriteAsync()
     {
@@ -479,7 +479,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Puts the edit a tab shows in the place of the favourite it was made from: same nickname and origin, the edit's
-    /// patch, played at the original's gain. The favourite's old version is gone.
+    /// patch, played at the gain it plays at (the original's, or the matched one). The favourite's old version is gone.
     /// </summary>
     /// <param name="edits">The tab's editing state.</param>
     /// <param name="profile">The profile of the sound it shows.</param>
@@ -838,7 +838,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// The sound the keyboard plays: the last clicked one, at the gain of the library's reference note, or its edit at the
-    /// original's gain; null before a click.
+    /// original's gain or its matched gain; null before a click.
     /// </summary>
     public Sound? CurrentSound => Edits.DisplayedSound;
 
@@ -912,6 +912,9 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 break;
             case nameof(PatchEditorViewModel.LastRefusal) when Edits.LastRefusal is { } refusal:
                 _status(refusal);
+                break;
+            case nameof(PatchEditorViewModel.Notice) when Edits.Notice is { } notice:
+                _status(notice);
                 break;
         }
     }
@@ -1171,7 +1174,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
         if (Edits.ShowsEdit)
         {
-            // The edit plays at the original's gain, once it is known.
+            // The edit plays at the original's gain, once it is known, unless its loudness was matched.
             await Edits.WhenGainKnownAsync();
             if (!ReferenceEquals(selection, _selection))
             {
