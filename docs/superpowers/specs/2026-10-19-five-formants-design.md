@@ -179,3 +179,18 @@ English women uw n=48 F=460 1106 2735
 ```
 
 Vowel keys — Dutch: oe=poet /u/, aa=paat /a/, oo=poot /o/, a=pat /ɑ/, eu=peut /ø/, ie=piet /i/, uu=puut /y/, ee=peet /e/, u=put /ʏ/, e=pet /ɛ/, o=pot /ɔ/, i=pit /ɪ/. English: iy=heed /i/, ih=hid /ɪ/, ei=hayed /e/, eh=head /ɛ/, ae=had /æ/, ah=hod /ɑ/, aw=hawed /ɔ/, oa=hoed /o/, oo=hood /ʊ/, uw=who'd /u/, uh=hud /ʌ/, er=heard /ɝ/.
+
+## Later additions (2026-10-19, the user's requests)
+
+Facts, as built.
+
+- **The exported code carries the playback gain.** The last lines of the SynthDef multiply the output by the gain HearSay
+  plays the sound at, after a `// Level: x N, the gain HearSay plays this sound at; amp scales on top.` comment, so that
+  the sound is as loud in SuperCollider as in the Studio at `amp` 1. `PatchExportOptions.Gain` sets it; without it the
+  code has no level line and no multiplier. A result folder has the gain of the searched note, the Studio's code view,
+  Copy, Save and favourites the gain of the version shown (an edit's is the original's, or its matched one).
+- **F3 on every formant filter in the search (the correction).** The decision above is kept (F4 and F5 are never set by
+  the search), but F3 is searched on every formant filter, as F2 is, not only on those that already have it. A filter
+  with F3 off is read as the default F3 (a default ratio above F2, the level floor and the shared Q); writing that
+  default back leaves F3 off, so an untouched two-peak patch is unchanged. Moving any F3 value turns F3 on with the
+  defaults for the other two. Formant peaks are given their real width.

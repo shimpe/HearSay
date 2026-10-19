@@ -119,7 +119,7 @@ public sealed class FavouriteSoundsTests : IDisposable
     [InlineData("-1")]
     [InlineData("0")]
     [InlineData("1e9")]
-    [InlineData("100.5")]
+    [InlineData("10000.5")]
     public void Favourite_WithAGainOutOfReason_IsNormalised(string gain)
     {
         Favourite added = new FavouriteSounds(_directory).Add("odd", Bell, SynthesisProfiles.SuperColliderFm7, "edited", gain: 0.3f);
@@ -131,11 +131,11 @@ public sealed class FavouriteSoundsTests : IDisposable
     }
 
     [Fact]
-    public void Favourite_WithAGainOfUpTo100_KeepsIt()
+    public void Favourite_WithAGainOfUpTo10000_KeepsIt()
     {
         Favourite added = new FavouriteSounds(_directory).Add("loud", Bell, SynthesisProfiles.SuperColliderFm7, "edited", gain: 0.3f);
-        File.WriteAllText(Path.Combine(added.Directory, "favourite.json"), "{\"origin\":\"edited\",\"gain\":100}");
-        Assert.Equal(100f, Assert.Single(new FavouriteSounds(_directory).Load()).Gain);
+        File.WriteAllText(Path.Combine(added.Directory, "favourite.json"), "{\"origin\":\"edited\",\"gain\":10000}");
+        Assert.Equal(10000f,Assert.Single(new FavouriteSounds(_directory).Load()).Gain);
     }
 
     [Fact]

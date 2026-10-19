@@ -34,7 +34,7 @@
           <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
             <Panel>
               <!-- Editing while a sound is shown: click to select, drag the underlined numbers sideways -->
-              <local:FmDiagram x:Name="Diagram" Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" Margin="8"
+              <local:FmDiagram x:Name="Diagram" Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" EmptyText="{Binding EmptyDiagramText, ElementName=Root}" Margin="8"
                                IsEditing="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}"
                                CanNudge="{Binding Editor.ShowingEdited, ElementName=Root, FallbackValue=False}"
                                SelectedPart="{Binding Editor.Selected, ElementName=Root, Mode=TwoWay}" />

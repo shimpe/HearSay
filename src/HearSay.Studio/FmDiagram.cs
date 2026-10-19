@@ -34,7 +34,10 @@ public sealed partial class FmDiagram : Control
     /// </summary>
     public static readonly StyledProperty<bool> SharedNoiseProperty = AvaloniaProperty.Register<FmDiagram, bool>(nameof(SharedNoise));
 
-    private static readonly IBrush BoxFill = new SolidColorBrush(Color.Parse("#1E293B"));
+    /// <summary>What the empty diagram says, which depends on where the host gets its sound from.</summary>
+    public static readonly StyledProperty<string> EmptyTextProperty = AvaloniaProperty.Register<FmDiagram, string>(nameof(EmptyText), "Run a search to see the block diagram of the patch here.");
+
+    private static readonly IBrush BoxFill =new SolidColorBrush(Color.Parse("#1E293B"));
     private static readonly IBrush CarrierFill = new SolidColorBrush(Color.Parse("#164E63"));
     private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#22D3EE"));
     private static readonly IBrush Amber = new SolidColorBrush(Color.Parse("#F59E0B"));
@@ -62,7 +65,7 @@ public sealed partial class FmDiagram : Control
 
     static FmDiagram()
     {
-        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty, IsEditingProperty, SelectedPartProperty, CanNudgeProperty);
+        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty, IsEditingProperty, SelectedPartProperty, CanNudgeProperty, EmptyTextProperty);
         PatchProperty.Changed.AddClassHandler<FmDiagram>(static (d, _) => d.HideTip());
     }
 
@@ -71,6 +74,13 @@ public sealed partial class FmDiagram : Control
     {
         get => GetValue(PatchProperty);
         set => SetValue(PatchProperty, value);
+    }
+
+    /// <inheritdoc cref="EmptyTextProperty"/>
+    public string EmptyText
+    {
+        get => GetValue(EmptyTextProperty);
+        set => SetValue(EmptyTextProperty, value);
     }
 
     /// <inheritdoc cref="SharedNoiseProperty"/>
@@ -141,7 +151,7 @@ public sealed partial class FmDiagram : Control
         OperatorMatrixPatch? patch = Patch;
         if (patch is null)
         {
-            DrawText(context, "Run a search to see the block diagram of the patch here.", new Point(12, 12), 12, Muted);
+            DrawText(context, EmptyText, new Point(12, 12), 12, Muted);
             return;
         }
 

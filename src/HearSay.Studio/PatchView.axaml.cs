@@ -21,6 +21,9 @@ public sealed partial class PatchView : UserControl
     /// <summary>Shown while there is no code.</summary>
     public static readonly StyledProperty<string?> WatermarkProperty = AvaloniaProperty.Register<PatchView, string?>(nameof(Watermark));
 
+    /// <summary>Shown in the block diagram while there is no patch.</summary>
+    public static readonly StyledProperty<string> EmptyDiagramTextProperty = AvaloniaProperty.Register<PatchView, string>(nameof(EmptyDiagramText), "Run a search to see the block diagram of the patch here.");
+
     /// <summary>The patch drawn as a block diagram.</summary>
     public static readonly StyledProperty<OperatorMatrixPatch?> PatchProperty = AvaloniaProperty.Register<PatchView, OperatorMatrixPatch?>(nameof(Patch));
 
@@ -163,6 +166,13 @@ public sealed partial class PatchView : UserControl
     {
         get => GetValue(CodeProperty);
         set => SetValue(CodeProperty, value);
+    }
+
+    /// <inheritdoc cref="EmptyDiagramTextProperty"/>
+    public string EmptyDiagramText
+    {
+        get => GetValue(EmptyDiagramTextProperty);
+        set => SetValue(EmptyDiagramTextProperty, value);
     }
 
     /// <inheritdoc cref="WatermarkProperty"/>

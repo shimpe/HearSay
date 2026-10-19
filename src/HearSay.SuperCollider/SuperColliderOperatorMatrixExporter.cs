@@ -153,7 +153,7 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
             d => $"into OP{d + 1}");
         string levels = List(n, i => audible[i] ? Number(patch.OutputLevels[i]) : "0");
         string output = gain is float g
-            ? $"// Level: x {Number(g)}, the gain HearSay plays this sound at (its reference note peaks at 0.5 before amp).\n\tOut.ar(out, (signal * amp * {Number(g)}) ! 2);"
+            ? $"// Level: x {Number(g)}, the gain HearSay plays this sound at; amp scales on top.\n\tOut.ar(out, (signal * amp * {Number(g)}) ! 2);"
             : "Out.ar(out, (signal * amp) ! 2);";
         string synthDef = $$"""
             SynthDef(\{{synthDefName}}, { |out = 0, freq = 440, gate = 1, velocity = 1, amp = 0.2|

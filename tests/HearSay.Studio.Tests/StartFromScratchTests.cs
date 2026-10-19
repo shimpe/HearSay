@@ -12,6 +12,7 @@ namespace HearSay.Studio.Tests;
 /// any other. The view models get a real live player on a settings file and a favourites folder of the test's own, and a
 /// fake gain, completed at once, instead of the mixer's.
 /// </summary>
+[Collection("InterfaceThread")]
 public sealed class StartFromScratchTests : IDisposable
 {
     private const float Gain = 0.5f;

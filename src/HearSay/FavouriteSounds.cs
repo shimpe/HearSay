@@ -29,7 +29,7 @@ public sealed class FavouriteSounds
     private const string OriginFile = "favourite.json";
 
     /// <summary>The highest gain a favourite is played at from its <c>favourite.json</c>.</summary>
-    private const float MaxGain = 100f;
+    private const float MaxGain = 10000f;
 
     private static readonly HashSet<string> ReservedNames = new(
         ["CON", "PRN", "AUX", "NUL", .. Enumerable.Range(1, 9).SelectMany(static i => new[] { $"COM{i}", $"LPT{i}" })],
@@ -236,7 +236,7 @@ public sealed class FavouriteSounds
 
     /// <summary>
     /// A gain read from <c>favourite.json</c>, or null (normalise as usual) for one that is no number, not above 0 or
-    /// above <see cref="MaxGain"/>, which no edit of a sound needs and which an edited file could otherwise make deafening.
+    /// above <see cref="MaxGain"/>: a matched very quiet edit can need a gain in the hundreds, but an edited file could otherwise make it deafening.
     /// </summary>
     private static float? SaneGain(float? gain) => gain is float g && float.IsFinite(g) && g > 0f && g <= MaxGain ? g : null;
 

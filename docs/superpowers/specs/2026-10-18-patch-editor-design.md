@@ -127,3 +127,29 @@ What they like they keep as a favourite, and they compare it with where they sta
 - Saving an edited sound as a favourite writes the edited patch and the "edited from …" origin.
 - UI by a headless harness and by hand: selecting operators and connections, drag-to-nudge, envelope point drags,
   undo/redo, the switch, the star.
+
+## Later additions (2026-10-19, the user's requests)
+
+Facts, as built.
+
+- **Harmonics row.** A triangle, saw, square or pulse operator (FMX6) has a *harmonics* row: the number of harmonics its
+  waveform is built from, 1..128. It is a whole number: a typed value is rounded, a drag moves in equal ratios. Sine,
+  noise and elliptic operators have no such row. The search does not fine-tune it.
+- **Voice source.** Under the vowel buttons: makes the operator a pulse 1 % wide (pulse width 0.01) with 64 harmonics,
+  leaving its filter and everything else as they are, so that a vowel preset has harmonics to shape. One undo step.
+  Refused on a profile without a pulse waveform (`PatchEdits.SetVoiceSource`).
+- **Match loudness.** An edit plays at the gain of its original and is not normalised again after each edit. *Match
+  loudness* (enabled while an edit is shown, disabled while it is being computed, in both tabs) computes the gain the
+  edit would get as a new sound (its reference note normalised) and plays the edit at that gain from then on. The matched
+  gain belongs to the sound's edit (shared by both tabs), stays while the Studio runs, and is not matched again by
+  itself. *Original* keeps the original's gain; undoing back to the original shows it as before, and redo comes back to
+  the matched edit. A new edit started from the original plays at the original's gain until matched. The favourite keeps
+  the matched gain (`gain` in `favourite.json`, accepted up to 10000).
+- **Start from scratch.** While a tab shows no sound (the Search tab before a search or once its result is gone; the
+  Library tab before a sound is selected), its empty block diagram has a *Start from scratch* button. It shows a new
+  sound: OP1 a sine at ratio 1 with attack 10 ms, decay 0.3 s to sustain 0.7, release 0.3 s, output level 0.8, the other
+  operators off. It is on the profile of the Search tab's Target selector, or of the library shown in the Library tab,
+  plays at the gain of the library's reference note, and is edited, played, copied, saved and kept as a favourite like
+  any other sound. Its favourite's origin is *made from scratch*. In the Search tab the next search replaces it. The
+  empty diagram's text is the tab's own: "Run a search to see the block diagram of the patch here." in the Search tab,
+  "Click a node to see its block diagram here." in the Library tab.

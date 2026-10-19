@@ -121,7 +121,7 @@ public sealed class ExporterTests(Xunit.Abstractions.ITestOutputHelper output)
         int at = Array.FindIndex(lines, static l => l.Contains("Out.ar(", StringComparison.Ordinal));
 
         // The level comment and the gain on the output, as the last lines of the SynthDef.
-        Assert.Equal("\t// Level: x 3.2109, the gain HearSay plays this sound at (its reference note peaks at 0.5 before amp).", lines[at - 1]);
+        Assert.Equal("\t// Level: x 3.2109, the gain HearSay plays this sound at; amp scales on top.", lines[at - 1]);
         Assert.Equal("\tOut.ar(out, (signal * amp * 3.2109) ! 2);", lines[at]);
         Assert.Equal("}).add;", lines[at + 1]);
         Assert.DoesNotContain("(signal * amp) ! 2", scd, StringComparison.Ordinal);

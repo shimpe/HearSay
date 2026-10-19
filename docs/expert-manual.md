@@ -270,7 +270,7 @@ SynthDef multiply the output by the gain HearSay plays the sound at, the gain th
 velocity to a peak of 0.5 (a quiet patch, such as a narrow pulse through formants, gets a large one):
 
 ```supercollider
-	// Level: x 3.2109, the gain HearSay plays this sound at (its reference note peaks at 0.5 before amp).
+	// Level: x 3.2109, the gain HearSay plays this sound at; amp scales on top.
 	Out.ar(out, (signal * amp * 3.2109) ! 2);
 ```
 
@@ -279,7 +279,9 @@ velocity to a peak of 0.5 (a quiet patch, such as a narrow pulse through formant
 favourite's `patch.scd` have the gain the Studio plays the shown version at: an edit's is the original's or its matched
 one, a favourite's the one it kept, else that of the library's reference note. The code view shows the code without the
 level until the gain is known, a moment after a sound is shown. `IPatchExporter.Export` adds it only when
-`PatchExportOptions.Gain` is set; `ExportSynthDef` never does. HearSay plays a patch without velocity sensitivity with
+`PatchExportOptions.Gain` is set; `ExportSynthDef` never does. An edit plays, and exports, at its original's gain
+until Match loudness is used, so a much louder edit can exceed full scale in SuperCollider at the default `amp`: lower
+`amp` or match the loudness. HearSay plays a patch without velocity sensitivity with
 the key velocity as volume; the SynthDef does not, so such a patch plays at full level at any `velocity`.
 
 ## 9. HearSay Studio
