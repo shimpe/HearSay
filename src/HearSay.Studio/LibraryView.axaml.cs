@@ -17,7 +17,7 @@ public sealed partial class LibraryView : UserControl
 
     private LibraryViewModel ViewModel => (LibraryViewModel)DataContext!;
 
-    private void OnNodeClicked(object? sender, int index) => ViewModel.Select(index);
+    private async void OnNodeClicked(object? sender, int index) => await ViewModel.SelectAsync(index);
 
     private async void OnNodeOpened(object? sender, int index) => await ViewModel.OpenAsync(index);
 

@@ -125,7 +125,7 @@
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="10">
             <TextBlock Classes="label" Text="Target" ToolTip.Tip="SuperCollider UGen the patch is searched for and exported to. FM7 (sc3-plugins): sine operators. FMX6 (github.com/shimpe/fmx6): sine, triangle, saw, square, pulse and noise operators. Nome6: Jacobi elliptic operators, from a sine to strong odd harmonics, morphing from sn to sd. All: the three, one after the other with the full budget each; every target keeps its result." />
-            <ComboBox Width="130" ItemsSource="{Binding SynthesisTargets}" SelectedItem="{Binding SelectedSynthesisTarget}" IsEnabled="{Binding !IsRunning}">
+            <ComboBox x:Name="TargetSelector" Width="130" ItemsSource="{Binding SynthesisTargets}" SelectedItem="{Binding SelectedSynthesisTarget}" IsEnabled="{Binding !IsRunning}">
               <ComboBox.ItemTemplate>
                 <DataTemplate x:DataType="local:SynthesisTargetChoice">
                   <TextBlock Text="{Binding Label}" />

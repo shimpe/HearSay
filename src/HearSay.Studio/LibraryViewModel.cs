@@ -82,7 +82,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private readonly object _keyboard = new();
     private readonly Action<string> _status;
     private readonly Action<double> _progress;
-    private readonly Action<LibraryPatch> _showInSearch;
+    private readonly Func<LibraryPatch, Task> _showInSearch;
+    private readonly Func<SynthesisProfile, LibraryAtlas>? _openLibrary;
     private readonly int _size = new PatchMatchOptions().StructureLibrarySize;
     private SynthesisProfile _profile = SynthesisProfiles.SuperColliderFmx6;
     private LibraryAtlas? _atlas;
@@ -115,11 +116,12 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="live">The live notes, shared with the Search tab.</param>
     /// <param name="status">Sets the status line of the window.</param>
     /// <param name="progress">Sets the progress bar of the window, 0..1.</param>
-    /// <param name="showInSearch">Shows a sound in the Search tab.</param>
+    /// <param name="showInSearch">Shows a sound in the Search tab, unless the user keeps the sound shown there.</param>
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
     /// <param name="sessions">The edits of every sound, shared with the Search tab; edits of this tab alone when null.</param>
     /// <param name="gainOf">The gain a sound is played at, for the editing of this tab; the live mixer's when null.</param>
-    public LibraryViewModel(LivePlayer live, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null, EditSessions? sessions = null, Func<Sound, Task<float>>? gainOf = null)
+    /// <param name="openLibrary">Opens the library of a profile, off the interface thread; the one on disk (built the first time) when null.</param>
+    public LibraryViewModel(LivePlayer live, Action<string> status, Action<double> progress, Func<LibraryPatch, Task> showInSearch, FavouriteSounds? favourites = null, EditSessions? sessions = null, Func<Sound, Task<float>>? gainOf = null, Func<SynthesisProfile, LibraryAtlas>? openLibrary = null)
     {
         ArgumentNullException.ThrowIfNull(live);
         Edits = new PatchEditorViewModel(sessions ?? new EditSessions(), gainOf ?? live.Mixer.GainAsync);
@@ -149,6 +151,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         _status = status;
         _progress = progress;
         _showInSearch = showInSearch;
+        _openLibrary = openLibrary;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -239,8 +242,27 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
 
         SetSelection(new Selection(ScratchSound.Title, ScratchSound.Patch, _profile, ScratchSound.Origin, ScratchSound.HeaderComments) { Origin = ScratchSound.Origin }, play: false);
-        _status("New sound made from scratch; edit it in the block diagram.");
+        _status("New sound made from scratch; edit it in the block diagram, and ☆ to keep it.");
     }
+
+    /// <summary>
+    /// True while the selected sound was made from scratch, has an edit, and the version shown is not a favourite: the new
+    /// sound would be lost if another one replaced it, since the Start from scratch button only shows in an empty tab.
+    /// </summary>
+    public bool ShowsUnsavedScratchEdit => _selection is { Origin: ScratchSound.Origin } && Edits.IsEdited && !IsShownFavourite;
+
+    /// <summary>
+    /// Asks the user whether the selected sound may be replaced; set by the window, which shows the question. Its task
+    /// gives true for Replace and false for Cancel. Null replaces without asking.
+    /// </summary>
+    public Func<Task<bool>>? AskToReplace { get; set; }
+
+    /// <summary>
+    /// Whether an action may replace the selected sound: true at once when nothing needs asking, else the answer of
+    /// <see cref="AskToReplace"/> while <see cref="ShowsUnsavedScratchEdit"/>. Every action that replaces the selection
+    /// asks this before it changes anything.
+    /// </summary>
+    public async Task<bool> ConfirmReplaceAsync() => !ShowsUnsavedScratchEdit || AskToReplace is not { } ask || await ask();
 
     /// <summary>What the keyboard last played.</summary>
     public string PlayingText
@@ -474,7 +496,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 if (Favourites.FirstOrDefault(f => f.Favourite.Directory == added.Directory) is { } item)
                 {
                     SelectedFavourite = item;
-                    await PlaceFavouriteAsync(item);
+                    await PlaceFavouriteWithoutAskingAsync(item);
                 }
             }
         }
@@ -529,7 +551,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 if (Favourites.FirstOrDefault(f => f.Favourite.Directory == updated.Directory) is { } fresh)
                 {
                     SelectedFavourite = fresh;
-                    await PlaceFavouriteAsync(fresh);
+                    await PlaceFavouriteWithoutAskingAsync(fresh);
                 }
             }
         }
@@ -629,11 +651,23 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Places a favourite among its neighbours in the library of its profile, selected and played.</summary>
+    /// <summary>
+    /// Places a favourite among its neighbours in the library of its profile, selected and played, once
+    /// <see cref="ConfirmReplaceAsync"/> lets it replace the selected sound.
+    /// </summary>
     /// <param name="item">Favourite.</param>
     public async Task PlaceFavouriteAsync(FavouriteItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        if (await ConfirmReplaceAsync())
+        {
+            await PlaceFavouriteWithoutAskingAsync(item);
+        }
+    }
+
+    /// <summary>Places a favourite without asking: once asked, or when the sound shown was just kept as that favourite.</summary>
+    private async Task PlaceFavouriteWithoutAskingAsync(FavouriteItem item)
+    {
         ExportedSound sound = item.Favourite.Sound;
         _status($"Rendering {item.Name} to find its neighbours…");
         byte[] print = await Task.Run(() => ExportedSounds.Fingerprint(sound));
@@ -707,11 +741,25 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         _status($"{added} sound(s) imported{skipped}. Click one in the list to place it in the library.");
     }
 
-    /// <summary>Opens the family an imported sound falls in and shows it there as a star, selected and centred.</summary>
+    /// <summary>
+    /// Opens the family an imported sound falls in and shows it there as a star, selected and centred, once
+    /// <see cref="ConfirmReplaceAsync"/> lets it replace the selected sound. While it cannot be placed, the status line
+    /// says why, without asking.
+    /// </summary>
     /// <param name="item">Imported sound.</param>
     public async Task PlaceAsync(ImportedItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        if (_atlas is { Root.Size: > 0 } && !await ConfirmReplaceAsync())
+        {
+            return;
+        }
+
+        await PlaceWithoutAskingAsync(item);
+    }
+
+    private async Task PlaceWithoutAskingAsync(ImportedItem item)
+    {
         if (_atlas is not { } atlas)
         {
             _status(_fullAtlas is null ? "The library is not ready yet; place the sound when it is." : "The filtered sounds are being grouped; place the sound when they are shown.");
@@ -762,7 +810,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>
     /// Places a finalist of the Search tab among its neighbours, as an imported sound: the library of its profile is
     /// shown (loaded or built first when needed), the finalist joins the imported sounds and is placed, selected and
-    /// played.
+    /// played; once <see cref="ConfirmReplaceAsync"/> lets it replace the selected sound.
     /// </summary>
     /// <param name="name">Name in the list, for example <c>search #2</c>.</param>
     /// <param name="origin">Where the search found it.</param>
@@ -773,6 +821,11 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(profile);
+        if (!await ConfirmReplaceAsync())
+        {
+            return;
+        }
+
         var sound = new ExportedSound(name, string.Empty, patch, profile);
         var found = new ImportedItem(sound, []) { SearchOrigin = origin, Gain = gain };
         ImportedItem? item = Imports.FirstOrDefault(k => k.Key == found.Key);
@@ -804,7 +857,27 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             await _loading;
         }
 
-        await PlaceAsync(item);
+        await PlaceWithoutAskingAsync(item);
+    }
+
+    /// <summary>
+    /// A click on a node: selects it as <see cref="Select"/> does, once <see cref="ConfirmReplaceAsync"/> lets it replace
+    /// the selected sound. A graph that changed meanwhile is left as it is.
+    /// </summary>
+    /// <param name="index">Node index.</param>
+    public async Task SelectAsync(int index)
+    {
+        IReadOnlyList<LibraryFamily> children = _children;
+        bool placed = index == _children.Count && _placed is { } p && ReferenceEquals(p.Path[^1], _family);
+        if (!placed && (_atlas is null || index < 0 || index >= _children.Count))
+        {
+            return;
+        }
+
+        if (await ConfirmReplaceAsync() && ReferenceEquals(children, _children))
+        {
+            Select(index);
+        }
     }
 
     /// <summary>Selects a node, shows its code and plays it at the reference note.</summary>
@@ -923,7 +996,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         string origin = Edits.FavouriteOrigin;
         IReadOnlyList<string> header = ShownHeader(selection);
         float? gain = await Edits.FavouriteGainAsync();
-        _showInSearch(new LibraryPatch(selection.Title + (edited ? " edited" : string.Empty), patch, selection.Profile, header) { Gain = gain, Origin = origin });
+        await _showInSearch(new LibraryPatch(selection.Title + (edited ? " edited" : string.Empty), patch, selection.Profile, header) { Gain = gain, Origin = origin });
     }
 
     /// <summary>The header of the shown version's code: an edit's says so.</summary>
@@ -1016,7 +1089,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasFilter));
 
         // Building takes minutes: the graph says what is rendered, the share done and the time left.
-        int toRender = StructureLibrary.SoundsToRender(profile, _size);
+        int toRender = _openLibrary is null ? StructureLibrary.SoundsToRender(profile, _size) : 0;
         string building = toRender < StructureLibrary.CountFor(profile.Capabilities, _size)
             ? string.Create(CultureInfo.InvariantCulture, $"Adding {toRender:N0} noise-free sounds to the {name} library, once")
             : string.Create(CultureInfo.InvariantCulture, $"Building the {name} library: {toRender:N0} sounds to render, once");
@@ -1042,16 +1115,9 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         {
             (LibraryAtlas atlas, SoundTraits[] traits, int[] counts) = await Task.Run(() =>
             {
-                StructureLibrary library = StructureLibrary.For(profile, _size, SynthesisBackends.RendererFor(profile), progress: progress);
-                string cache = LibraryAtlas.CacheFileOf(StructureLibrary.FileOf(profile, _size));
-                if (!File.Exists(cache))
-                {
-                    ((IProgress<string>)stage).Report($"Grouping the {name} sounds into families (once, under a minute)…");
-                }
-
-                LibraryAtlas opened = LibraryAtlas.Open(library, cache);
+                LibraryAtlas opened = _openLibrary?.Invoke(profile) ?? OpenOnDisk(profile, name, progress, stage);
                 ((IProgress<string>)stage).Report($"Reading the {name} sounds…");
-                SoundTraits[] t = SoundTraits.Of(library);
+                SoundTraits[] t = SoundTraits.Of(opened.Library);
                 return (opened, t, SoundFilter.None.Counts(t, TraitValue.All));
             });
             if (version != _loadVersion)
@@ -1077,6 +1143,19 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 GraphMessage = "The library could not be loaded: " + e.Message;
             }
         }
+    }
+
+    /// <summary>The library of a profile on disk, built the first time, with its families (grouped the first time).</summary>
+    private LibraryAtlas OpenOnDisk(SynthesisProfile profile, string name, IProgress<double> progress, IProgress<string> stage)
+    {
+        StructureLibrary library = StructureLibrary.For(profile, _size, SynthesisBackends.RendererFor(profile), progress: progress);
+        string cache = LibraryAtlas.CacheFileOf(StructureLibrary.FileOf(profile, _size));
+        if (!File.Exists(cache))
+        {
+            stage.Report($"Grouping the {name} sounds into families (once, under a minute)…");
+        }
+
+        return LibraryAtlas.Open(library, cache);
     }
 
     /// <summary>

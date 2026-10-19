@@ -40,7 +40,7 @@ public sealed class StartFromScratchTests : IDisposable
 
         Assert.Equal(Hash(ScratchSound.Patch), Hash(main.ShownPatch));
         Assert.Same(SynthesisProfiles.SuperColliderNome6, main.Edits.Editor!.Profile);
-        Assert.Equal("New sound made from scratch; edit it in the block diagram. The next search replaces it.", main.Status);
+        Assert.Equal("New sound made from scratch; edit it in the block diagram, and ☆ to keep it. The next search replaces it.", main.Status);
         Assert.Equal(0, main.SelectedTab);
         Assert.True(main.HasPatch);
         Assert.False(main.HasResult);
@@ -79,7 +79,7 @@ public sealed class StartFromScratchTests : IDisposable
         Assert.Equal(Hash(ScratchSound.Patch), Hash(library.ShownPatch));
         Assert.Same(SynthesisProfiles.SuperColliderFm7, library.Edits.Editor!.Profile);
         Assert.Equal("made from scratch", library.SelectionText);
-        Assert.Equal("New sound made from scratch; edit it in the block diagram.", main.Status);
+        Assert.Equal("New sound made from scratch; edit it in the block diagram, and ☆ to keep it.", main.Status);
         Assert.Contains("// Made from scratch in HearSay Studio.", library.Scd, StringComparison.Ordinal);
         Assert.Equal(StructureLibrary.ReferenceRequest, library.CurrentSound!.GainReference);
         Assert.Equal("made from scratch", library.Edits.FavouriteOrigin);

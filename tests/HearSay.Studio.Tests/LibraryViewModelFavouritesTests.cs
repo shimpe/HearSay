@@ -27,7 +27,7 @@ public sealed class LibraryViewModelFavouritesTests : IDisposable
 
     private string FavouritesFolder => Path.Combine(_directory, "favourites");
 
-    private LibraryViewModel Library() => new(_live, _statuses.Add, static _ => { }, static _ => { }, new FavouriteSounds(FavouritesFolder));
+    private LibraryViewModel Library() => new(_live, _statuses.Add, static _ => { }, static _ => Task.CompletedTask, new FavouriteSounds(FavouritesFolder));
 
     private static OperatorMatrixPatch Piano => ReferencePatches.Find("electric-piano")!.Patch;
 

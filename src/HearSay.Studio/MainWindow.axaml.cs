@@ -20,6 +20,9 @@ public sealed partial class MainWindow : Window
 
     private MainViewModel ViewModel => (MainViewModel)DataContext!;
 
+    /// <summary>Asks whether a new sound that is not kept may be replaced, in a dialog over this window: true for Replace.</summary>
+    private Task<bool> AskToReplaceAsync() => new ReplaceSoundDialog().ShowDialog<bool>(this);
+
     private bool _keyboardCentred;
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -27,6 +30,10 @@ public sealed partial class MainWindow : Window
         base.OnDataContextChanged(e);
         if (DataContext is MainViewModel viewModel)
         {
+            // Both tabs ask here before a new sound that is not kept is replaced.
+            viewModel.AskToReplace = AskToReplaceAsync;
+            viewModel.Library.AskToReplace = AskToReplaceAsync;
+
             // A two-way binding would not put the selector back on none after the device chosen could not be opened:
             // the view model's value did not change. The selector is set from it whenever it says so.
             viewModel.Live.PropertyChanged += (_, args) =>
@@ -45,6 +52,12 @@ public sealed partial class MainWindow : Window
                 {
                     _keyboardCentred = false;
                     Avalonia.Threading.Dispatcher.UIThread.Post(CentreKeyboard, Avalonia.Threading.DispatcherPriority.Loaded);
+                }
+                else if (args.PropertyName == nameof(MainViewModel.SelectedSynthesisTarget))
+                {
+                    // A target change the user cancelled leaves the view model's value as it was, which the binding does
+                    // not put back in the selector: it is set from the view model.
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowTarget(viewModel));
                 }
             };
         }
@@ -125,9 +138,10 @@ public sealed partial class MainWindow : Window
         });
         foreach (IStorageFile file in files)
         {
-            if (file.TryGetLocalPath() is string path)
+            if (file.TryGetLocalPath() is string path && !await ViewModel.AddAsync(path))
             {
-                await ViewModel.AddAsync(path);
+                // The user kept the sound shown: the other files are not added either.
+                break;
             }
         }
     }
@@ -175,6 +189,14 @@ public sealed partial class MainWindow : Window
         else
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowMidiDevice(viewModel.Live));
+        }
+    }
+
+    private void ShowTarget(MainViewModel viewModel)
+    {
+        if (!ReferenceEquals(TargetSelector.SelectedItem, viewModel.SelectedSynthesisTarget))
+        {
+            TargetSelector.SelectedItem = viewModel.SelectedSynthesisTarget;
         }
     }
 

@@ -159,7 +159,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
     /// <param name="studioSettingsPath">Where the Studio settings (the MIDI device) are kept; the user's local application data when null.</param>
     /// <param name="gainOf">The gain a sound is played at, for the editing of both tabs; the live mixer's when null.</param>
-    public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null, Func<Sound, Task<float>>? gainOf = null)
+    /// <param name="openLibrary">
+    /// Opens the library of a profile for the Library tab, off the interface thread; the one on disk (built the first
+    /// time) when null.
+    /// </param>
+    public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null, Func<Sound, Task<float>>? gainOf = null, Func<SynthesisProfile, HearSay.OperatorMatrix.Priors.LibraryAtlas>? openLibrary = null)
     {
         Live = new LivePlayer(studioSettingsPath) { CurrentSound = VisibleSound };
 
@@ -182,7 +186,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
         };
         Notes = new NotePlayer(Live.Device);
-        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites, sessions, gainOf);
+        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowInSearchAsync, favourites, sessions, gainOf, openLibrary);
         Library.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(LibraryViewModel.ShownPatch) or nameof(LibraryViewModel.CurrentSound))
@@ -255,9 +259,48 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(HasPatch));
         SelectedTab = 0;
         Status = IsFromScratch(patch)
-            ? "New sound made from scratch; edit it in the block diagram. The next search replaces it."
+            ? "New sound made from scratch; edit it in the block diagram, and ☆ to keep it. The next search replaces it."
             : $"Showing {patch.Title} from the library. The next search replaces it.";
     }
+
+    /// <summary>
+    /// Shows a sound of the Library tab here (its Show in Search), once <see cref="ConfirmReplaceAsync"/> lets it replace
+    /// the sound shown. When that asks, the Search tab is shown first, so that the question is about the sound in view and
+    /// its ☆ is at hand after Cancel.
+    /// </summary>
+    /// <param name="patch">The sound.</param>
+    public async Task ShowInSearchAsync(LibraryPatch patch)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        if (ShowsUnsavedScratchEdit)
+        {
+            SelectedTab = 0;
+        }
+
+        if (await ConfirmReplaceAsync())
+        {
+            ShowLibraryPatch(patch);
+        }
+    }
+
+    /// <summary>
+    /// True while the sound shown here was made from scratch, has an edit, and the version shown is not a favourite: the
+    /// new sound would be lost if another one replaced it, since the Start from scratch button only shows in an empty tab.
+    /// </summary>
+    public bool ShowsUnsavedScratchEdit => _libraryPatch is { } patch && IsFromScratch(patch) && Edits.IsEdited && !IsShownFavourite;
+
+    /// <summary>
+    /// Asks the user whether the sound shown may be replaced; set by the window, which shows the question. Its task gives
+    /// true for Replace and false for Cancel. Null replaces without asking.
+    /// </summary>
+    public Func<Task<bool>>? AskToReplace { get; set; }
+
+    /// <summary>
+    /// Whether an action may replace the sound shown here: true at once when nothing needs asking, else the answer of
+    /// <see cref="AskToReplace"/> while <see cref="ShowsUnsavedScratchEdit"/>. Every action that replaces the shown sound
+    /// asks this before it changes anything.
+    /// </summary>
+    public async Task<bool> ConfirmReplaceAsync() => !ShowsUnsavedScratchEdit || AskToReplace is not { } ask || await ask();
 
     /// <summary>
     /// True while the Search tab shows nothing (no result, no library sound) and no search runs: the empty block diagram
@@ -478,21 +521,55 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Target of the next search: FM7 (sine operators only), FMX6 (band-limited waveforms and noise as well), Nome6
     /// (Jacobi elliptic operators), or all three, searched one after the other with the full budget each. Selecting a
-    /// target shows its kept result.
+    /// target shows its kept result. A change that would replace an unsaved scratch edit is asked about first
+    /// (<see cref="ConfirmReplaceAsync"/>); on Cancel the selector goes back to the target it had.
     /// </summary>
     public SynthesisTargetChoice SelectedSynthesisTarget
     {
         get => _selectedSynthesisTarget ?? SynthesisTargets[0];
         set
         {
-            if (Set(ref _selectedSynthesisTarget, value ?? SynthesisTargets[0]))
+            SynthesisTargetChoice choice = value ?? SynthesisTargets[0];
+            if (!ReferenceEquals(choice, SelectedSynthesisTarget) && !IsRunning && ShowsUnsavedScratchEdit)
             {
-                OnPropertyChanged(nameof(ScdWatermark));
-                if (!IsRunning)
-                {
-                    ShowKeptResult();
-                }
+                _ = ChangeTargetAsync(choice);
+                return;
             }
+
+            ApplyTarget(choice);
+        }
+    }
+
+    private void ApplyTarget(SynthesisTargetChoice choice)
+    {
+        // Setting the target it has already (before any choice, the first one) changes nothing.
+        if (ReferenceEquals(choice, SelectedSynthesisTarget))
+        {
+            _selectedSynthesisTarget = choice;
+            return;
+        }
+
+        if (Set(ref _selectedSynthesisTarget, choice, nameof(SelectedSynthesisTarget)))
+        {
+            OnPropertyChanged(nameof(ScdWatermark));
+            if (!IsRunning)
+            {
+                ShowKeptResult();
+            }
+        }
+    }
+
+    /// <summary>Changes the target once the user lets it replace the sound shown; else puts the selector back.</summary>
+    private async Task ChangeTargetAsync(SynthesisTargetChoice choice)
+    {
+        if (await ConfirmReplaceAsync())
+        {
+            ApplyTarget(choice);
+        }
+        else
+        {
+            // The selector still shows the choice it made: it is told that the target is the one it was.
+            OnPropertyChanged(nameof(SelectedSynthesisTarget));
         }
     }
 
@@ -648,10 +725,19 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>True when the search produced more than one finalist.</summary>
     public bool HasAlternatives => Alternatives.Count > 1;
 
-    /// <summary>Loads and analyses a WAV file and adds it to the targets.</summary>
+    /// <summary>
+    /// Loads and analyses a WAV file and adds it to the targets. Another target set empties the tab, so an unsaved scratch
+    /// edit is asked about first (<see cref="ConfirmReplaceAsync"/>).
+    /// </summary>
     /// <param name="path">Path of the file.</param>
-    public async Task AddAsync(string path)
+    /// <returns>False when the user chose to keep the sound shown, and nothing was added.</returns>
+    public async Task<bool> AddAsync(string path)
     {
+        if (!await ConfirmReplaceAsync())
+        {
+            return false;
+        }
+
         Status = "Analysing " + Path.GetFileName(path) + "…";
         try
         {
@@ -670,6 +756,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             Status = "Could not load the file: " + e.Message;
         }
+
+        return true;
     }
 
     /// <summary>Re-analyses a target after its pitch was typed, so that the summary shows what the search will use.</summary>
@@ -706,10 +794,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         return text.ToString();
     }
 
-    /// <summary>Runs the search with the current options.</summary>
+    /// <summary>
+    /// Runs the search with the current options. Its result replaces the sound shown, so an unsaved scratch edit is asked
+    /// about first (<see cref="ConfirmReplaceAsync"/>); on Cancel the search does not start.
+    /// </summary>
     public async Task RunAsync()
     {
         if (Targets.Count == 0 || IsRunning)
+        {
+            return;
+        }
+
+        if (!await ConfirmReplaceAsync() || Targets.Count == 0 || IsRunning)
         {
             return;
         }

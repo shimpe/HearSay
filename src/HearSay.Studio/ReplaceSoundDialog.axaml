@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="HearSay.Studio.ReplaceSoundDialog"
+        Title="Replace your new sound?"
+        Width="420" SizeToContent="Height" CanResize="False"
+        ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource CardBackgroundBrush}"
+        FontFamily="Inter, Segoe UI, sans-serif">
+  <Window.Styles>
+    <Style Selector="Button">
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="18,8" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="#0F172A" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#67E8F9" />
+      <Setter Property="Foreground" Value="#0F172A" />
+    </Style>
+  </Window.Styles>
+  <!-- Replace is the default (Enter), Cancel the cancel button (Escape); closing the window cancels too. -->
+  <StackPanel Margin="22,20" Spacing="18">
+    <StackPanel Spacing="8">
+      <TextBlock Text="Replace your new sound?" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" />
+      <TextBlock Text="Your new sound is not kept. Cancel, then ☆ to keep it." TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" />
+    </StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button x:Name="CancelButton" Content="Cancel" IsCancel="True" Click="OnCancel" />
+      <Button x:Name="ReplaceButton" Content="Replace" IsDefault="True" Classes="primary" Click="OnReplace" />
+    </StackPanel>
+  </StackPanel>
+</Window>
