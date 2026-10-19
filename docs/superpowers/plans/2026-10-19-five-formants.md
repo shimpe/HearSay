@@ -66,6 +66,20 @@
 - [ ] **Step 2: Run** — fail. **Step 3: Implement.** **Step 4: Run** — pass; fast suites (`HearSay.OperatorMatrix.Tests` takes ~2 min).
 - [ ] **Step 5: Commit** "Search: a third formant with its own Q".
 
+### Task 3b: Fine-tuning moves filter values (added at the user's request)
+
+**Files:** `src/HearSay.OperatorMatrix/Basins/SearchBasin.cs` (`IsSpectral` and the groups built from it), `src/HearSay.OperatorMatrix/Search/LocalRefiner.cs` (whatever selects its parameters); tests in `tests/HearSay.OperatorMatrix.Tests`.
+
+**Why:** the optimizer never moves operator-filter values (no `.operatorFilter.*` id is spectral or an envelope shape), so cutoffs, Q, formant frequencies, levels and Qs, peak gain and sweep depth come only from priors, mutations and the library. The user: "fine tuning should probably also adjust filter values".
+
+**Interfaces — Produces:** the operator-filter values the schema offers (`op{n}.operatorFilter.cutoffRatio`, `.fixedHz`, `.q`, `.formantRatio`, `.formantLevel`, `.formantQ2`, `.formant3Ratio`, `.formant3Level`, `.formant3Q`, `.peakGainDb`, `.envelopeOctaves` — use the schema's real ids) are tuned with the spectral group in SearchBasin and LocalRefiner; the filter's sweep envelope points follow the envelope-shape rule like other envelopes, if the schema exposes them. Profiles without filters are unaffected (no such ids).
+
+- [ ] **Step 1: Failing tests** — `Basin_TunesOperatorFilterValues` (the active spectral set of a basin on an FMX6 patch with a low-pass and a formant filter contains their value ids), `Refiner_TunesOperatorFilterValues` (same for LocalRefiner), `Refinement_MovesACutoffTowardsTheTarget` (target rendered from a patch with a low-pass at cutoff ratio 3; start from the same patch at cutoff 6; a short refinement lowers the audio loss and moves the cutoff below 6), `Fm7Search_IsUnchanged` (an FM7 search with a fixed seed and small budget gives the same result as before — capture the hash first).
+- [ ] **Step 2: Run** — fail. **Step 3: Implement.** **Step 4: Run** — pass; fast suites.
+- [ ] **Step 5: Commit** "Search: fine-tuning moves operator-filter values".
+
+The benchmark (Task 5) then compares three arms: `main`, F3 without filter tuning (commit 202bcef), and the branch head with filter tuning.
+
 ### Task 4: Editor rows and vowel presets
 
 **Files:** create `src/HearSay/Editing/FormantPresets.cs`; modify `src/HearSay/Editing/EditableValues.cs`, `PatchEdits.cs`, `src/HearSay.Studio/PatchInspector.axaml.cs`, `docs/expert-manual.md`; tests `tests/HearSay.IntegrationTests/FormantPresetsTests.cs`, `EditableValuesTests.cs`.
@@ -77,6 +91,20 @@
 - [ ] **Step 2: Run** — fail. **Step 3: Implement** (plus a throwaway headless harness outside the repo, `D:\Projects\hearsay-e2e\formants`: select an FMX6 formant operator, click voice "tenor" and vowel "o", check the patch and one undo step, expand "more formants", screenshot `D:\Projects\hearsay-e2e\formant-presets.png`; delete the harness after). Manual: the formant filter paragraph (five formants, own Q, presets, search uses F1–F3).
 - [ ] **Step 4: Run** — pass; Studio Debug build 0 warnings.
 - [ ] **Step 5: Commit** "Editor: five formant rows and vowel presets".
+
+### Task 4b: English and Dutch speech presets (added at the user's request)
+
+**Files:** `src/HearSay/Editing/FormantPresets.cs` (generalised), `PatchEdits.cs`, `src/HearSay.Studio/PatchInspector.axaml.cs`, `docs/expert-manual.md`; tests `tests/HearSay.IntegrationTests/FormantPresetsTests.cs`.
+
+**Why:** the user: "in the formant presets look up and use values for both english and dutch language". Data, sources and the fill-in rules (bandwidths, F4/F5, levels from a cascade model) are in the spec's section "Speech vowel presets".
+
+**Interfaces — Produces:** preset sets replace Task 4's single table: `public sealed record FormantPresetSet(string Name, string Source, IReadOnlyList<string> Speakers, IReadOnlyList<FormantPresetVowel> Vowels)` with `public sealed record FormantPresetVowel(string Key, string Word, string Ipa)`; `FormantPresets.Sets` = [Sung (the Csound table: soprano … bass × a e i o u), English (men, women, children × heed … heard), Dutch (men, women × poet … pit)]; `FormantPresets.Filter(FormantPresetSet set, string speaker, string vowelKey, OperatorFilter? keepSweepFrom)`; `PatchEdits.SetFormantPreset(int op, FormantPresetSet set, string speaker, string vowelKey)`. Task 4's enums and calls are migrated (keep the sung results identical; Task 4's tests keep passing, adapted to the new API).
+- Inspector: the preset row gets a set menu (Sung · English · Dutch), a speaker menu for that set, and the set's vowel buttons labelled with their word (a e i o u; heed hid …; poet paat …), IPA in the tooltip, wrapping; the last set and speaker are remembered while the Studio runs.
+
+- [ ] **Step 1: Failing tests** — `EveryPreset_OfEverySet_IsValidAndCompatible_OnFmx6` (3 + 36 + 24 presets), `SungPresets_AreUnchanged` (Task 4 values), `DutchPreset_FollowsTheMeasuredData` (men "piet": F1 294, F2/F1 = 2208/294, F3/F1 = 2766/294, F2 level 10^((5.5−25.0)/20), F3 level 10^((5.5−26.1)/20), Q1 = 294/80), `EnglishPreset_FollowsTheData` (men "heed": F1 343, F2 2323, F3 3001), `F4F5_FollowTheRules` (men F4 3500, F5 4500; a case where F3 + 300 > the default raises F4), `CascadeLevels_FallWithFrequency_AndAreCapped` (levels ≤ 1, and for a front vowel F2 level below F1).
+- [ ] **Step 2: Run** — fail. **Step 3: Implement** (transcribe the means from the spec exactly; a throwaway headless harness: choose Dutch, women, "pit"; check the patch, one undo step; screenshot `D:\Projects\hearsay-e2e\formant-presets-speech.png`). Manual: the preset sets with their sources.
+- [ ] **Step 4: Run** — pass; Studio Debug 0 warnings.
+- [ ] **Step 5: Commit** "Editor: English and Dutch speech vowel presets".
 
 ### Task 5: Benchmark: does F3 in the search pay off?
 
