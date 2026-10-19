@@ -23,7 +23,10 @@ namespace HearSay.Studio;
 /// </summary>
 public sealed partial class PatchInspector : UserControl
 {
-    /// <summary>The voice of the vowel presets, the one used last while the Studio runs.</summary>
+    /// <summary>
+    /// The voice chosen last while the Studio runs: the one a newly built voice menu starts at. The vowel buttons apply
+    /// the voice their own menu shows.
+    /// </summary>
     private static FormantVoice _lastVoice = FormantVoice.Soprano;
 
     /// <summary>True when "more formants" (F4 and F5) was left open, while the Studio runs.</summary>
@@ -116,7 +119,21 @@ public sealed partial class PatchInspector : UserControl
             envelope.Envelope = EnvelopeEdits.Get(patch, new EnvelopeRef(envelope.Part!, envelope.Kind));
         }
 
-        Body.IsEnabled = !_editor.ShowingOriginal;
+        // The original cannot be changed; "more formants" still opens and closes, its rows read-only.
+        bool editable = !_editor.ShowingOriginal;
+        foreach (Control child in Body.Children)
+        {
+            if (child is Expander { Content: Control rows })
+            {
+                child.IsEnabled = true;
+                rows.IsEnabled = editable;
+            }
+            else
+            {
+                child.IsEnabled = editable;
+            }
+        }
+
         string about = _editor.Selected is { } part ? About(patch, part) : string.Empty;
         Subtitle.Text = _editor.ShowingOriginal ? "The original, as it was; switch to Edited to change it." : about;
     }
@@ -382,7 +399,8 @@ public sealed partial class PatchInspector : UserControl
                 HorizontalContentAlignment = HorizontalAlignment.Center,
             };
             ToolTip.SetTip(button, $"Set the five formants to the vowel \"{name}\" of the chosen voice");
-            button.Click += (_, _) => _editor!.Apply(PatchEdits.SetFormantPreset(op, _lastVoice, vowel));
+            // The voice this inspector's menu shows: another inspector (the other tab) may have chosen another one since.
+            button.Click += (_, _) => _editor!.Apply(PatchEdits.SetFormantPreset(op, voices.SelectedItem is ComboBoxItem { Tag: FormantVoice shown } ? shown : _lastVoice, vowel));
             Grid.SetColumn(button, (int)vowel);
             vowels.Children.Add(button);
         }

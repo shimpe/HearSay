@@ -99,9 +99,16 @@ public sealed class FormantPresetsTests
 
         // soprano i has the widest spread of the table, F5 / F1 = 4950 / 270 = 18.3, within the ratio range of 32.
         Assert.Equal(4950.0 / 270.0, FormantPresets.Filter(FormantVoice.Soprano, FormantVowel.I, null).Formant5Ratio, 12);
+    }
 
-        // All 25 against the table as the design spec has it (the spec is found from the test's folder upwards).
-        string[] rows = [.. SpecTable()];
+    /// <summary>
+    /// All 25 presets against the Csound table as the design spec has it, read from the spec itself; skipped where the
+    /// spec is not found (a test run outside the repository).
+    /// </summary>
+    [SpecFact]
+    public void Preset_FollowsTheSpecsTable()
+    {
+        string[] rows = [.. SpecTable(SpecFactAttribute.SpecPath()!)];
         Assert.Equal(25, rows.Length);
         foreach (string line in rows)
         {
@@ -123,19 +130,73 @@ public sealed class FormantPresetsTests
         }
     }
 
-    /// <summary>The rows of the Csound formant table in the design spec, such as "soprano a 800 1150 …".</summary>
-    private static IEnumerable<string> SpecTable()
+    /// <summary>
+    /// The rows of the Csound formant table in the design spec, such as "soprano a 800 1150 …": the lines of the fenced
+    /// block under the heading "Csound formant table", without its column note; other blocks of the spec are left out.
+    /// </summary>
+    private static List<string> SpecTable(string path)
     {
-        string spec = Path.Combine("docs", "superpowers", "specs", "2026-10-19-five-formants-design.md");
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, spec)))
+        var rows = new List<string>();
+        bool underHeading = false, inBlock = false;
+        foreach (string line in File.ReadLines(path))
         {
-            directory = directory.Parent;
+            if (line.StartsWith('#'))
+            {
+                if (inBlock)
+                {
+                    break;
+                }
+
+                underHeading = line.Contains("Csound formant table", StringComparison.Ordinal);
+                continue;
+            }
+
+            if (underHeading && line.StartsWith("```", StringComparison.Ordinal))
+            {
+                if (inBlock)
+                {
+                    break;
+                }
+
+                inBlock = true;
+                continue;
+            }
+
+            if (inBlock && !string.IsNullOrWhiteSpace(line))
+            {
+                rows.Add(line);
+            }
         }
 
-        Assert.NotNull(directory);
-        string[] voices = [.. Enum.GetNames<FormantVoice>().Select(static n => n.ToLowerInvariant() + " ")];
-        return File.ReadLines(Path.Combine(directory.FullName, spec)).Where(l => voices.Any(v => l.StartsWith(v, StringComparison.Ordinal)));
+        return rows;
+    }
+
+    /// <summary>A test that reads the design spec of the five formants; skipped when the spec is not found.</summary>
+    private sealed class SpecFactAttribute : FactAttribute
+    {
+        public SpecFactAttribute()
+        {
+            if (SpecPath() is null)
+            {
+                Skip = "The design spec docs/superpowers/specs/2026-10-19-five-formants-design.md was not found above the test folder.";
+            }
+        }
+
+        /// <summary>The spec, found from the test's folder upwards; null when it is not there.</summary>
+        public static string? SpecPath()
+        {
+            string spec = Path.Combine("docs", "superpowers", "specs", "2026-10-19-five-formants-design.md");
+            for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+            {
+                string path = Path.Combine(directory.FullName, spec);
+                if (File.Exists(path))
+                {
+                    return path;
+                }
+            }
+
+            return null;
+        }
     }
 
     [Fact]
