@@ -143,6 +143,19 @@ public sealed record PatchMatchResult(
 
     /// <summary>All target notes with their previews and diagnoses, in the order the targets were given. One entry for a single-note match.</summary>
     public IReadOnlyList<NoteMatch> Notes { get; init; } = [];
+
+    /// <summary>
+    /// Every target note against another patch of the profile, such as another finalist: rendered and diagnosed as
+    /// <see cref="Notes"/> are for the best patch, in the same order. Renders once per note; not for an interface thread.
+    /// </summary>
+    /// <param name="patch">Patch.</param>
+    /// <exception cref="NotSupportedException">No renderer implements the profile.</exception>
+    public IReadOnlyList<NoteMatch> CompareNotes(OperatorMatrixPatch patch)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        IOperatorMatrixRenderer renderer = SynthesisBackends.RendererFor(Profile);
+        return [.. Notes.Select(n => NoteMatch.Of(renderer, patch, n.Analysis, n.Request))];
+    }
 }
 
 /// <summary>
@@ -298,19 +311,10 @@ public sealed class OperatorMatrixPatchMatcher
         SearchOutcome outcome = coordinator.Search(targets, options, progress, cancellationToken);
 
         OperatorMatrixPatch best = outcome.Candidates[0].Patch;
-        var comparer = new ToneComparer();
         var notes = new List<NoteMatch>(outcome.Analyses.Count);
         for (int i = 0; i < outcome.Analyses.Count; i++)
         {
-            TargetAnalysis analysis = outcome.Analyses[i];
-            RenderRequest request = outcome.Requests[i];
-            RenderedAudio preview = renderer.Render(best, request);
-            var targetNote = new AudioNote(analysis.Audio.Samples, analysis.Audio.SampleRate, analysis.FundamentalHz);
-            ToneComparisonResult comparison = comparer.Compare(
-                targetNote,
-                preview.ToAudioNote(analysis.FundamentalHz),
-                new ToneComparisonOptions { LoudnessMode = LoudnessMode.SeparateLoudness, ExpectedFundamentalHz = analysis.FundamentalHz });
-            notes.Add(new NoteMatch(analysis, request, preview, comparison));
+            notes.Add(NoteMatch.Of(renderer, best, outcome.Analyses[i], outcome.Requests[i]));
         }
 
         int reference = outcome.Requests.ToList().IndexOf(outcome.Request);
@@ -328,9 +332,30 @@ public sealed class OperatorMatrixPatchMatcher
 /// <summary>One target note of a match: its analysis, the note it was rendered with, the preview and the diagnosis.</summary>
 /// <param name="Analysis">Analysis of the target note.</param>
 /// <param name="Request">Note the preview was rendered with.</param>
-/// <param name="Preview">Offline render of the best patch at this note.</param>
+/// <param name="Preview">Offline render of the patch at this note.</param>
 /// <param name="Comparison">HearSay diagnosis of the preview against this target note.</param>
-public sealed record NoteMatch(TargetAnalysis Analysis, RenderRequest Request, RenderedAudio Preview, ToneComparisonResult Comparison);
+public sealed record NoteMatch(TargetAnalysis Analysis, RenderRequest Request, RenderedAudio Preview, ToneComparisonResult Comparison)
+{
+    /// <summary>Renders a patch with the note of a target and diagnoses it against that target note.</summary>
+    /// <param name="renderer">Renderer of the patch's profile.</param>
+    /// <param name="patch">Patch.</param>
+    /// <param name="analysis">Analysis of the target note.</param>
+    /// <param name="request">Note to render it with.</param>
+    public static NoteMatch Of(IOperatorMatrixRenderer renderer, OperatorMatrixPatch patch, TargetAnalysis analysis, RenderRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(analysis);
+        ArgumentNullException.ThrowIfNull(request);
+        RenderedAudio preview = renderer.Render(patch, request);
+        var targetNote = new AudioNote(analysis.Audio.Samples, analysis.Audio.SampleRate, analysis.FundamentalHz);
+        ToneComparisonResult comparison = new ToneComparer().Compare(
+            targetNote,
+            preview.ToAudioNote(analysis.FundamentalHz),
+            new ToneComparisonOptions { LoudnessMode = LoudnessMode.SeparateLoudness, ExpectedFundamentalHz = analysis.FundamentalHz });
+        return new NoteMatch(analysis, request, preview, comparison);
+    }
+}
 
 /// <summary>Progress that forwards synchronously to a delegate.</summary>
 internal sealed class RelayProgress<T>(Action<T> report) : IProgress<T>

@@ -143,6 +143,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private AlternativeItem? _selectedAlternative;
     private PatchCandidateResult? _candidate;
     private bool _statsShowEdit;
+    private PatchCandidateResult? _statsCandidate;
+    // Each finalist's diagnosis against the target notes, by finalist: the search gives the best one's, the others are
+    // compared when first shown.
+    private readonly Dictionary<PatchCandidateResult, IReadOnlyList<NoteMatch>> _noteMatches = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<PatchCandidateResult> _comparing = new(ReferenceEqualityComparer.Instance);
     private bool _detailsPending;
     private string _favouriteNickname = string.Empty;
 
@@ -941,12 +946,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            ShowStats(result, edited: false);
-            NoteRows.Clear();
-            foreach (NoteMatch n in result.Notes)
-            {
-                NoteRows.Add(new NoteRow(FormattableString.Invariant($"{n.Analysis.FundamentalHz:F1} Hz · v{n.Request.Velocity:F2}"), n.Comparison.Scores.Similarity));
-            }
+            // The numbers follow the selected finalist (below); the search diagnosed the best one already.
+            _noteMatches.Clear();
+            _noteMatches[result.AlternativePatches[0]] = result.Notes;
+            _statsCandidate = null;
 
             for (int i = 0; i < result.AlternativePatches.Count; i++)
             {
@@ -983,18 +986,77 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         PlayingText = string.Empty;
     }
 
-    /// <summary>The headline numbers of a result; while an edit is shown, the loss and the similarity say they are the original's.</summary>
-    private void ShowStats(PatchMatchResult result, bool edited)
+    /// <summary>
+    /// The headline numbers of the selected finalist: its audio loss (against the search's initial loss), its similarity
+    /// and per-note similarities, and the search's renders. A finalist other than the best is compared with the targets
+    /// the first time it is shown, off the interface thread. While an edit is shown they say they are the original's.
+    /// </summary>
+    private void ShowStats(PatchMatchResult result, PatchCandidateResult candidate, bool edited)
     {
         _statsShowEdit = edited;
+        _statsCandidate = candidate;
         OnPropertyChanged(nameof(NoteRowsHeading));
         string of = edited ? " (original)" : string.Empty;
         SearchSummary s = result.SearchSummary;
+        double gain = s.InitialAudioLoss / Math.Max(1e-9, candidate.AudioLoss);
+        string change = gain >= 1.0 ? FormattableString.Invariant($"{gain:F1}× better") : FormattableString.Invariant($"{1.0 / gain:F1}× worse");
         Stats.Clear();
-        Stats.Add(new StatTile("initial loss", FormattableString.Invariant($"{s.InitialAudioLoss:F3}"), "best untouched hypothesis"));
-        Stats.Add(new StatTile("final loss" + of, FormattableString.Invariant($"{s.FinalAudioLoss:F3}"), FormattableString.Invariant($"{s.InitialAudioLoss / Math.Max(1e-9, s.FinalAudioLoss):F1}× better")));
-        Stats.Add(new StatTile("similarity" + of, FormattableString.Invariant($"{result.Comparison.Scores.Similarity:F2}"), "1 = identical"));
+        NoteRows.Clear();
+        Stats.Add(new StatTile("audio loss" + of, FormattableString.Invariant($"{candidate.AudioLoss:F3}"), FormattableString.Invariant($"from {s.InitialAudioLoss:F3}, {change}")));
+        if (!_noteMatches.TryGetValue(candidate, out IReadOnlyList<NoteMatch>? notes))
+        {
+            Stats.Add(new StatTile("similarity" + of, "…", "comparing with the targets"));
+            _ = CompareAsync(result, candidate);
+        }
+        else if (notes.Count == 0)
+        {
+            Stats.Add(new StatTile("similarity" + of, "–", "could not be rendered"));
+        }
+        else
+        {
+            NoteMatch main = notes.FirstOrDefault(n => n.Request == result.Request) ?? notes[0];
+            Stats.Add(new StatTile("similarity" + of, FormattableString.Invariant($"{main.Comparison.Scores.Similarity:F2}"), "1 = identical"));
+            foreach (NoteMatch n in notes)
+            {
+                NoteRows.Add(new NoteRow(FormattableString.Invariant($"{n.Analysis.FundamentalHz:F1} Hz · v{n.Request.Velocity:F2}"), n.Comparison.Scores.Similarity));
+            }
+        }
+
         Stats.Add(new StatTile("renders", s.RendersUsed.ToString("N0", CultureInfo.InvariantCulture), FormattableString.Invariant($"{s.Elapsed.TotalSeconds:F0} s, seed {s.RandomSeed}")));
+    }
+
+    /// <summary>Compares a finalist with the target notes, once, and shows the numbers if it is still the one shown.</summary>
+    private async Task CompareAsync(PatchMatchResult result, PatchCandidateResult candidate)
+    {
+        if (!_comparing.Add(candidate))
+        {
+            return;
+        }
+
+        IReadOnlyList<NoteMatch> notes;
+        try
+        {
+            notes = await Task.Run(() => result.CompareNotes(candidate.Patch));
+        }
+        catch (Exception e) when (e is NotSupportedException or PatchNotSupportedException)
+        {
+            notes = [];
+        }
+        finally
+        {
+            _comparing.Remove(candidate);
+        }
+
+        if (!ReferenceEquals(_result, result))
+        {
+            return;
+        }
+
+        _noteMatches[candidate] = notes;
+        if (ReferenceEquals(_candidate, candidate))
+        {
+            ShowStats(result, candidate, _statsShowEdit);
+        }
     }
 
     /// <summary>
@@ -1069,9 +1131,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 """);
             IReadOnlyList<string> header = FinalistHeader(result, candidate);
             Scd = Export(result.Profile, patch, edited ? PatchEditorViewModel.WithEditedLine(header) : header);
-            if (_statsShowEdit != edited)
+            if (_statsShowEdit != edited || !ReferenceEquals(_statsCandidate, candidate))
             {
-                ShowStats(result, edited);
+                ShowStats(result, candidate, edited);
             }
         }
 
@@ -1185,9 +1247,6 @@ public sealed record AlternativeItem(int Rank, PatchCandidateResult Candidate)
 {
     /// <summary>"#1", "#2", …</summary>
     public string Label => "#" + Rank.ToString(CultureInfo.InvariantCulture);
-
-    /// <summary>Audio loss, three decimals.</summary>
-    public string Loss => Candidate.AudioLoss.ToString("F3", CultureInfo.InvariantCulture);
 
     /// <summary>Operators in use, for example "OP1 Saw r1 → out · OP2 Sine r3".</summary>
     public string Structure

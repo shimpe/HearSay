@@ -270,12 +270,15 @@ was stopped early is always searched again.
 partial count and inharmonicity. Override the pitch (MIDI note or Hz) and the velocity per note when known. The play
 button plays the file as it is. Several notes make a target set (section 3).
 
-**Result.** Four tiles (initial loss, final loss, similarity, renders and time with the seed), a similarity bar per
-note, the list of finalists, the keyboard, the modulation matrix and the routing summary.
+**Result.** Three tiles for the selected finalist (its audio loss, with the search's initial loss and how much better
+or worse it is; its similarity; the search's renders and time with the seed), a similarity bar per note for the
+selected finalist, the list of finalists, the keyboard, the modulation matrix and the routing summary.
 
-- **Finalists**: rank, audio loss, operators in use, origin with seed. Select one to inspect it: matrix, summary and
-  code follow the selection, and the keyboard plays it. The header of the code says whether it is the best patch or
-  an alternative. The tiles and "Save result folder" always describe the whole result.
+- **Finalists**: rank, operators in use, origin with seed. Select one to inspect it: the tiles, the per-note bars,
+  matrix, summary and code follow the selection, and the keyboard plays it. The search compares only the best patch
+  with the targets; another finalist is compared the first time it is selected (one render per target note, a moment
+  in which its similarity reads …), and kept. The header of the code says whether it is the best patch or an
+  alternative. "Save result folder" always saves the whole result.
 - **Keyboard**: MIDI 0..127, scrollable, opens centred on C4 for every new result. Amber dots mark the target notes.
   A key sounds while it is held, as on a synth (see *Playing like a synth* below). Pressing lower on a key plays
   louder (velocity 0.3..1.0). A patch without velocity sensitivity is played at a volume that follows the key velocity
@@ -350,7 +353,7 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   diagram, the code and the keys follow, to compare by ear. The original can be inspected but not changed; an edit,
   undo or redo returns to the edit. Copy, Save…, Show in Search, Find in library and ☆ act on the version shown; while
   the edit is shown, *Save result folder…* becomes *Save edited sound…* and saves the edited sound's own folder. In the
-  Search tab, the final loss, the similarity, the per-note similarity and the audio loss shown with an edit are the
+  Search tab, the audio loss, the similarity and the per-note similarity shown with an edit are the
   original's, marked *(original)*: they are not computed again; the routing and the matrix follow the edit.
 - **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
   original's origin; the favourite of the original stays as it was. In the Library tab the edit then moves to the new
