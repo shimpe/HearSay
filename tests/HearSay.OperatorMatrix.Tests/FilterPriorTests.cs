@@ -1,4 +1,5 @@
 using HearSay.Analysis;
+using HearSay.Objective;
 using HearSay.OperatorMatrix.Parameters;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
@@ -305,5 +306,54 @@ public sealed class FilterPriorTests
         OperatorFilter filter = variant.Patch.Operators[0].Filter!;
         Assert.Equal(8.0 / Math.Pow(2.0, sweep.Octaves), filter.CutoffRatio, 10);
         Assert.Equal(sweep.Octaves, filter.EnvelopeOctaves);
+    }
+
+    /// <summary>A saw with few harmonics, with or without a filter, as a search may hold it.</summary>
+    private static OperatorMatrixPatch DullSaw(OperatorFilter? filter, int harmonics) =>
+        Saw(filter).WithOperator(0, Saw(filter).Operators[0] with { HarmonicLimit = harmonics });
+
+    private static bool FormantOperatorsHave64Harmonics(OperatorMatrixPatch patch) =>
+        patch.Operators.All(static o => o.Filter?.Type != OperatorFilterType.Formant || o.HarmonicLimit >= RandomPatchGenerator.FormantHarmonics);
+
+    [Fact]
+    public void FormantMutation_GivesTheOperatorAtLeast64Harmonics()
+    {
+        TargetAnalysis analysis = Analyze(Saw(OperatorFilter.Formants(600, 8, new(1.7, 0.6, 0), new(3.8, 0.4, 0))), 110.0);
+        List<TopologyMutation> variants = TopologyMutator.FilterVariants(DullSaw(null, 16), analysis, [0]);
+
+        // A formant filter brings at least 64 harmonics; the other filters leave the operator's own.
+        Assert.Equal(64, Assert.Single(variants, static m => m.Description == "OP1 filter formant").Patch.Operators[0].HarmonicLimit);
+        Assert.Equal(16, Assert.Single(variants, static m => m.Description == "OP1 filter low-pass").Patch.Operators[0].HarmonicLimit);
+
+        // An operator that already had more keeps them.
+        Assert.Equal(128, Assert.Single(TopologyMutator.FilterVariants(DullSaw(null, 128), analysis, [0]), static m => m.Description == "OP1 filter formant").Patch.Operators[0].HarmonicLimit);
+    }
+
+    [Fact]
+    public void Mutations_NeverLeaveAFormantOperatorWithFewerThan64Harmonics()
+    {
+        TargetAnalysis analysis = Analyze(Saw(OperatorFilter.Formants(600, 8, new(1.7, 0.6, 0), new(3.8, 0.4, 0))), 110.0);
+        var mutator = new TopologyMutator(Fmx6);
+
+        // A formant operator at 64 is never halved, and one with fewer (an older sound) comes out with at least 64.
+        foreach (OperatorMatrixPatch start in new[] { DullSaw(OperatorFilter.FormantAt(600, 1.7, 0.6, 8), 64), DullSaw(OperatorFilter.FormantAt(600, 1.7, 0.6, 8), 16) })
+        {
+            for (int seed = 0; seed < 30; seed++)
+            {
+                IReadOnlyList<TopologyMutation> proposals = mutator.Propose(start, analysis, new Random(seed), 12);
+                Assert.All(proposals, static p => Assert.True(FormantOperatorsHave64Harmonics(p.Patch), p.Description));
+                Assert.DoesNotContain(proposals, static p => p.Description == "OP1 harmonics 64 -> 32");
+            }
+        }
+
+        // Screened proposals too, waveform changes of a formant operator included.
+        OperatorMatrixPatch sine = DullSaw(OperatorFilter.FormantAt(600, 1.7, 0.6, 8), 16).WithOperator(0, DullSaw(OperatorFilter.FormantAt(600, 1.7, 0.6, 8), 16).Operators[0] with { Waveform = OperatorWaveform.Sine });
+        RenderRequest request = RenderRequest.Create(110, 1.0, 0.3);
+        RenderedAudio audio = Renderer.Render(Saw(OperatorFilter.Formants(600, 8, new(1.7, 0.6, 0), new(3.8, 0.4, 0))), request);
+        PreparedObjectiveTarget prepared = new AudioObjective().Prepare(new AudioTarget(audio.Samples, audio.SampleRate, 110.0));
+        var evaluator = new PatchEvaluator(Renderer, new AudioObjective(), prepared, request, 2000, 0.02, null, 8);
+        IReadOnlyList<TopologyMutation> screened = mutator.ProposeScreened(sine, prepared.Analysis, evaluator, new Random(1), 12);
+        Assert.NotEmpty(screened);
+        Assert.All(screened, static p => Assert.True(FormantOperatorsHave64Harmonics(p.Patch), p.Description));
     }
 }
