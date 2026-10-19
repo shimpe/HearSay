@@ -468,6 +468,17 @@ public sealed class ParameterTests
             Assert.Equal(filter.FormantRatio * 1.05, movedF2.FormantRatio, 9);
             Assert.Equal((1.0, 0.0, 0.0), (movedF2.Formant3Ratio, movedF2.Formant3Level, movedF2.Formant3Q));
 
+            // Moving Q together with F3's (unmoved) coordinates does not turn F3 on, nor give F2 an own Q.
+            PatchParameter q = schema.Find("op1.operatorFilter.q")!;
+            var withQ = new ActiveParameterSet([q, .. untouched.Parameters]);
+            double[] qStart = withQ.ToVector(patch);
+            qStart[0] = q.Normalize(filter.Q * 1.3);
+            OperatorFilter movedQ = withQ.Apply(patch, qStart).Operators[0].Filter!;
+            Assert.Equal(filter.Q * 1.3, movedQ.Q, 9);
+            Assert.Equal((1.0, 0.0, 0.0), (movedQ.Formant3Ratio, movedQ.Formant3Level, movedQ.Formant3Q));
+            Assert.Equal(0.0, movedQ.FormantQ2);
+            Assert.False(movedQ.UsesExtendedFormants);
+
             // An actual move of an F3 value turns it on.
             double[] moved = untouched.ToVector(patch);
             moved[3] = 0.5;

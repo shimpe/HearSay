@@ -150,7 +150,8 @@ Where filters come from:
 - **Priors.** The formant prior reads the target's formants from the harmonic levels, compared with a sawtooth,
   without smoothing them: the lowest three maxima (at most 36 dB below the strongest), F1, F2 and F3, each with a
   resonance fitted through its harmonic and the two next to it, which gives its centre between the harmonics and its
-  own width (Q up to 50). It proposes a saw or pulse carrier through a formant filter on them (and variants with the
+  own width (Q up to 50); the widths come out broad, though, as the harmonics hardly show how narrow a peak is, so
+  the search then narrows them. It proposes a saw or pulse carrier through a formant filter on them (and variants with the
   two strongest, with one peak and with F1 + F3); every one of these filters has F3, the heard one or the search's
   default. Formants less than about two harmonics apart merge into one peak, so at high notes (a soprano at 220 Hz
   and up) F1 and F2 of "a", "o" and "u" are read as one. The subtractive prior proposes a saw or square through a

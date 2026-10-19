@@ -46,7 +46,7 @@ public sealed class FilterPriorTests
         OperatorFilter found = FilterPriors.Formant(analysis)!;
 
         // F1 is the lowest peak; F2 and F3 are ratios to it, with levels relative to it. F1 and F2 are within half the
-        // fundamental; F3 within the fundamental, as the envelope's grid of 1/24 octave is 80 Hz wide up there.
+        // fundamental; F3 within the fundamental, as the fitted resonance is read from harmonics 110 Hz apart.
         Assert.InRange(found.FixedHz, f1 - (f0 / 2), f1 + (f0 / 2));
         Assert.InRange(found.FixedHz * found.FormantRatio, (f1 * ratio2) - (f0 / 2), (f1 * ratio2) + (f0 / 2));
         Assert.InRange(found.FixedHz * found.Formant3Ratio, (f1 * ratio3) - f0, (f1 * ratio3) + f0);
@@ -122,10 +122,17 @@ public sealed class FilterPriorTests
     {
         // Three, two and one heard peaks: every formant hypothesis has F3 on, the heard third peak where there is one
         // (the first hypothesis) and the default otherwise; F4 and F5 stay off.
-        foreach (OperatorFilter hidden in new[] { OperatorFilter.Formants(400, 8, new(3.0, 0.6, 0), new(7.0, 0.5, 0)), OperatorFilter.FormantAt(700, 1.7, 0.6, 8), OperatorFilter.FormantAt(700, 2.0, 0.0, 8) })
+        (OperatorFilter Hidden, int Count)[] cases =
+        [
+            (OperatorFilter.Formants(400, 8, new(3.0, 0.6, 0), new(7.0, 0.5, 0)), 3),
+            (OperatorFilter.FormantAt(700, 1.7, 0.6, 8), 2),
+            (OperatorFilter.FormantAt(700, 2.0, 0.0, 8), 1),
+        ];
+        foreach ((OperatorFilter hidden, int expectedPeaks) in cases)
         {
             TargetAnalysis analysis = Analyze(Saw(hidden), 110);
             IReadOnlyList<SpectralPeak> peaks = FilterPriors.FormantPeaks(analysis, 3);
+            Assert.Equal(expectedPeaks, peaks.Count);
             IReadOnlyList<PatchHypothesis> hypotheses = new FormantPriorProvider().Generate(analysis, Fmx6);
             Assert.NotEmpty(hypotheses);
             Assert.All(hypotheses, h =>

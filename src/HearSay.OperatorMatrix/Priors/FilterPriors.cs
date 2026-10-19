@@ -24,9 +24,12 @@ public sealed record SweepPrior(double Octaves, OperatorEnvelope Envelope, bool 
 
 /// <summary>
 /// Starting values for operator filters, read from a target analysis. The harmonic partials are compared with a
-/// sawtooth (amplitudes falling as 1/n): what is left is the filter a rich carrier would need. Formants are the
-/// maxima of a smooth envelope through the harmonic levels (not LPC, which pulls its poles onto the harmonics when the
-/// fundamental is high), so their accuracy is about half the fundamental; the search refines them.
+/// sawtooth (amplitudes falling as 1/n): what is left is the filter a rich carrier would need. Filter peaks
+/// (<see cref="Peaks"/>) are maxima of a smooth envelope through the harmonic levels (not LPC, which pulls its poles
+/// onto the harmonics when the fundamental is high). Formants (<see cref="FormantPeaks"/>) are read from the unsmoothed
+/// harmonic levels, each with a resonance fitted through three harmonics. Limits: the centres are good to a fraction
+/// of the fundamental, but the widths come out broad, so the peak Qs read 1.2 to 3.5 times too low (about 7 times for
+/// a soprano e at 330 Hz); the search narrows them.
 /// </summary>
 public static class FilterPriors
 {
@@ -129,6 +132,11 @@ public static class FilterPriors
     /// once. Where that fit has no such resonance (a neighbour as strong, another formant close by), the centre is the
     /// vertex of a parabola through the three levels and the width is that of a resonance at it through the
     /// neighbours. Q = F / B, 0.5..50; the level is G.
+    /// </para>
+    /// <para>
+    /// Limits: with harmonics this far apart the fit cannot see how narrow a peak is, so the widths come out broad and
+    /// the Qs read too low (1.2 to 3.5 times, and more at higher pitches: about 7 times for F3 of a soprano e at
+    /// 330 Hz). They are a starting point that the search narrows.
     /// </para>
     /// </summary>
     /// <param name="analysis">Target analysis.</param>

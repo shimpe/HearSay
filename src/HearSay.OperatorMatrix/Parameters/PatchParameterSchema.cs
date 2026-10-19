@@ -144,7 +144,10 @@ public sealed class PatchParameterSchema
                 // the shared Q), and writing back exactly that default leaves F3 off, as an own Q of "same as Q" is
                 // kept: reading and writing back an untouched two-peak patch changes nothing. The default is taken
                 // from the patch the schema is built for, so that moving F2 does not move it. Moving any F3 value turns
-                // F3 on, with the defaults for the other two; the level then stays at or above the floor.
+                // F3 on, with the defaults for the other two; the level then stays at or above the floor. The default
+                // is kept above F2 only as the schema is built: a joint F2 move in the same stage can leave a newly
+                // switched-on F3 below F2. That is benign, as the schema is rebuilt for every refinement and the
+                // search moves F3.
                 double defaultRatio3 = present is { Type: OperatorFilterType.Formant } ? DefaultFormant3Ratio(present) : 3.0;
                 double highRatio3 = Math.Min(OperatorFilter.MaxFormantRatio, Math.Max(16.0, present is { Formant3Level: > 0.0 } ? present.Formant3Ratio : defaultRatio3));
                 double lowLevel3 = present is { Type: OperatorFilterType.Formant, Formant3Level: > 0.0 } on ? Math.Min(MinFormant3Level, on.Formant3Level) : MinFormant3Level;
