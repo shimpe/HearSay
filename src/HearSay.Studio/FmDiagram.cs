@@ -37,7 +37,7 @@ public sealed partial class FmDiagram : Control
     /// <summary>What the empty diagram says, which depends on where the host gets its sound from.</summary>
     public static readonly StyledProperty<string> EmptyTextProperty = AvaloniaProperty.Register<FmDiagram, string>(nameof(EmptyText), "Run a search to see the block diagram of the patch here.");
 
-    private static readonly IBrush BoxFill =new SolidColorBrush(Color.Parse("#1E293B"));
+    private static readonly IBrush BoxFill = new SolidColorBrush(Color.Parse("#1E293B"));
     private static readonly IBrush CarrierFill = new SolidColorBrush(Color.Parse("#164E63"));
     private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#22D3EE"));
     private static readonly IBrush Amber = new SolidColorBrush(Color.Parse("#F59E0B"));

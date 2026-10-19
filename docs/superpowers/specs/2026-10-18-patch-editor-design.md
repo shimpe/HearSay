@@ -135,9 +135,10 @@ Facts, as built.
 - **Harmonics row.** A triangle, saw, square or pulse operator (FMX6) has a *harmonics* row: the number of harmonics its
   waveform is built from, 1..128. It is a whole number: a typed value is rounded, a drag moves in equal ratios. Sine,
   noise and elliptic operators have no such row. The search does not fine-tune it.
-- **Voice source.** Under the vowel buttons: makes the operator a pulse 1 % wide (pulse width 0.01) with 64 harmonics,
-  leaving its filter and everything else as they are, so that a vowel preset has harmonics to shape. One undo step.
-  Refused on a profile without a pulse waveform (`PatchEdits.SetVoiceSource`).
+- **Voice source.** Under the vowel buttons: makes the operator a pulse 1 % wide (pulse width 0.01) with 64 harmonics
+  and sets its `NoiseM` (the noise on the elliptic parameter) to 0, leaving its filter and everything else as they are,
+  so that a vowel preset has harmonics to shape. One undo step. Refused on a profile without a pulse waveform
+  (`PatchEdits.SetVoiceSource`).
 - **Match loudness.** An edit plays at the gain of its original and is not normalised again after each edit. *Match
   loudness* (enabled while an edit is shown, disabled while it is being computed, in both tabs) computes the gain the
   edit would get as a new sound (its reference note normalised) and plays the edit at that gain from then on. The matched

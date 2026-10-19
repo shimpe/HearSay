@@ -11,6 +11,7 @@ namespace HearSay.Studio.Tests;
 /// undo and redo, two tabs on one sound. The gains come from a fake instead of the mixer, completed at once or when the
 /// test says, so that no dispatcher and no rendering are needed.
 /// </summary>
+[Collection("InterfaceThread")]
 public sealed class PatchEditorViewModelTests
 {
     private static readonly SynthesisProfile Fmx6 = SynthesisProfiles.SuperColliderFmx6;

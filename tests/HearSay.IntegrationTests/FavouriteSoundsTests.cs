@@ -135,7 +135,7 @@ public sealed class FavouriteSoundsTests : IDisposable
     {
         Favourite added = new FavouriteSounds(_directory).Add("loud", Bell, SynthesisProfiles.SuperColliderFm7, "edited", gain: 0.3f);
         File.WriteAllText(Path.Combine(added.Directory, "favourite.json"), "{\"origin\":\"edited\",\"gain\":10000}");
-        Assert.Equal(10000f,Assert.Single(new FavouriteSounds(_directory).Load()).Gain);
+        Assert.Equal(10000f, Assert.Single(new FavouriteSounds(_directory).Load()).Gain);
     }
 
     [Fact]

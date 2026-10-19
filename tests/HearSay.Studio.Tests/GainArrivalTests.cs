@@ -23,13 +23,19 @@ public sealed class GainArrivalTests : IDisposable
     private MainViewModel Main() =>
         new(new FavouriteSounds(Path.Combine(_directory, "favourites")), Path.Combine(_directory, "studio-settings.json"), _ => _pending.Task);
 
-    private void CompleteAndPump()
+    /// <summary>Completes the gain, then runs the dispatcher's jobs until the condition holds, or for 10 s at most.</summary>
+    private void CompleteAndPump(Func<bool> done)
     {
         _pending.SetResult(Gain);
         DateTime deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            if (done())
+            {
+                return;
+            }
+
             Thread.Sleep(20);
         }
     }
@@ -42,10 +48,10 @@ public sealed class GainArrivalTests : IDisposable
         Assert.Null(main.Edits.DisplayedGain);
         Assert.DoesNotContain("// Level:", main.Scd, StringComparison.Ordinal);
 
-        CompleteAndPump();
+        CompleteAndPump(() => main.Scd.Contains("// Level:", StringComparison.Ordinal));
 
         Assert.Equal(Gain, main.Edits.DisplayedGain);
-        Assert.Contains("// Level: x 3.25,", main.Scd,StringComparison.Ordinal);
+        Assert.Contains("// Level: x 3.25,", main.Scd, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -57,7 +63,7 @@ public sealed class GainArrivalTests : IDisposable
         Assert.Null(library.Edits.DisplayedGain);
         Assert.DoesNotContain("// Level:", library.Scd, StringComparison.Ordinal);
 
-        CompleteAndPump();
+        CompleteAndPump(() => library.Scd.Contains("// Level:", StringComparison.Ordinal));
 
         Assert.Equal(Gain, library.Edits.DisplayedGain);
         Assert.Contains("// Level: x 3.25,", library.Scd, StringComparison.Ordinal);

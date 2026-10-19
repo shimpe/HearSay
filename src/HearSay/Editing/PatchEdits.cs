@@ -327,9 +327,9 @@ public static class PatchEdits
 
     /// <summary>
     /// Makes an operator a vowel source: a narrow pulse (<see cref="VoiceSourceWidth"/>, 1 %) with
-    /// <see cref="VoiceSourceHarmonics"/> harmonics, as one step; its filter and everything else stay. A formant filter
-    /// shapes the harmonics it is given, so a vowel needs many, equally strong ones. Refused on a profile without a pulse
-    /// waveform.
+    /// <see cref="VoiceSourceHarmonics"/> harmonics, and no noise on the elliptic parameter (<c>NoiseM</c> 0), as one
+    /// step; its filter and everything else stay. A formant filter shapes the harmonics it is given, so a vowel needs
+    /// many, equally strong ones. Refused on a profile without a pulse waveform.
     /// </summary>
     /// <param name="op">The operator.</param>
     public static PatchEdit SetVoiceSource(int op) => (patch, c) =>

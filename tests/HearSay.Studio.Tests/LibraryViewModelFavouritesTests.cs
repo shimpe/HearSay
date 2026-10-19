@@ -7,6 +7,7 @@ namespace HearSay.Studio.Tests;
 /// Renaming favourites from the Library tab: a favourite that no longer renders, and a selection made while the rename
 /// runs. The view model gets a real live player, on a settings file and a favourites folder of the test's own.
 /// </summary>
+[Collection("InterfaceThread")]
 public sealed class LibraryViewModelFavouritesTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "hearsay-studio-favourites-" + Guid.NewGuid().ToString("N"));
