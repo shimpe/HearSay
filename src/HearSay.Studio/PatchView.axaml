@@ -32,11 +32,18 @@
              selected, so that the diagram keeps its width when a part is selected or deselected -->
         <Grid ColumnDefinitions="*,Auto">
           <Border Background="{StaticResource EditorBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-            <!-- Editing while a sound is shown: click to select, drag the underlined numbers sideways -->
-            <local:FmDiagram x:Name="Diagram" Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" Margin="8"
-                             IsEditing="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}"
-                             CanNudge="{Binding Editor.ShowingEdited, ElementName=Root, FallbackValue=False}"
-                             SelectedPart="{Binding Editor.Selected, ElementName=Root, Mode=TwoWay}" />
+            <Panel>
+              <!-- Editing while a sound is shown: click to select, drag the underlined numbers sideways -->
+              <local:FmDiagram x:Name="Diagram" Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" Margin="8"
+                               IsEditing="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}"
+                               CanNudge="{Binding Editor.ShowingEdited, ElementName=Root, FallbackValue=False}"
+                               SelectedPart="{Binding Editor.Selected, ElementName=Root, Mode=TwoWay}" />
+              <!-- While the tab shows no sound: a new one, one sine, to build on (below the diagram's placeholder text) -->
+              <Button x:Name="StartFromScratchButton" Content="Start from scratch" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="14,6"
+                      Command="{Binding StartFromScratchCommand, ElementName=Root}"
+                      IsVisible="{Binding CanStartFromScratch, ElementName=Root}"
+                      ToolTip.Tip="A new sound, one sine at ratio 1, to build on in the block diagram" />
+            </Panel>
           </Border>
           <Panel x:Name="InspectorColumn" Grid.Column="1" Width="272" Margin="8,0,0,0"
                  IsVisible="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}">

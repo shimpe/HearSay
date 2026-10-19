@@ -341,7 +341,8 @@
                 <Button Grid.Column="3" x:Name="SaveButton" Content="{Binding SaveLabel}" Click="OnSave" IsEnabled="{Binding HasPatch}" />
                 <Button Grid.Column="4" Content="Find in library" Click="OnFindInLibrary" IsEnabled="{Binding HasResult}" ToolTip.Tip="Show the selected finalist in the Library tab, placed among the library sounds like it" />
               </Grid>
-              <local:PatchView Code="{Binding Scd}" Watermark="{Binding ScdWatermark}" Patch="{Binding ShownPatch}" SharedNoise="{Binding ShownPatchSharesNoise}" Editor="{Binding Edits}" />
+              <local:PatchView Code="{Binding Scd}" Watermark="{Binding ScdWatermark}" Patch="{Binding ShownPatch}" SharedNoise="{Binding ShownPatchSharesNoise}" Editor="{Binding Edits}"
+                               StartFromScratchCommand="{Binding StartFromScratchCommand}" CanStartFromScratch="{Binding CanStartFromScratch}" />
             </DockPanel>
           </Border>
         </Grid>

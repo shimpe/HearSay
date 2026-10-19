@@ -158,13 +158,15 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
     /// <param name="studioSettingsPath">Where the Studio settings (the MIDI device) are kept; the user's local application data when null.</param>
-    public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null)
+    /// <param name="gainOf">The gain a sound is played at, for the editing of both tabs; the live mixer's when null.</param>
+    public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null, Func<Sound, Task<float>>? gainOf = null)
     {
         Live = new LivePlayer(studioSettingsPath) { CurrentSound = VisibleSound };
 
         // Both tabs share the edits of a sound: the same patch shown in both has one edited copy and one history.
         var sessions = new EditSessions();
-        Edits = new PatchEditorViewModel(sessions, Live.Mixer.GainAsync);
+        gainOf ??= Live.Mixer.GainAsync;
+        Edits = new PatchEditorViewModel(sessions, gainOf);
         Edits.PropertyChanged += OnEditsChanged;
         Live.NotePlayed += OnNotePlayed;
         Live.StatusChanged += (_, line) => Status = line;
@@ -180,7 +182,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
         };
         Notes = new NotePlayer(Live.Device);
-        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites, sessions);
+        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowLibraryPatch, favourites, sessions, gainOf);
         Library.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(LibraryViewModel.ShownPatch) or nameof(LibraryViewModel.CurrentSound))
@@ -200,6 +202,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
         RemoveCommand = new RelayCommand(RemoveSelected, () => SelectedTarget is not null && !IsRunning);
         ClearCommand = new RelayCommand(() => { Targets.Clear(); RaiseCanExecute(); }, () => Targets.Count > 0 && !IsRunning);
+        StartFromScratchCommand = new RelayCommand(StartFromScratch, () => CanStartFromScratch);
         Targets.CollectionChanged += (_, _) => RaiseCanExecute();
     }
 
@@ -251,8 +254,35 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         ShowDetails();
         OnPropertyChanged(nameof(HasPatch));
         SelectedTab = 0;
-        Status = $"Showing {patch.Title} from the library. The next search replaces it.";
+        Status = IsFromScratch(patch)
+            ? "New sound made from scratch; edit it in the block diagram. The next search replaces it."
+            : $"Showing {patch.Title} from the library. The next search replaces it.";
     }
+
+    /// <summary>
+    /// True while the Search tab shows nothing (no result, no library sound) and no search runs: the empty block diagram
+    /// then offers to start a new sound from scratch.
+    /// </summary>
+    public bool CanStartFromScratch => ShownPatch is null && !IsRunning;
+
+    /// <summary>Starts a new sound from scratch; enabled while <see cref="CanStartFromScratch"/>.</summary>
+    public RelayCommand StartFromScratchCommand { get; }
+
+    /// <summary>
+    /// Shows a new sound, <see cref="ScratchSound"/>, on the profile of the Target selector, as a library sound is shown
+    /// here: edited like any other, with the edits made to it before, and replaced by the next search. Nothing happens
+    /// while a sound is shown.
+    /// </summary>
+    public void StartFromScratch()
+    {
+        if (CanStartFromScratch)
+        {
+            ShowLibraryPatch(new LibraryPatch(ScratchSound.Title, ScratchSound.Patch, SelectedProfile, ScratchSound.HeaderComments) { Origin = ScratchSound.Origin });
+        }
+    }
+
+    /// <summary>True for a sound made from scratch, also when it comes back from the Library tab, edited or not.</summary>
+    private static bool IsFromScratch(LibraryPatch patch) => patch.Origin == ScratchSound.Origin;
 
     /// <summary>
     /// Shows the Library tab with the selected finalist placed among its neighbours, as an imported sound: the version the
@@ -1135,7 +1165,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         bool edited = Edits.ShowsEdit;
         if (_libraryPatch is { } library)
         {
-            ResultSummary = $"from the library: {library.Title}{(edited ? ", edited" : string.Empty)}\n\n{Routing(patch)}";
+            string from = IsFromScratch(library) ? ScratchSound.Origin : "from the library";
+            ResultSummary = $"{from}: {library.Title}{(edited ? ", edited" : string.Empty)}\n\n{Routing(patch)}";
             Scd = Edits.DisplayedCode(library.HeaderComments);
         }
         else if (_result is { } result && _candidate is { } candidate)
@@ -1216,6 +1247,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void OnPropertyChanged(string? name)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        if (name is nameof(ShownPatch) or nameof(IsRunning))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanStartFromScratch)));
+            StartFromScratchCommand?.RaiseCanExecuteChanged();
+        }
+
         if (name is nameof(ShownPatch) or nameof(SelectedTab))
         {
             // Its gain is computed while it is shown, also behind the Library tab, so that its first note need not wait.

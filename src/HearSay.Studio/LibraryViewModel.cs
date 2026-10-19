@@ -118,10 +118,12 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="showInSearch">Shows a sound in the Search tab.</param>
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
     /// <param name="sessions">The edits of every sound, shared with the Search tab; edits of this tab alone when null.</param>
-    public LibraryViewModel(LivePlayer live, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null, EditSessions? sessions = null)
+    /// <param name="gainOf">The gain a sound is played at, for the editing of this tab; the live mixer's when null.</param>
+    public LibraryViewModel(LivePlayer live, Action<string> status, Action<double> progress, Action<LibraryPatch> showInSearch, FavouriteSounds? favourites = null, EditSessions? sessions = null, Func<Sound, Task<float>>? gainOf = null)
     {
         ArgumentNullException.ThrowIfNull(live);
-        Edits = new PatchEditorViewModel(sessions ?? new EditSessions(), live.Mixer.GainAsync);
+        Edits = new PatchEditorViewModel(sessions ?? new EditSessions(), gainOf ?? live.Mixer.GainAsync);
+        StartFromScratchCommand = new RelayCommand(StartFromScratch, () => CanStartFromScratch);
         Edits.PropertyChanged += OnEditsChanged;
         _favouriteStore = favourites ?? new FavouriteSounds();
         Imports.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSideList));
@@ -215,8 +217,30 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         ? s.Description + (Edits.ShowsEdit ? " · edited" : string.Empty)
         : "Click a node to hear it; double-click a family to open it.";
 
-    /// <summary>True once a sound was clicked.</summary>
+    /// <summary>True once a sound was clicked, or one was started from scratch.</summary>
     public bool HasSelection => _selection is not null;
+
+    /// <summary>True while nothing is selected: the empty block diagram then offers to start a new sound from scratch.</summary>
+    public bool CanStartFromScratch => _selection is null;
+
+    /// <summary>Starts a new sound from scratch; enabled while <see cref="CanStartFromScratch"/>.</summary>
+    public RelayCommand StartFromScratchCommand { get; }
+
+    /// <summary>
+    /// Selects a new sound, <see cref="ScratchSound"/>, on the profile of the library shown, as a click on a node selects
+    /// one but without a node and without playing it: edited like any other, with the edits made to it before. Nothing
+    /// happens once a sound is selected.
+    /// </summary>
+    public void StartFromScratch()
+    {
+        if (!CanStartFromScratch)
+        {
+            return;
+        }
+
+        SetSelection(new Selection(ScratchSound.Title, ScratchSound.Patch, _profile, ScratchSound.Origin, ScratchSound.HeaderComments) { Origin = ScratchSound.Origin }, play: false);
+        _status("New sound made from scratch; edit it in the block diagram.");
+    }
 
     /// <summary>What the keyboard last played.</summary>
     public string PlayingText
@@ -1168,15 +1192,26 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         return $"#{index + 1} {string.Join(" · ", words.Take(2))}";
     }
 
-    private void SetSelection(Selection selection)
+    /// <summary>Shows a sound as the selected one: its edits, its code; a clicked one is played at the reference note.</summary>
+    private void SetSelection(Selection selection, bool play = true)
     {
+        bool first = _selection is null;
         _selection = selection;
-        Edits.Show(selection.Patch, selection.Profile, StructureLibrary.ReferenceRequest, string.Join(" ", selection.HeaderComments), selection.Gain);
+        Edits.Show(selection.Patch, selection.Profile, StructureLibrary.ReferenceRequest, selection.Origin ?? string.Join(" ", selection.HeaderComments), selection.Gain);
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
         OnPropertyChanged(nameof(HasSelection));
+        if (first)
+        {
+            OnPropertyChanged(nameof(CanStartFromScratch));
+            StartFromScratchCommand.RaiseCanExecuteChanged();
+        }
+
         ShowCode();
-        _ = PlayReferenceAsync(selection);
+        if (play)
+        {
+            _ = PlayReferenceAsync(selection);
+        }
     }
 
     /// <summary>
@@ -1233,5 +1268,9 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     private void OnPropertyChanged(string? name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    private sealed record Selection(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Description, IReadOnlyList<string> HeaderComments, float? Gain = null);
+    private sealed record Selection(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Description, IReadOnlyList<string> HeaderComments, float? Gain = null)
+    {
+        /// <summary>Where it came from, as a favourite of it says; null for its header comments.</summary>
+        public string? Origin { get; init; }
+    }
 }

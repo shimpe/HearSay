@@ -346,6 +346,17 @@ box at the top right: the vibrato rate and depth (*vib 5.5 Hz ±14 ct*) and the 
 line, up and down in cents. It moves the ratio operators only; fixed-frequency ones keep their pitch. Resting the
 pointer on the box shows the breakpoints in cents and the vibrato delay and fade-in.
 
+**Start from scratch.** While a tab shows no sound (the Search tab before a search, or once its result is gone; the
+Library tab before a sound is clicked), its empty block diagram has a **Start from scratch** button. It shows a new
+sound, *New sound*: OP1 a sine at ratio 1 with a plain envelope (attack 10 ms, decay 0.3 s to sustain 0.7, release
+0.3 s), heard at 0.8, the other operators off. It is on the profile of the Target selector in the Search tab and on the
+profile of the library shown in the Library tab, and plays at the level of the library's reference note. From there it
+is edited like any other sound (*Editing a sound* below): add modulators, filters and the rest, play it on the
+keyboard or the MIDI device, Copy or Save its code (the header says *Made from scratch in HearSay Studio.*), keep it
+with ☆. Its favourite says *made from scratch*, edited or not. In the Search tab the next search replaces it. Its
+edits are kept like those of any other sound, so starting from scratch again on the same profile, while the Studio
+runs, brings back the edits made to it before; the Original side of the switch is the single sine.
+
 **Editing a sound.** Whatever the patch card shows (a finalist, a library sound, a favourite, a placed import) can be
 edited in the block diagram, in both tabs. The original is never changed: editing works on a copy, and the next note
 played, on the on-screen keyboard or the MIDI device, plays the edit (notes already held keep their sound). The diagram

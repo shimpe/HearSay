@@ -67,10 +67,12 @@ public sealed class LibraryViewModelFavouritesTests : IDisposable
         await library.RenameFavouriteAsync(a, "a2");
         Assert.Equal("a2", library.SelectedFavourite?.Name);
 
-        // Another favourite selected while the rename runs (it renders the reference note): that one stays selected.
-        Task rename = library.RenameFavouriteAsync(library.SelectedFavourite!, "a3");
-        library.SelectedFavourite = library.Favourites.Single(static f => f.Name == "b");
-        await rename;
+        // Another favourite selected while the rename runs (it renders the reference note): that one stays selected. The
+        // rename's continuation is queued until the selection has changed, as on the interface thread.
+        FavouriteItem renaming = library.SelectedFavourite!;
+        QueueingSynchronizationContext.Run(
+            () => library.RenameFavouriteAsync(renaming, "a3"),
+            () => library.SelectedFavourite = library.Favourites.Single(static f => f.Name == "b"));
         Assert.Equal("b", library.SelectedFavourite?.Name);
         Assert.Contains(library.Favourites, static f => f.Name == "a3");
     }

@@ -230,8 +230,11 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     /// <summary>The gain of the original, once known; null before, or when it could not be computed.</summary>
     public float? OriginalGain => _gainKnown ? _gain : null;
 
-    /// <summary>Where the displayed version came from, for a favourite: <c>edited from …</c> while the edit is displayed.</summary>
-    public string FavouriteOrigin => ShowsEdit ? "edited from " + _origin : _origin;
+    /// <summary>
+    /// Where the displayed version came from, for a favourite: <c>edited from …</c> while the edit is displayed, except for
+    /// a sound made from scratch, whose edits are how it is made: <see cref="ScratchSound.Origin"/> either way.
+    /// </summary>
+    public string FavouriteOrigin => ShowsEdit && _origin != ScratchSound.Origin ? "edited from " + _origin : _origin;
 
     /// <summary>Why the last edit was refused, for the status line; null when it was done.</summary>
     public string? LastRefusal

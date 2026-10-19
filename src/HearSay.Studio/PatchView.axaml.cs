@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -9,7 +10,8 @@ namespace HearSay.Studio;
 /// <summary>
 /// A patch as SuperCollider code and as a block diagram, in two tabs, with the toolbar of its editing (undo, redo, Match
 /// loudness, Original ⇄ Edited) and, beside the diagram, the inspector of the part selected; a click on the diagram
-/// selects a part and a sideways drag of one of its numbers changes it. Used by the Search and Library tabs.
+/// selects a part and a sideways drag of one of its numbers changes it. While the tab shows no sound, the empty diagram
+/// offers to start a new one from scratch (<see cref="StartFromScratchCommand"/>). Used by the Search and Library tabs.
 /// </summary>
 public sealed partial class PatchView : UserControl
 {
@@ -30,6 +32,12 @@ public sealed partial class PatchView : UserControl
 
     /// <summary>The editing of the shown sound: undo, redo and the Original ⇄ Edited switch of the toolbar.</summary>
     public static readonly StyledProperty<PatchEditorViewModel?> EditorProperty = AvaloniaProperty.Register<PatchView, PatchEditorViewModel?>(nameof(Editor));
+
+    /// <summary>Starts a new sound from scratch: the button in the empty block diagram.</summary>
+    public static readonly StyledProperty<ICommand?> StartFromScratchCommandProperty = AvaloniaProperty.Register<PatchView, ICommand?>(nameof(StartFromScratchCommand));
+
+    /// <summary>Whether the empty block diagram offers <see cref="StartFromScratchCommand"/>: while the host shows no sound.</summary>
+    public static readonly StyledProperty<bool> CanStartFromScratchProperty = AvaloniaProperty.Register<PatchView, bool>(nameof(CanStartFromScratch));
 
     /// <summary>The value a drag on the diagram changes, from the sound it began on, and where it began.</summary>
     private EditableValue? _nudged;
@@ -183,5 +191,19 @@ public sealed partial class PatchView : UserControl
     {
         get => GetValue(CodeHeaderProperty);
         set => SetValue(CodeHeaderProperty, value);
+    }
+
+    /// <inheritdoc cref="StartFromScratchCommandProperty"/>
+    public ICommand? StartFromScratchCommand
+    {
+        get => GetValue(StartFromScratchCommandProperty);
+        set => SetValue(StartFromScratchCommandProperty, value);
+    }
+
+    /// <inheritdoc cref="CanStartFromScratchProperty"/>
+    public bool CanStartFromScratch
+    {
+        get => GetValue(CanStartFromScratchProperty);
+        set => SetValue(CanStartFromScratchProperty, value);
     }
 }
