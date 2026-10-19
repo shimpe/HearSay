@@ -30,8 +30,8 @@ vowel presets while editing a sound, and wants the search to use the third forma
 - **The FMX6 UGen** gets the extra values as optional inputs after the existing filter rows, so SynthDefs exported
   before keep working with the new plugin, and the exporter writes them only when a formant uses them, so patches
   without F3–F5 or an own F2 Q export exactly as before. HearSay's C# filter kernel mirrors the UGen operation for
-  operation, as now; the plugin is rebuilt and installed in the user's SuperCollider extensions (the old one kept as a
-  backup).
+  operation, as now; the plugin is rebuilt and installed in the user's SuperCollider extensions, replacing the old
+  files (no backup: the user's call, old builds can be recreated from git).
 - **Editor.** The inspector shows F1–F3 (Hz or ratio, level, Q) and folds F4–F5 under "more formants". The presets
   are a voice menu and five vowel buttons (a e i o u); a preset is one undo step and keeps F1's sweep and the
   operator's other settings. Each preset sets F1 Hz, Q1 = F1/bw1, and for F2..F5 ratio = Fn/F1, level = 10^(dBn/20),

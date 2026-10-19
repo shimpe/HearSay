@@ -34,7 +34,7 @@
 
 ### Task 1: The FMX6 UGen: five formants with own Q (fmx6 repo)
 
-**Files:** `D:\Projects\fmx6\FMX6.cpp`, `Classes/FMX6.sc`, `HelpSource/Classes/FMX6.schelp`, `README.md`. Build `cmake --build build --config Release` (configured for Visual Studio 17 2022 with `SC_PATH` set); install by copying `build/Release/FMX6.scx` (and the class/help files) into `%LOCALAPPDATA%\SuperCollider\Extensions\FMX6UGens`, after copying the existing folder to `%LOCALAPPDATA%\SuperCollider\FMX6UGens.backup-2026-10-19` (outside Extensions so sclang does not load it twice).
+**Files:** `D:\Projects\fmx6\FMX6.cpp`, `Classes/FMX6.sc`, `HelpSource/Classes/FMX6.schelp`, `README.md`. Build `cmake --build build --config Release` (configured for Visual Studio 17 2022 with `SC_PATH` set); install by copying `build/Release/FMX6.scx` (and the class/help files) into `%LOCALAPPDATA%\SuperCollider\Extensions\FMX6UGens`, replacing the old files (no backup: old builds can be recreated from git).
 
 **Interfaces — Produces:** the 175-input layout and 17-field `filters:` rows per Global Constraints; `operatorFilter(...)` in C++ taking per-peak q, ratio and level for F2..F5 (HearSay mirrors it in Task 2 — keep the order of floating-point operations simple and documented in a comment so it can be mirrored: per peak `svfTick(x, fc * ratio, k_n, ...)`, then the sum in the order F1, F2, F3, F4, F5).
 
