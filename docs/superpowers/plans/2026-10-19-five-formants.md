@@ -118,3 +118,27 @@ The benchmark (Task 5) then compares three arms: `main`, F3 without filter tunin
 ### Task 6: Hand test (user)
 
 - [ ] Build and run the Studio; on an FMX6 sound with a formant filter, try the presets while playing, open "more formants", undo/redo; run a search on a sung or spoken note.
+
+---
+
+## Correction after the first benchmark (2026-10-19)
+
+The first benchmark found that the search almost never used F3. Task 3 had gated F3's search values on "F3 already
+on" (level > 0), which departs from the agreed rule (the user: "i thought we would only switch off f4 and f5"): the
+search uses F1–F3 on every formant filter, only F4/F5 stay off. And the target peak reader smooths the spectral
+envelope over 1/6 octave and caps peak Q at 20, so its peaks are merged and far too broad.
+
+### Task 6: F3 is part of every formant filter in the search, and peaks are read with their real width
+
+**Files:** `src/HearSay.OperatorMatrix/Parameters/PatchParameterSchema.cs`, `Priors/FilterPriors.cs`, `Priors/FormantPriorProvider.cs`, `Search/TopologyMutator.cs`, `src/HearSay.Synthesis/Patches/RandomPatchGenerator.cs`, `src/HearSay.Synthesis/Profiles/SynthesisProfile.cs` (FMX6 library version 5, no reuse); tests in `tests/HearSay.OperatorMatrix.Tests`, `tests/HearSay.Synthesis.Tests`.
+
+- **Schema:** `formant3Ratio`, `formant3Level`, `formant3Q` are active on every formant filter (like F2's). When a filter has F3 off, the search reads the start values ratio = a default F3 (3 × F1, kept above F2 and within range), level = the floor, Q relative 1; the level's search range has a small floor (0.001, as roughness has 1e-4) so the search can never switch F3 off again. Reading and writing back an untouched two-peak patch still leaves it unchanged (only an actual move turns F3 on).
+- **Peak reader for formants:** a formant-specific reading (do not change the peaks other priors use) that finds up to three peaks on a lightly smoothed (or unsmoothed harmonic) envelope and estimates each peak's own bandwidth (e.g. −3 dB width by interpolation between harmonics, or a fitted resonance), Q up to 50; tested on the spec's vowel-like targets (made as in the benchmark: 1/n harmonics weighted by the table's resonances), e.g. bass "a" at 130 Hz must give peaks within 15 % of 600 / 1040 / 2250 Hz and F3 Q within a factor 2 of 2250/110.
+- **Priors and mutation:** every formant hypothesis has F3 — the third peak when found, else the default; the "third formant" mutation becomes "move F3 to the heard third peak".
+- **Generator:** every generated formant filter has F3 (level > 0); FM7/Nome6 and FMX6 patches without formant filters stay byte-identical (digests); FMX6 library v5.
+- Tests: `Schema_EveryFormantFilter_HasF3`, `F3Level_HasAFloor_InTheSearch`, `UntouchedTwoPeakPatch_RoundTripsUnchanged`, `FormantPeaks_OfVowelTargets_AreWhereTheTableSays`, `FormantHypotheses_AlwaysHaveF3`, `Generator_EveryFormantFilter_HasF3`, digests unchanged.
+- Commit "Search: F3 on every formant filter; formant peaks with their real width".
+
+### Task 7: Benchmark again
+
+Arms: A = `main`, D = the branch head after Task 6 (FMX6 library v5, built first in the background); budget 4000, seeds 1 and 2, the same 23 targets (vowel WAVs kept in `D:\Projects\hearsay-e2e\formant-bench-targets`). Report as before, plus D's F3 use. Also compare D seed 1 with the first benchmark's C seed 1 (`D:\Projects\hearsay-e2e\formant-bench-results.md`).
