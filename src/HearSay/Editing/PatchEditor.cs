@@ -57,6 +57,7 @@ public sealed class PatchEditor
     private OperatorMatrixPatch? gestureStart;
     private bool showingOriginal;
     private float? matchedGain;
+    private bool matchingLoudness;
 
     /// <summary>Starts editing a sound; the original is never changed.</summary>
     /// <param name="original">The patch as it was.</param>
@@ -84,8 +85,10 @@ public sealed class PatchEditor
 
     /// <summary>
     /// The gain the edit plays at once its loudness was matched (the gain a new sound of the edit would get); null to
-    /// play it at the original's. Kept through later edits, undo and redo while the program runs, and forgotten by
-    /// <see cref="Revert"/>; it is not computed again by itself. Setting another value raises <see cref="Changed"/>.
+    /// play it at the original's. Kept through later edits of the matched edit, undo and redo while the program runs; a
+    /// new step from the original (an <see cref="Apply"/>, or a gesture that ends in a step, while the edit is back at
+    /// the original), which starts another edit and drops the redo steps, forgets it, and so does <see cref="Revert"/>.
+    /// It is not computed again by itself. Setting another value raises <see cref="LoudnessChanged"/>.
     /// </summary>
     public float? MatchedGain
     {
@@ -98,9 +101,31 @@ public sealed class PatchEditor
             }
 
             matchedGain = value;
-            OnChanged();
+            OnLoudnessChanged();
         }
     }
+
+    /// <summary>
+    /// True while the loudness of the edit is being matched, so that it is matched once at a time for the sound, whatever
+    /// tab asks. Setting another value raises <see cref="LoudnessChanged"/>.
+    /// </summary>
+    public bool IsMatchingLoudness
+    {
+        get => matchingLoudness;
+        set
+        {
+            if (matchingLoudness == value)
+            {
+                return;
+            }
+
+            matchingLoudness = value;
+            OnLoudnessChanged();
+        }
+    }
+
+    /// <summary>Raised when <see cref="MatchedGain"/> or <see cref="IsMatchingLoudness"/> changed.</summary>
+    public event EventHandler? LoudnessChanged;
 
     /// <summary>True when the edited patch differs from the original.</summary>
     public bool IsEdited => Current.ComputeHash() != Original.ComputeHash();
@@ -149,10 +174,16 @@ public sealed class PatchEditor
             return outcome;
         }
 
+        bool fromOriginal = ForgetsMatchedGain(Current);
         undo.Add(Current);
         redo.Clear();
         Current = outcome.Patch;
         OnChanged();
+        if (fromOriginal)
+        {
+            MatchedGain = null;
+        }
+
         return outcome;
     }
 
@@ -199,6 +230,10 @@ public sealed class PatchEditor
         {
             undo.Add(start);
             redo.Clear();
+            if (ForgetsMatchedGain(start))
+            {
+                MatchedGain = null;
+            }
         }
     }
 
@@ -230,8 +265,13 @@ public sealed class PatchEditor
         redo.Clear();
         Current = Original;
         showingOriginal = false;
+        bool hadGain = matchedGain is not null;
         matchedGain = null;
         OnChanged();
+        if (hadGain)
+        {
+            OnLoudnessChanged();
+        }
     }
 
     /// <summary>Goes back one step; a gesture in progress is committed first.</summary>
@@ -281,7 +321,15 @@ public sealed class PatchEditor
     private static bool SamePatch(OperatorMatrixPatch a, OperatorMatrixPatch b)
         => ReferenceEquals(a, b) || a.ComputeHash() == b.ComputeHash();
 
+    /// <summary>
+    /// True when a new step from this patch starts another edit, whose loudness was never matched: the patch is the
+    /// original, and the matched edit (now only in the redo steps) is about to be dropped.
+    /// </summary>
+    private bool ForgetsMatchedGain(OperatorMatrixPatch from) => matchedGain is not null && SamePatch(from, Original);
+
     private void OnChanged() => Changed?.Invoke(this, EventArgs.Empty);
+
+    private void OnLoudnessChanged() => LoudnessChanged?.Invoke(this, EventArgs.Empty);
 }
 
 /// <summary>

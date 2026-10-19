@@ -22,8 +22,8 @@
       <Setter Property="Foreground" Value="#0B1220" />
     </Style>
   </UserControl.Styles>
-  <Grid>
-    <TabControl Padding="0,6,0,0">
+  <Grid RowDefinitions="Auto,*">
+    <TabControl x:Name="Tabs" Grid.Row="1" Padding="0,6,0,0">
       <TabItem Header="{Binding CodeHeader, ElementName=Root}" FontSize="13">
         <TextBox Classes="mono" Text="{Binding Code, ElementName=Root}" Watermark="{Binding Watermark, ElementName=Root}" />
       </TabItem>
@@ -51,9 +51,9 @@
         </Grid>
       </TabItem>
     </TabControl>
-    <!-- Editing, on the right of the tab strip: undo, redo, Match loudness, and once edited the switch to compare with the
-         original -->
-    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,0,0"
+    <!-- Editing: undo, redo, Match loudness, and once edited the switch to compare with the original. On the right of the
+         tab strip where it fits beside the tab headers, else in a row of its own above them (PatchView.PlaceToolbar) -->
+    <StackPanel x:Name="EditToolbar" Grid.Row="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,0,0"
                 IsVisible="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}">
       <Button x:Name="UndoButton" Content="↶" FontSize="15" Padding="9,1" Click="OnUndo"
               IsEnabled="{Binding Editor.CanUndo, ElementName=Root, FallbackValue=False}" ToolTip.Tip="Undo the last edit (Ctrl+Z)" />

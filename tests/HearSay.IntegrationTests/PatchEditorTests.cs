@@ -226,11 +226,11 @@ public sealed class PatchEditorTests
         PatchEditor editor = sessions.For(Heard(), Fm7);
         Assert.Null(editor.MatchedGain);
         int changes = 0;
-        editor.Changed += (_, _) => changes++;
+        editor.LoudnessChanged += (_, _) => changes++;
 
         editor.Apply(SetRatio(2));
         editor.MatchedGain = 3.5f;
-        Assert.Equal(2, changes);
+        Assert.Equal(1, changes);
 
         // Later edits, undo and redo keep it; it is not computed again by itself.
         editor.Apply(SetRatio(3));
@@ -258,5 +258,77 @@ public sealed class PatchEditorTests
         editor.MatchedGain = 3.5f;
         editor.Revert();
         Assert.Null(editor.MatchedGain);
+    }
+
+    [Fact]
+    public void MatchedGain_IsForgotten_ByANewEditFromTheOriginal()
+    {
+        var editor = new PatchEditor(Heard(), Fm7);
+        editor.Apply(SetRatio(2));
+        editor.MatchedGain = 3.5f;
+
+        // Back at the original, a new step starts another edit: the gain was the other one's.
+        editor.Undo();
+        Assert.Equal(3.5f, editor.MatchedGain);
+        int loudness = 0;
+        editor.LoudnessChanged += (_, _) => loudness++;
+        editor.Apply(SetRatio(3));
+        Assert.Null(editor.MatchedGain);
+        Assert.Equal(1, loudness);
+
+        // A drag from the original that ends in a step does the same; one that changes nothing or is cancelled does not.
+        editor.Apply(SetRatio(2));
+        editor.MatchedGain = 3.5f;
+        editor.Undo();
+        editor.Undo();
+        Assert.False(editor.IsEdited);
+        editor.BeginGesture();
+        editor.EndGesture();
+        editor.BeginGesture();
+        editor.Preview(SetRatio(5));
+        editor.CancelGesture();
+        Assert.Equal(3.5f, editor.MatchedGain);
+        editor.BeginGesture();
+        editor.Preview(SetRatio(5));
+        editor.EndGesture();
+        Assert.Null(editor.MatchedGain);
+    }
+
+    [Fact]
+    public void MatchedGain_IsKept_ByUndoAndRedo()
+    {
+        var editor = new PatchEditor(Heard(), Fm7);
+        editor.Apply(SetRatio(2));
+        editor.Apply(SetRatio(3));
+        editor.MatchedGain = 3.5f;
+        editor.Undo();
+        editor.Undo();
+        editor.Redo();
+        editor.Redo();
+        Assert.Equal(3.5f, editor.MatchedGain);
+
+        // An edit of the matched edit (not from the original) keeps it too.
+        editor.Undo();
+        editor.Apply(SetRatio(4));
+        Assert.Equal(3.5f, editor.MatchedGain);
+    }
+
+    [Fact]
+    public void MatchingLoudness_IsOnePerSession_AndSaysSo()
+    {
+        var sessions = new EditSessions();
+        PatchEditor editor = sessions.For(Heard(), Fm7);
+        int loudness = 0;
+        int changes = 0;
+        editor.LoudnessChanged += (_, _) => loudness++;
+        editor.Changed += (_, _) => changes++;
+
+        editor.IsMatchingLoudness = true;
+        Assert.True(sessions.For(Heard(), Fm7).IsMatchingLoudness);
+        editor.IsMatchingLoudness = true;
+        editor.IsMatchingLoudness = false;
+        editor.MatchedGain = 2f;
+        Assert.Equal(3, loudness);
+        Assert.Equal(0, changes);
     }
 }

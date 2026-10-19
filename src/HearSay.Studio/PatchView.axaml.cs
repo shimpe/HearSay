@@ -44,6 +44,32 @@ public sealed partial class PatchView : UserControl
         Diagram.Nudged += OnNudged;
         Diagram.NudgeEnded += (_, _) => EndNudge(cancel: false);
         Diagram.NudgeCancelled += (_, _) => EndNudge(cancel: true);
+        LayoutUpdated += (_, _) => PlaceToolbar();
+    }
+
+    /// <summary>Space kept between the last tab header and the toolbar beside it.</summary>
+    private const double ToolbarGap = 8;
+
+    /// <summary>
+    /// Puts the editing toolbar beside the tab headers, on the right of the tab strip, where it fits there, and else in a
+    /// row of its own above them, so that it never covers a header. Its width does not depend on the row, so the choice is
+    /// stable from one layout pass to the next.
+    /// </summary>
+    private void PlaceToolbar()
+    {
+        if (!EditToolbar.IsVisible || Tabs.Items.OfType<TabItem>().LastOrDefault() is not { } last || last.Bounds.Width <= 0
+            || last.TranslatePoint(new Point(last.Bounds.Width, 0), this) is not { } headersEnd)
+        {
+            return;
+        }
+
+        bool beside = headersEnd.X + ToolbarGap + EditToolbar.DesiredSize.Width <= Bounds.Width;
+        int row = beside ? 1 : 0;
+        if (Grid.GetRow(EditToolbar) != row)
+        {
+            Grid.SetRow(EditToolbar, row);
+            EditToolbar.Margin = beside ? new Thickness(0, 4, 0, 0) : new Thickness(0, 0, 0, 4);
+        }
     }
 
     /// <inheritdoc cref="EditorProperty"/>

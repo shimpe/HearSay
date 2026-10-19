@@ -400,10 +400,10 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   double-click a line to add a point; right-click a point to remove it, hold the note there (*Sustain here*), make the
   envelope run its course (*One-shot*), or choose the curve of the segment that ends there (linear, exponential, step).
   The pitch envelope has no exponential curves: they cannot go below zero, and its cents go either way of the note.
-- **Undo and Redo** (the arrows right of the tabs, Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to the sound
-  as it was. One step is one drag from press to release, one typed number, one menu choice, one part added or removed,
-  one envelope point dragged, one vowel preset, one *Voice source*. While a box holds typed text, Ctrl+Z undoes the
-  typing; during a drag the keys do nothing.
+- **Undo and Redo** (the arrows right of the tabs, or above them where the patch card is too narrow; Ctrl+Z, and Ctrl+Y
+  or Ctrl+Shift+Z) go back step by step to the sound as it was. One step is one drag from press to release, one typed
+  number, one menu choice, one part added or removed, one envelope point dragged, one vowel preset, one *Voice source*.
+  While a box holds typed text, Ctrl+Z undoes the typing; during a drag the keys do nothing.
 - **Match loudness.** An edit plays at the loudness of the original: its gain is the original's, not normalised again
   after each edit, so that turning an output level down really makes it softer. An edit that changes the sound a lot
   can therefore be much quieter (or louder) than the original: a triangle turned into a 1 % pulse through narrow
@@ -412,8 +412,11 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   reference note normalised, as every sound of the library) and plays the edit at that gain from then on; the status
   line says *Loudness matched: the edit now plays as loud as a new sound would.* The matched loudness belongs to the
   sound's edit (the same sound in both tabs shares it) and stays while the Studio runs: later edits keep it, it is not
-  matched again by itself; click again to match the edit as it then is. *Original* still plays at the original's
-  loudness, and undoing back to the original shows it as before. ☆ and *Update* on an edit keep the matched gain in the
+  matched again by itself; click again to match the edit as it then is. Edits made after matching that make the sound
+  louder are held back by the player's soft limiter; click *Match loudness* again. *Original* still plays at the
+  original's loudness, and undoing back to the original shows it as before (redo comes back to the matched edit); a new
+  edit started from the original is another edit and plays at the original's loudness until it is matched. While the
+  loudness is being matched the button is disabled, in both tabs. ☆ and *Update* on an edit keep the matched gain in the
   favourite. (The `preview.wav` of *Save edited sound…* is normalised on its own, to a peak of 0.7, which is why it can
   sound louder than an unmatched edit.)
 - **Original ⇄ Edited.** Once a sound is edited, a switch beside the arrows shows the original or the edit: the

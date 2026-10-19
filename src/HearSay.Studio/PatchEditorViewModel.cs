@@ -57,7 +57,6 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     private IReadOnlyList<EditableValue> _selectedValues = [];
     private string? _lastRefusal;
     private string? _notice;
-    private bool _matching;
 
     /// <summary>Creates the editing of a tab, with nothing shown.</summary>
     /// <param name="sessions">The edits of every sound, shared by the tabs.</param>
@@ -166,7 +165,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     }
 
     /// <summary>True when Match loudness can be clicked: the edit is displayed and its gain is not being computed.</summary>
-    public bool CanMatchLoudness => ShowsEdit && !_matching;
+    public bool CanMatchLoudness => ShowsEdit && _editor is { IsMatchingLoudness: false };
 
     /// <summary>The gain the edit plays at since its loudness was matched; null when it plays at the original's.</summary>
     public float? MatchedGain => _editor?.MatchedGain;
@@ -217,11 +216,13 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
                 // gesture ended and stops.
                 _editor.EndGesture();
                 _editor.Changed -= OnEditorChanged;
+                _editor.LoudnessChanged -= OnLoudnessChanged;
             }
 
             if (editor is not null)
             {
                 editor.Changed += OnEditorChanged;
+                editor.LoudnessChanged += OnLoudnessChanged;
             }
 
             _editor = editor;
@@ -319,7 +320,10 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     /// Plays the edit from now on as loud as a new sound of it would be: its own gain, computed as for a fresh sound (the
     /// original with the edited patch and no fixed gain) off the interface thread, becomes the edit session's
     /// <see cref="PatchEditor.MatchedGain"/>, which the same sound in the other tab shares and later edits keep. Clicking
-    /// again computes it again for the edit as it then is. Nothing while the edit is not displayed.
+    /// again computes it again for the edit as it then is. Nothing while the edit is not displayed, or while the sound's
+    /// loudness is being matched already (in either tab). A gain that arrives for an edit that has changed since (another
+    /// edit, undo, a revert) is dropped; one that arrives after the tab went to another sound still goes to its sound,
+    /// without a word in the status line.
     /// </summary>
     public async Task MatchLoudnessAsync()
     {
@@ -328,25 +332,44 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
             return;
         }
 
-        Sound fresh = original with { Patch = editor.Current, FixedGain = null };
-        _matching = true;
-        OnPropertyChanged(nameof(CanMatchLoudness));
+        OperatorMatrixPatch edit = editor.Current;
+        Sound fresh = original with { Patch = edit, FixedGain = null };
+        editor.IsMatchingLoudness = true;
+        float gain;
         try
         {
-            float gain = await _gainOf(fresh);
-            editor.MatchedGain = gain;
-            Notice = MatchedNotice;
+            gain = await _gainOf(fresh);
         }
         catch (Exception e)
         {
             // The reference note of the edit could not be rendered (as for the original's gain, whatever the reason):
             // the edit keeps the gain it had.
-            LastRefusal = "The loudness of the edit could not be computed: " + e.Message;
+            if (ReferenceEquals(_editor, editor))
+            {
+                LastRefusal = "The loudness of the edit could not be computed: " + e.Message;
+            }
+
+            return;
         }
         finally
         {
-            _matching = false;
-            Refresh();
+            editor.IsMatchingLoudness = false;
+        }
+
+        if (!ReferenceEquals(editor.Current, edit))
+        {
+            if (ReferenceEquals(_editor, editor))
+            {
+                LastRefusal = "The edit changed while its loudness was being matched; click Match loudness again.";
+            }
+
+            return;
+        }
+
+        editor.MatchedGain = gain;
+        if (ReferenceEquals(_editor, editor))
+        {
+            Notice = MatchedNotice;
         }
     }
 
@@ -453,6 +476,14 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     }
 
     private void OnEditorChanged(object? sender, EventArgs e) => Refresh();
+
+    /// <summary>The matched gain, or whether it is being matched, changed: in this tab or the other one on the same sound.</summary>
+    private void OnLoudnessChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(CanMatchLoudness));
+        OnPropertyChanged(nameof(MatchedGain));
+        OnPropertyChanged(nameof(DisplayedSound));
+    }
 
     /// <summary>Says what follows the edit: the displayed version, the switch, undo and redo, the sound and the inspector's values.</summary>
     private void Refresh()
