@@ -95,16 +95,16 @@ public sealed class LocalRefiner
         return _comparer.Compare(_target, audio.ToAudioNote(_target.FundamentalHz));
     }
 
-    /// <summary>Refines a basin.</summary>
-    /// <param name="basin">Basin to refine; its best evaluation must be at <paramref name="level"/>.</param>
-    /// <param name="evaluations">Renders this call may spend.</param>
-    /// <param name="level">Evaluation level of the accept test.</param>
-    /// <returns>Number of accepted guidance steps.</returns>
-    public int Refine(SearchBasin basin, int evaluations, EvaluationLevel level)
+    /// <summary>
+    /// The parameters a refinement moves, at most <paramref name="max"/>: the smooth parameters with a direct, local
+    /// effect on the sound, first the modulation amounts and output levels, then the values of operator filters, then
+    /// envelope segment times (a filter's sweep among them).
+    /// </summary>
+    /// <param name="schema">Schema of the patch.</param>
+    /// <param name="patch">Patch whose structure decides what is active.</param>
+    /// <param name="max">Largest number of parameters.</param>
+    internal static List<PatchParameter> SelectParameters(PatchParameterSchema schema, OperatorMatrixPatch patch, int max)
     {
-        ArgumentNullException.ThrowIfNull(basin);
-        OperatorMatrixPatch patch = basin.Best.Patch;
-        PatchParameterSchema schema = PatchParameterSchema.Build(patch, _capabilities, null, _evaluator.TimeLimits);
         var parameters = new List<PatchParameter>();
         foreach (PatchParameter p in schema.ActiveSmooth(patch))
         {
@@ -115,19 +115,42 @@ public sealed class LocalRefiner
             }
         }
 
+        // After them, so that a patch with many amounts keeps all of them when the room runs out.
         foreach (PatchParameter p in schema.ActiveSmooth(patch))
         {
-            if (parameters.Count < _maxParameters && p.Id.Contains(".env.p", StringComparison.Ordinal) && p.Id.EndsWith(".time", StringComparison.Ordinal) && !p.Id.StartsWith("pitch.", StringComparison.Ordinal))
+            if (BasinOptimizer.IsOperatorFilterValue(p.Id))
             {
                 parameters.Add(p);
             }
         }
 
-        if (parameters.Count > _maxParameters)
+        foreach (PatchParameter p in schema.ActiveSmooth(patch))
         {
-            parameters.RemoveRange(_maxParameters, parameters.Count - _maxParameters);
+            if (parameters.Count < max && p.Id.Contains(".env.p", StringComparison.Ordinal) && p.Id.EndsWith(".time", StringComparison.Ordinal) && !p.Id.StartsWith("pitch.", StringComparison.Ordinal))
+            {
+                parameters.Add(p);
+            }
         }
 
+        if (parameters.Count > max)
+        {
+            parameters.RemoveRange(max, parameters.Count - max);
+        }
+
+        return parameters;
+    }
+
+    /// <summary>Refines a basin.</summary>
+    /// <param name="basin">Basin to refine; its best evaluation must be at <paramref name="level"/>.</param>
+    /// <param name="evaluations">Renders this call may spend.</param>
+    /// <param name="level">Evaluation level of the accept test.</param>
+    /// <returns>Number of accepted guidance steps.</returns>
+    public int Refine(SearchBasin basin, int evaluations, EvaluationLevel level)
+    {
+        ArgumentNullException.ThrowIfNull(basin);
+        OperatorMatrixPatch patch = basin.Best.Patch;
+        PatchParameterSchema schema = PatchParameterSchema.Build(patch, _capabilities, null, _evaluator.TimeLimits);
+        List<PatchParameter> parameters = SelectParameters(schema, patch, _maxParameters);
         if (parameters.Count == 0 || evaluations < parameters.Count + 2)
         {
             return 0;

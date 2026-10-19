@@ -491,9 +491,9 @@ public sealed class BasinOptimizer
     }
 
     /// <summary>
-    /// Parameters that shape the spectrum, the duty cycle of a pulse and the response of filtered noise among them. Key
-    /// scaling and velocity sensitivity are only included when the target set has several pitches or velocities: on a
-    /// single note they cannot be told apart from level and envelope.
+    /// Parameters that shape the spectrum, the duty cycle of a pulse, the response of filtered noise and the values of
+    /// operator filters among them. Key scaling and velocity sensitivity are only included when the target set has
+    /// several pitches or velocities: on a single note they cannot be told apart from level and envelope.
     /// </summary>
     private bool IsSpectral(string id, bool tuningMatters) =>
         id.EndsWith(".amount", StringComparison.Ordinal)
@@ -505,10 +505,18 @@ public sealed class BasinOptimizer
         || id.EndsWith(".morph", StringComparison.Ordinal)
         || id.EndsWith(".noisePhase", StringComparison.Ordinal)
         || id.EndsWith(".noiseM", StringComparison.Ordinal)
+        || IsOperatorFilterValue(id)
         || id.StartsWith("noise.", StringComparison.Ordinal)
         || (tuningMatters && (id.EndsWith(".fineTune", StringComparison.Ordinal) || id.EndsWith(".detune", StringComparison.Ordinal)))
         || (IncludeKeyScaling && id.Contains(".keyScaling.", StringComparison.Ordinal))
         || (IncludeVelocity && id.EndsWith(".velocity", StringComparison.Ordinal));
+
+    /// <summary>
+    /// A value of an operator filter (cutoff, frequency, Q, formant ratios, levels and own Qs, peak gain, sweep depth),
+    /// as the schema offers it for the filter's type; the points of its sweep envelope are envelope shape instead.
+    /// </summary>
+    internal static bool IsOperatorFilterValue(string id) =>
+        id.Contains(".operatorFilter.", StringComparison.Ordinal) && !id.Contains(".operatorFilter.env.", StringComparison.Ordinal);
 
     private static bool IsEnvelopeShape(string id)
     {
