@@ -30,6 +30,12 @@ public sealed class SuperColliderFmx6Exporter : SuperColliderOperatorMatrixExpor
     protected override string Requirement => "the FMX6 plugin (https://github.com/shimpe/fmx6)";
 
     /// <inheritdoc />
+    protected override string RequirementFor(OperatorMatrixPatch patch, bool[] audible) =>
+        Enumerable.Range(0, patch.OperatorCount).Any(i => audible[i] && patch.Operators[i].Filter is { UsesExtendedFormants: true })
+            ? Requirement + " with five formants (fmx6 commit 208cac8 or later, branch five-formants)"
+            : Requirement;
+
+    /// <inheritdoc />
     protected override string UGenCall(OperatorMatrixPatch patch, bool[] audible)
     {
         string waves = PerOperator(patch, audible, static o => Fmx6CompatibleOperatorMatrixRenderer.WaveIndex(o.Waveform).ToString(CultureInfo.InvariantCulture), "0");

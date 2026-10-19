@@ -208,7 +208,7 @@ public sealed class StructureLibraryTests
     }
 
     [Fact]
-    public void ProfilesWithNoise_HaveANewLibraryVersionThatReusesTheOldOne()
+    public void Nome6_HasANewLibraryVersionThatReusesTheOldOne_AndFm7KeepsVersion1()
     {
         Assert.Equal((2, 1), (SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion, SynthesisProfiles.SuperColliderNome6.StructureLibraryReusedVersion));
         Assert.Equal((1, (int?)null), (SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion, SynthesisProfiles.SuperColliderFm7.StructureLibraryReusedVersion));

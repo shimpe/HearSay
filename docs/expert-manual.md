@@ -121,26 +121,26 @@ and to the operators it modulates, is the filtered signal: a low-pass on a saw m
 filter on a carrier shapes the heard sound. All filters are TPT state-variable filters in double precision, rendered
 sample-exactly like the UGen.
 
-| Type | Frequency | Parameters the search tunes |
+| Type | Frequency | Parameters the search tunes (and fine-tuning moves) |
 | --- | --- | --- |
 | low-pass, high-pass (2 or 4 poles) | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
 | band-pass, notch | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
 | peak | `FixedHz` 80..8000 Hz | `Q` 0.5..20, `PeakGainDb` -24..24 |
-| formant | F1 = `FixedHz` 80..8000 Hz, F2 = F1 x `FormantRatio` 1..8, F3 = F1 x `Formant3Ratio` 1..16 | `Q` 0.5..50 (F1, and every formant without a Q of its own), F2: `FormantLevel` 0..1 and its own Q; F3, once it is on: `Formant3Level` 0..1 and its own Q |
+| formant | F1 = `FixedHz` 80..8000 Hz, F2 = F1 x `FormantRatio` 1..8 by search (up to 32 by hand or if the patch already has more), F3 = F1 x `Formant3Ratio` 1..16 by search (32 by hand) | `Q` 0.5..50 (F1, and every formant without a Q of its own), F2: `FormantLevel` 0..1 and its own Q; F3, once it is on: `Formant3Level` 0..1 and its own Q |
 
 The formant filter has up to five formants, each a band-pass peak of unity gain: F1 in hertz (`FixedHz`) with the
-filter's `Q`, and F2..F5 at a ratio to F1 (1..32, so that moving F1 moves the whole vowel), each with a level
+filter's `Q`, and F2..F5 at a ratio to F1 (1..32 by hand; the search keeps F2 within 8 and F3 within 16, so that moving F1 moves the whole vowel), each with a level
 relative to F1 (0..1; F3, F4 and F5 at 0 are off) and its own Q (0.5..50; 0, the default, plays at the filter's `Q`).
 The search uses F1–F3: it gives F2 its own Q and F3 its ratio, level and own Q (both own Qs relative to `Q`, so that
 moving `Q` alone moves a formant without a Q of its own with it), and never sets F4 or F5. Those come from the vowel
 presets of the Studio editor (section 9, *Editing a sound*) or from typing them. A formant filter with only F1 and F2
 at one Q exports the filter rows of before; with an own Q on F2 or F3..F5 on, its rows carry the extra formants and
-need the FMX6 plugin with five formants.
+need the FMX6 plugin with five formants (the header comment of the export says so).
 
 An optional envelope moves the frequency, `frequency x 2^(EnvelopeOctaves x env)` with `EnvelopeOctaves` -4..4 and
 levels 0..1; it uses the operator's key scaling of time. Key-tracked frequencies follow the note, not the pitch
 envelope or the vibrato; peak and formant frequencies stay fixed in hertz, as formants and body resonances do. The
-type and the number of poles are structural: the search changes them only by mutation.
+type and the number of poles are structural: the search changes them only by mutation. Fine-tuning, the last stage of a search, moves the filter values too: cutoff, frequencies, Q, the formant ratios, levels and Qs, the peak gain and the sweep depth (`EnvelopeOctaves`).
 
 Where filters come from:
 
