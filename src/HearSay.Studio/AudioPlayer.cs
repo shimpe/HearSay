@@ -41,8 +41,14 @@ public sealed unsafe class AudioPlayer : IDisposable
     private uint _buffer;
 
     /// <summary>Opens the default audio device.</summary>
-    public AudioPlayer()
+    /// <param name="openDevice">False to open no device, as when there is none: nothing plays (for tests).</param>
+    public AudioPlayer(bool openDevice = true)
     {
+        if (!openDevice)
+        {
+            return;
+        }
+
         UseShippedSettings();
         try
         {

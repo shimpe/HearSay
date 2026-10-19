@@ -17,7 +17,7 @@ public sealed class LibraryViewModelFavouritesTests : IDisposable
     public LibraryViewModelFavouritesTests()
     {
         Directory.CreateDirectory(_directory);
-        _live = new LivePlayer(Path.Combine(_directory, "studio-settings.json"));
+        _live = new LivePlayer(Path.Combine(_directory, "studio-settings.json"), openAudioDevice: false);
     }
 
     public void Dispose()

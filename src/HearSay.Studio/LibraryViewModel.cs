@@ -111,6 +111,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private string _favouriteNickname = string.Empty;
     private string _scd = string.Empty;
     private bool _codePending;
+    private bool _searchRuns;
 
     /// <summary>Creates the view model.</summary>
     /// <param name="live">The live notes, shared with the Search tab.</param>
@@ -223,6 +224,20 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>True once a sound was clicked, or one was started from scratch.</summary>
     public bool HasSelection => _selection is not null;
 
+    /// <summary>
+    /// Show in Search is offered: a sound is selected and no search runs, whose result would replace it in the Search
+    /// tab without asking.
+    /// </summary>
+    public bool CanShowInSearch => _selection is not null && !_searchRuns;
+
+    /// <summary>Says whether a search runs in the Search tab, for <see cref="CanShowInSearch"/>.</summary>
+    /// <param name="runs">True while it runs.</param>
+    internal void SetSearchRunning(bool runs)
+    {
+        _searchRuns = runs;
+        OnPropertyChanged(nameof(CanShowInSearch));
+    }
+
     /// <summary>True while nothing is selected: the empty block diagram then offers to start a new sound from scratch.</summary>
     public bool CanStartFromScratch => _selection is null;
 
@@ -246,10 +261,13 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// True while the selected sound was made from scratch, has an edit, and the version shown is not a favourite: the new
-    /// sound would be lost if another one replaced it, since the Start from scratch button only shows in an empty tab.
+    /// True while the selected sound was made from scratch and has an edit that is not a favourite, whichever side of the
+    /// Original ⇄ Edited switch is shown: the edit would be lost if another sound replaced it, since the Start from
+    /// scratch button only shows in an empty tab.
     /// </summary>
-    public bool ShowsUnsavedScratchEdit => _selection is { Origin: ScratchSound.Origin } && Edits.IsEdited && !IsShownFavourite;
+    public bool ShowsUnsavedScratchEdit =>
+        _selection is { Origin: ScratchSound.Origin } selection && Edits.IsEdited && Edits.Editor is { } editor
+        && FindFavourite(editor.Current, selection.Profile) is null;
 
     /// <summary>
     /// Asks the user whether the selected sound may be replaced; set by the window, which shows the question. Its task
@@ -259,10 +277,28 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Whether an action may replace the selected sound: true at once when nothing needs asking, else the answer of
-    /// <see cref="AskToReplace"/> while <see cref="ShowsUnsavedScratchEdit"/>. Every action that replaces the selection
-    /// asks this before it changes anything.
+    /// <see cref="AskToReplace"/> while <see cref="ShowsUnsavedScratchEdit"/>. A question that fails counts as Cancel, and
+    /// the status line says why. Every action that replaces the selection asks this before it changes anything, and again
+    /// before the replacement when it waited and another sound was selected meanwhile.
     /// </summary>
-    public async Task<bool> ConfirmReplaceAsync() => !ShowsUnsavedScratchEdit || AskToReplace is not { } ask || await ask();
+    public async Task<bool> ConfirmReplaceAsync()
+    {
+        if (!ShowsUnsavedScratchEdit || AskToReplace is not { } ask)
+        {
+            return true;
+        }
+
+        try
+        {
+            return await ask();
+        }
+        catch (Exception e)
+        {
+            // Nothing is replaced without an answer; the exception would otherwise go unobserved in a click handler.
+            _status("Your new sound was kept: the question could not be asked (" + e.Message + ").");
+            return false;
+        }
+    }
 
     /// <summary>What the keyboard last played.</summary>
     public string PlayingText
@@ -496,7 +532,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 if (Favourites.FirstOrDefault(f => f.Favourite.Directory == added.Directory) is { } item)
                 {
                     SelectedFavourite = item;
-                    await PlaceFavouriteWithoutAskingAsync(item);
+                    await PlaceFavouriteWithoutAskingAsync(item, _selection);
                 }
             }
         }
@@ -551,7 +587,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 if (Favourites.FirstOrDefault(f => f.Favourite.Directory == updated.Directory) is { } fresh)
                 {
                     SelectedFavourite = fresh;
-                    await PlaceFavouriteWithoutAskingAsync(fresh);
+                    await PlaceFavouriteWithoutAskingAsync(fresh, _selection);
                 }
             }
         }
@@ -653,26 +689,34 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Places a favourite among its neighbours in the library of its profile, selected and played, once
-    /// <see cref="ConfirmReplaceAsync"/> lets it replace the selected sound.
+    /// <see cref="ConfirmReplaceAsync"/> lets it replace the selected sound. When it is not selected in the end (Cancel),
+    /// the side list goes back to the favourite of the sound shown, if it is one: a tap selected the item in the list
+    /// before it asked.
     /// </summary>
     /// <param name="item">Favourite.</param>
     public async Task PlaceFavouriteAsync(FavouriteItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        if (await ConfirmReplaceAsync())
+        Selection? seen = _selection;
+        if (!await ConfirmReplaceAsync() || !await PlaceFavouriteWithoutAskingAsync(item, seen))
         {
-            await PlaceFavouriteWithoutAskingAsync(item);
+            SelectedFavourite = _selection is { } s && Edits.DisplayedPatch is { } patch ? FindFavourite(patch, s.Profile) : null;
         }
     }
 
-    /// <summary>Places a favourite without asking: once asked, or when the sound shown was just kept as that favourite.</summary>
-    private async Task PlaceFavouriteWithoutAskingAsync(FavouriteItem item)
+    /// <summary>
+    /// Places a favourite without asking at once: once asked, or when the sound shown was just kept as that favourite.
+    /// </summary>
+    /// <param name="item">Favourite.</param>
+    /// <param name="seen">The sound selected when it was asked (or needed no asking).</param>
+    /// <returns>True when it is placed and selected.</returns>
+    private async Task<bool> PlaceFavouriteWithoutAskingAsync(FavouriteItem item, Selection? seen)
     {
         ExportedSound sound = item.Favourite.Sound;
         _status($"Rendering {item.Name} to find its neighbours…");
         byte[] print = await Task.Run(() => ExportedSounds.Fingerprint(sound));
         string source = item.Favourite.Origin.Length > 0 ? "favourite: " + item.Favourite.Origin : "favourite";
-        await ShowAmongNeighboursAsync(new ImportedItem(sound with { Name = item.Name }, print) { SourceText = source, Gain = item.Favourite.Gain }, sound.Profile);
+        return await ShowAmongNeighboursAsync(new ImportedItem(sound with { Name = item.Name }, print) { SourceText = source, Gain = item.Favourite.Gain }, sound.Profile, seen);
     }
 
     private void ReloadFavourites()
@@ -750,26 +794,33 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     public async Task PlaceAsync(ImportedItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        Selection? seen = _selection;
         if (_atlas is { Root.Size: > 0 } && !await ConfirmReplaceAsync())
         {
             return;
         }
 
-        await PlaceWithoutAskingAsync(item);
+        await PlaceWithoutAskingAsync(item, seen);
     }
 
-    private async Task PlaceWithoutAskingAsync(ImportedItem item)
+    /// <summary>
+    /// Places a sound and selects it. It was asked about, or needed no asking, when it began; the sound selected then is
+    /// <paramref name="seen"/>. Placing waits (a library loaded, a family opened): when another sound was selected
+    /// meanwhile, such as a new one started from scratch and edited, it is asked about just before it is replaced.
+    /// </summary>
+    /// <returns>True when it is placed and selected.</returns>
+    private async Task<bool> PlaceWithoutAskingAsync(ImportedItem item, Selection? seen)
     {
         if (_atlas is not { } atlas)
         {
             _status(_fullAtlas is null ? "The library is not ready yet; place the sound when it is." : "The filtered sounds are being grouped; place the sound when they are shown.");
-            return;
+            return false;
         }
 
         if (atlas.Root.Size == 0)
         {
             _status("No sounds match the filter.");
-            return;
+            return false;
         }
 
         int version = _loadVersion;
@@ -777,14 +828,29 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         if (version != _loadVersion || !ReferenceEquals(atlas, _atlas))
         {
             // Another library was opened meanwhile; this placement belongs to the old one.
-            return;
+            return false;
         }
 
         List<Crumb> crumbs = [new Crumb("all", atlas.Root), .. path.Skip(1).Select(f => new Crumb(CrumbLabel(atlas, f, f.Path[^1]), f))];
         _placed = (item, path);
         if (!await ShowFamilyAsync(path[^1], crumbs))
         {
-            return;
+            return false;
+        }
+
+        if (!ReferenceEquals(_selection, seen))
+        {
+            if (!await ConfirmReplaceAsync())
+            {
+                _status($"{item.Name} is placed as the star; your new sound stays selected.");
+                return false;
+            }
+
+            if (_placed is not { } placed || !ReferenceEquals(placed.Item, item) || !ReferenceEquals(placed.Path[^1], _family))
+            {
+                // Something else was placed or opened while it asked.
+                return false;
+            }
         }
 
         Select(_children.Count);
@@ -792,6 +858,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             ? " Placed among the filtered sounds; it does not match the filter itself."
             : string.Empty;
         _status($"{item.Name} placed among {_children.Count} {(path[^1].Size <= LibraryAtlas.Branching ? "sounds" : "families")} like it; one level up shows the neighbouring families.{outside}");
+        return true;
     }
 
     /// <summary>Loads the library the first time the tab is shown.</summary>
@@ -821,6 +888,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(profile);
+        Selection? seen = _selection;
         if (!await ConfirmReplaceAsync())
         {
             return;
@@ -838,11 +906,12 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             ShowImports = true;
         }
 
-        await ShowAmongNeighboursAsync(item, profile);
+        await ShowAmongNeighboursAsync(item, profile, seen);
     }
 
-    /// <summary>Shows the library of a profile and places a sound in it once it is shown.</summary>
-    private async Task ShowAmongNeighboursAsync(ImportedItem item, SynthesisProfile profile)
+    /// <summary>Shows the library of a profile and places a sound in it once it is shown (see <see cref="PlaceWithoutAskingAsync"/>).</summary>
+    /// <returns>True when it is placed and selected.</returns>
+    private async Task<bool> ShowAmongNeighboursAsync(ImportedItem item, SynthesisProfile profile, Selection? seen)
     {
         // Its own profile's library holds the neighbours; a profile without one keeps the library shown.
         if (Profiles.FirstOrDefault(p => p.Name == profile.Name) is { } own)
@@ -857,7 +926,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             await _loading;
         }
 
-        await PlaceWithoutAskingAsync(item);
+        return await PlaceWithoutAskingAsync(item, seen);
     }
 
     /// <summary>
@@ -1280,6 +1349,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShownPatch));
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
         OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(CanShowInSearch));
         if (first)
         {
             OnPropertyChanged(nameof(CanStartFromScratch));
@@ -1296,7 +1366,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>
     /// Plays the library's reference note once, as the library rendered it, or the sound's edit when it is shown: held for
     /// its note duration from when the sound's gain is known, then released, through the live voices. Every click is a
-    /// note of its own.
+    /// note of its own. It stops waiting when the live player is closed (<see cref="LivePlayer.Closing"/>).
     /// </summary>
     private async Task PlayReferenceAsync(Selection selection)
     {
@@ -1305,32 +1375,40 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
             return;
         }
 
-        if (Edits.ShowsEdit)
+        CancellationToken closing = _live.Closing;
+        try
         {
-            // The edit plays at the original's gain, once it is known, unless its loudness was matched.
-            await Edits.WhenGainKnownAsync();
-            if (!ReferenceEquals(selection, _selection))
+            if (Edits.ShowsEdit)
             {
+                // The edit plays at the original's gain, once it is known, unless its loudness was matched.
+                await Edits.WhenGainKnownAsync().WaitAsync(closing);
+                if (!ReferenceEquals(selection, _selection))
+                {
+                    return;
+                }
+            }
+
+            RenderRequest reference = StructureLibrary.ReferenceRequest;
+            Sound sound = CurrentSound ?? new Sound(selection.Patch, selection.Profile, reference) { FixedGain = selection.Gain };
+            int note = reference.MidiNote ?? (int)Math.Round(reference.EffectiveMidiNote);
+            var click = new object();
+            if (!_live.Play(sound, note, reference.Velocity, click))
+            {
+                _status(LivePlayer.CannotPlay(sound));
                 return;
             }
-        }
 
-        RenderRequest reference = StructureLibrary.ReferenceRequest;
-        Sound sound = CurrentSound ?? new Sound(selection.Patch, selection.Profile, reference) { FixedGain = selection.Gain };
-        int note = reference.MidiNote ?? (int)Math.Round(reference.EffectiveMidiNote);
-        var click = new object();
-        if (!_live.Play(sound, note, reference.Velocity, click))
+            PlayingText = "A3 (220.0 Hz), the library's reference note";
+
+            // A note waits for its gain before it sounds: the hold starts then. A failed gain ends the note unheard.
+            await Task.WhenAny(_live.Mixer.PrepareAsync(sound)).WaitAsync(closing);
+            await Task.Delay(reference.NoteDuration, closing);
+            _live.NoteOff(note, click);
+        }
+        catch (OperationCanceledException)
         {
-            _status(LivePlayer.CannotPlay(sound));
-            return;
+            // The player is closed, and its notes with it.
         }
-
-        PlayingText = "A3 (220.0 Hz), the library's reference note";
-
-        // A note waits for its gain before it sounds: the hold starts then. A failed gain ends the note unheard.
-        await Task.WhenAny(_live.Mixer.PrepareAsync(sound));
-        await Task.Delay(reference.NoteDuration);
-        _live.NoteOff(note, click);
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

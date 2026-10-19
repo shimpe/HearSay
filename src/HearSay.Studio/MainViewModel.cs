@@ -163,9 +163,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// Opens the library of a profile for the Library tab, off the interface thread; the one on disk (built the first
     /// time) when null.
     /// </param>
-    public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null, Func<Sound, Task<float>>? gainOf = null, Func<SynthesisProfile, HearSay.OperatorMatrix.Priors.LibraryAtlas>? openLibrary = null)
+    /// <param name="openAudioDevice">False to open no audio device: nothing is heard, as without one (for tests).</param>
+    public MainViewModel(FavouriteSounds? favourites = null, string? studioSettingsPath = null, Func<Sound, Task<float>>? gainOf = null, Func<SynthesisProfile, HearSay.OperatorMatrix.Priors.LibraryAtlas>? openLibrary = null, bool openAudioDevice = true)
     {
-        Live = new LivePlayer(studioSettingsPath) { CurrentSound = VisibleSound };
+        Live = new LivePlayer(studioSettingsPath, openAudioDevice) { CurrentSound = VisibleSound };
 
         // Both tabs share the edits of a sound: the same patch shown in both has one edited copy and one history.
         var sessions = new EditSessions();
@@ -266,28 +267,37 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Shows a sound of the Library tab here (its Show in Search), once <see cref="ConfirmReplaceAsync"/> lets it replace
     /// the sound shown. When that asks, the Search tab is shown first, so that the question is about the sound in view and
-    /// its ☆ is at hand after Cancel.
+    /// its ☆ is at hand after Cancel. Nothing happens while a search runs: its result would replace the sound without
+    /// asking (the Library tab does not offer it then).
     /// </summary>
     /// <param name="patch">The sound.</param>
     public async Task ShowInSearchAsync(LibraryPatch patch)
     {
         ArgumentNullException.ThrowIfNull(patch);
+        if (IsRunning)
+        {
+            return;
+        }
+
         if (ShowsUnsavedScratchEdit)
         {
             SelectedTab = 0;
         }
 
-        if (await ConfirmReplaceAsync())
+        if (await ConfirmReplaceAsync() && !IsRunning)
         {
             ShowLibraryPatch(patch);
         }
     }
 
     /// <summary>
-    /// True while the sound shown here was made from scratch, has an edit, and the version shown is not a favourite: the
-    /// new sound would be lost if another one replaced it, since the Start from scratch button only shows in an empty tab.
+    /// True while the sound shown here was made from scratch and has an edit that is not a favourite, whichever side of
+    /// the Original ⇄ Edited switch is shown: the edit would be lost if another sound replaced it, since the Start from
+    /// scratch button only shows in an empty tab.
     /// </summary>
-    public bool ShowsUnsavedScratchEdit => _libraryPatch is { } patch && IsFromScratch(patch) && Edits.IsEdited && !IsShownFavourite;
+    public bool ShowsUnsavedScratchEdit =>
+        _libraryPatch is { } patch && IsFromScratch(patch) && Edits.IsEdited && Edits.Editor is { } editor
+        && Library.FindFavourite(editor.Current, patch.Profile) is null;
 
     /// <summary>
     /// Asks the user whether the sound shown may be replaced; set by the window, which shows the question. Its task gives
@@ -297,10 +307,27 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Whether an action may replace the sound shown here: true at once when nothing needs asking, else the answer of
-    /// <see cref="AskToReplace"/> while <see cref="ShowsUnsavedScratchEdit"/>. Every action that replaces the shown sound
-    /// asks this before it changes anything.
+    /// <see cref="AskToReplace"/> while <see cref="ShowsUnsavedScratchEdit"/>. A question that fails counts as Cancel, and
+    /// the status line says why. Every action that replaces the shown sound asks this before it changes anything.
     /// </summary>
-    public async Task<bool> ConfirmReplaceAsync() => !ShowsUnsavedScratchEdit || AskToReplace is not { } ask || await ask();
+    public async Task<bool> ConfirmReplaceAsync()
+    {
+        if (!ShowsUnsavedScratchEdit || AskToReplace is not { } ask)
+        {
+            return true;
+        }
+
+        try
+        {
+            return await ask();
+        }
+        catch (Exception e)
+        {
+            // Nothing is replaced without an answer; the exception would otherwise go unobserved in a click handler.
+            Status = "Your new sound was kept: the question could not be asked (" + e.Message + ").";
+            return false;
+        }
+    }
 
     /// <summary>
     /// True while the Search tab shows nothing (no result, no library sound) and no search runs: the empty block diagram
@@ -618,6 +645,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             if (Set(ref _isRunning, value))
             {
+                Library.SetSearchRunning(value);
                 RaiseCanExecute();
                 OnPropertyChanged(nameof(ShowsProgress));
             }
@@ -727,21 +755,30 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Loads and analyses a WAV file and adds it to the targets. Another target set empties the tab, so an unsaved scratch
-    /// edit is asked about first (<see cref="ConfirmReplaceAsync"/>).
+    /// edit is asked about once the file is read, just before it is added (<see cref="ConfirmReplaceAsync"/>); a file
+    /// that cannot be read asks nothing.
     /// </summary>
     /// <param name="path">Path of the file.</param>
     /// <returns>False when the user chose to keep the sound shown, and nothing was added.</returns>
     public async Task<bool> AddAsync(string path)
     {
-        if (!await ConfirmReplaceAsync())
-        {
-            return false;
-        }
-
-        Status = "Analysing " + Path.GetFileName(path) + "…";
+        string before = Status;
+        string analysing = "Analysing " + Path.GetFileName(path) + "…";
+        Status = analysing;
         try
         {
             TargetAnalysis analysis = await Task.Run(() => new TargetAnalyzer().Analyze(AudioTarget.FromWaveFile(path)));
+            if (!await ConfirmReplaceAsync())
+            {
+                // As it was, unless the status line says why the question failed.
+                if (Status == analysing)
+                {
+                    Status = before;
+                }
+
+                return false;
+            }
+
             var item = new TargetItem(path, analysis);
             Targets.Add(item);
             SelectedTarget = item;

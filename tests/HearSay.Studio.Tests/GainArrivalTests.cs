@@ -21,7 +21,7 @@ public sealed class GainArrivalTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     private MainViewModel Main() =>
-        new(new FavouriteSounds(Path.Combine(_directory, "favourites")), Path.Combine(_directory, "studio-settings.json"), _ => _pending.Task);
+        new(new FavouriteSounds(Path.Combine(_directory, "favourites")), Path.Combine(_directory, "studio-settings.json"), _ => _pending.Task, openAudioDevice: false);
 
     /// <summary>Completes the gain, then runs the dispatcher's jobs until the condition holds, or for 10 s at most.</summary>
     private void CompleteAndPump(Func<bool> done)

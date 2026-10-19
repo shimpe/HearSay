@@ -52,16 +52,18 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
     private int _soundingPosted;
     private string? _shownWarning;
     private bool _disposed;
+    private readonly CancellationTokenSource _closing = new();
 
     /// <summary>
     /// Opens the default audio device and the live output on it, starts the warm-up of the voice code, and opens the
     /// remembered MIDI device when it is connected (no device, without an error, when it is not).
     /// </summary>
     /// <param name="settingsPath">Where the Studio settings are kept; the default location when null.</param>
-    public LivePlayer(string? settingsPath = null)
+    /// <param name="openAudioDevice">False to open no audio device: nothing is heard, as without one (for tests).</param>
+    public LivePlayer(string? settingsPath = null, bool openAudioDevice = true)
     {
         _settingsPath = settingsPath;
-        Device = new AudioPlayer();
+        Device = new AudioPlayer(openAudioDevice);
         Mixer = new VoiceMixer(LiveAudioOutput.SampleRate);
         Output = new LiveAudioOutput(Device, Mixer);
         Mixer.SoundingNotesChanged += OnSoundingNotesChanged;
@@ -103,7 +105,10 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
     public MidiInput Midi { get; }
 
     /// <summary>True when live notes can be heard: an audio device is open and the streaming source could be made.</summary>
-    public bool CanPlay => Output.IsAvailable && !Output.IsDeviceLost;
+    public bool CanPlay => !_disposed && Output.IsAvailable && !Output.IsDeviceLost;
+
+    /// <summary>Cancelled when the player is disposed: a note waiting to be released stops waiting.</summary>
+    public CancellationToken Closing => _closing.Token;
 
     /// <summary>
     /// The sound a new note plays: the sound of the visible tab, or null when it has none. Read on the interface
@@ -348,6 +353,7 @@ public sealed class LivePlayer : INotifyPropertyChanged, IDisposable
         }
 
         _disposed = true;
+        _closing.Cancel();
         Mixer.SoundingNotesChanged -= OnSoundingNotesChanged;
 
         // The output plays in the device's context: it goes first.

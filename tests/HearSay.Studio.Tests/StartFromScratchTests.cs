@@ -26,7 +26,7 @@ public sealed class StartFromScratchTests : IDisposable
     private static Task<float> FakeGain(Sound sound) => Task.FromResult(sound.FixedGain ?? Gain);
 
     private MainViewModel Main() =>
-        new(new FavouriteSounds(Path.Combine(_directory, "favourites")), Path.Combine(_directory, "studio-settings.json"), FakeGain);
+        new(new FavouriteSounds(Path.Combine(_directory, "favourites")), Path.Combine(_directory, "studio-settings.json"), FakeGain, openAudioDevice: false);
 
     private static string Hash(OperatorMatrixPatch? patch) => Assert.IsType<OperatorMatrixPatch>(patch).ComputeHash();
 

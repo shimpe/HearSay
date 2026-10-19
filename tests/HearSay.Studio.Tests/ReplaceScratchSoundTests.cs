@@ -36,9 +36,9 @@ public sealed class ReplaceScratchSoundTests : IDisposable
 
     private FavouriteSounds Favourites(string folder) => new(Path.Combine(_directory, folder));
 
-    private MainViewModel Main(string favourites = "favourites")
+    private MainViewModel Main(string favourites = "favourites", Func<SynthesisProfile, LibraryAtlas>? openLibrary = null)
     {
-        var main = new MainViewModel(Favourites(favourites), Path.Combine(_directory, "studio-settings.json"), FakeGain, static _ => SmallLibrary.Value);
+        var main = new MainViewModel(Favourites(favourites), Path.Combine(_directory, "studio-settings.json"), FakeGain, openLibrary ?? (static _ => SmallLibrary.Value), openAudioDevice: false);
         main.AskToReplace = Ask;
         main.Library.AskToReplace = Ask;
         main.Library.SelectedProfile = SynthesisProfiles.SuperColliderFm7;
@@ -242,5 +242,232 @@ public sealed class ReplaceScratchSoundTests : IDisposable
         Assert.Equal(Hash(library.ShownPatch), Hash(main.ShownPatch));
 
         Assert.Equal(0, _asked);
+    }
+
+    [Fact]
+    public async Task ReplacingAnUnsavedScratchEdit_Replace_PlacesTheFavouriteOrTheFoundSound()
+    {
+        Favourite pad = Favourites("favourites").Add("pad", ReferencePatches.Find("electric-piano")!.Patch, SynthesisProfiles.SuperColliderFm7, "search best");
+        _answer = true;
+        using (MainViewModel main = Main())
+        {
+            LibraryViewModel library = main.Library;
+            await library.EnsureLoadedAsync();
+            library.StartFromScratch();
+            Edit(library.Edits);
+
+            await library.PlaceFavouriteAsync(library.Favourites.Single(f => f.Favourite.Directory == pad.Directory));
+
+            Assert.Equal(1, _asked);
+            Assert.Equal(pad.Sound.Patch.ComputeHash(), Hash(library.ShownPatch));
+            Assert.StartsWith("pad · favourite", library.SelectionText, StringComparison.Ordinal);
+            Assert.False(library.ShowsUnsavedScratchEdit);
+        }
+
+        using (MainViewModel main = Main("favourites-2"))
+        {
+            LibraryViewModel library = main.Library;
+            await library.EnsureLoadedAsync();
+            library.StartFromScratch();
+            Edit(library.Edits);
+            OperatorMatrixPatch bell = ReferencePatches.Find("bell")!.Patch;
+
+            await library.FindAsync("search best", "a search", bell, SynthesisProfiles.SuperColliderFm7);
+
+            Assert.Equal(2, _asked);
+            Assert.Equal("search best", Assert.Single(library.Imports).Name);
+            Assert.Equal(Hash(bell), Hash(library.ShownPatch));
+            Assert.StartsWith("search best · from the search", library.SelectionText, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task AScratchEditStartedWhileAFavouriteIsPlaced_IsAskedAboutBeforeItIsReplaced()
+    {
+        Favourite pad = Favourites("favourites").Add("pad", ReferencePatches.Find("electric-piano")!.Patch, SynthesisProfiles.SuperColliderFm7, "search best");
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using MainViewModel main = Main(openLibrary: _ =>
+        {
+            reached.TrySetResult();
+            gate.Task.Wait();
+            return SmallLibrary.Value;
+        });
+        LibraryViewModel library = main.Library;
+
+        // The tab is empty: placing the favourite asks nothing, then waits for the library.
+        Task placing = library.PlaceFavouriteAsync(library.Favourites.Single(f => f.Favourite.Directory == pad.Directory));
+        await reached.Task.WaitAsync(TimeSpan.FromSeconds(60));
+        Assert.Equal(0, _asked);
+
+        // Meanwhile a new sound is started and edited.
+        library.StartFromScratch();
+        Edit(library.Edits);
+        string edit = Hash(library.ShownPatch);
+        gate.SetResult();
+        await placing.WaitAsync(TimeSpan.FromSeconds(60));
+
+        // Asked once, just before the placed favourite would replace it: Cancel keeps it.
+        Assert.Equal(1, _asked);
+        Assert.Equal(edit, Hash(library.ShownPatch));
+        Assert.True(library.ShowsUnsavedScratchEdit);
+    }
+
+    [Fact]
+    public async Task AddingATarget_AsksAfterTheAnalysis_AndNotForAFileThatFailsToLoad()
+    {
+        using MainViewModel main = Main();
+        main.StartFromScratch();
+        Edit(main.Edits);
+        string edit = Hash(main.ShownPatch);
+        string broken = Path.Combine(_directory, "broken.wav");
+        File.WriteAllText(broken, "not a wave file");
+
+        Assert.True(await main.AddAsync(broken));
+        Assert.Equal(0, _asked);
+        Assert.StartsWith("Could not load the file", main.Status, StringComparison.Ordinal);
+        Assert.Equal(edit, Hash(main.ShownPatch));
+
+        string before = main.Status;
+        Assert.False(await main.AddAsync(WriteTarget("pluck.wav")));
+        Assert.Equal(1, _asked);
+        Assert.Empty(main.Targets);
+        Assert.Equal(before, main.Status);
+        Assert.Equal(edit, Hash(main.ShownPatch));
+    }
+
+    [Fact]
+    public async Task CancellingAFavouriteTap_PutsTheSideListBack()
+    {
+        Favourite pad = Favourites("favourites").Add("pad", ReferencePatches.Find("electric-piano")!.Patch, SynthesisProfiles.SuperColliderFm7, "search best");
+        using MainViewModel main = Main();
+        LibraryViewModel library = main.Library;
+        await library.EnsureLoadedAsync();
+        library.StartFromScratch();
+        Edit(library.Edits);
+        Assert.Null(library.SelectedFavourite);
+
+        // A tap selects the item in the list (its SelectedItem is bound to SelectedFavourite), then places it.
+        FavouriteItem item = library.Favourites.Single(f => f.Favourite.Directory == pad.Directory);
+        library.SelectedFavourite = item;
+        await library.PlaceFavouriteAsync(item);
+
+        Assert.Equal(1, _asked);
+        Assert.Null(library.SelectedFavourite);
+    }
+
+    [Fact]
+    public async Task ShowInSearch_IsOffWhileASearchRuns()
+    {
+        using MainViewModel main = Main();
+        LibraryViewModel library = main.Library;
+        Assert.True(await main.AddAsync(WriteTarget("pluck.wav")));
+        main.UseStructureLibrary = false;
+        main.Budget = 200;
+        library.StartFromScratch();
+        Edit(library.Edits);
+        Assert.True(library.CanShowInSearch);
+
+        Task run = main.RunAsync();
+        Assert.True(main.IsRunning);
+        Assert.False(library.CanShowInSearch);
+        await library.ShowInSearchAsync();
+        Assert.NotEqual(Hash(library.ShownPatch), main.ShownPatch?.ComputeHash());
+        main.Cancel();
+        await run;
+
+        Assert.True(library.CanShowInSearch);
+        Assert.Equal(0, _asked);
+    }
+
+    [Fact]
+    public async Task AnUnsavedEdit_IsJudgedByTheEditItself()
+    {
+        using MainViewModel main = Main();
+
+        // Only the plain sine is kept: its edit, with the Original side shown, is still asked about.
+        main.StartFromScratch();
+        main.PrepareFavouriteName();
+        await main.SaveFavouriteAsync();
+        Edit(main.Edits);
+        main.Edits.ShowingOriginal = true;
+        Assert.True(main.IsShownFavourite);
+        Assert.True(main.ShowsUnsavedScratchEdit);
+        main.SelectedSynthesisTarget = Target(main, "FMX6");
+        Assert.Equal(1, _asked);
+        Assert.Same(Target(main, "FM7"), main.SelectedSynthesisTarget);
+
+        // The edit is kept: with the Original side shown, nothing is asked.
+        _answer = true;
+        main.SelectedSynthesisTarget = Target(main, "FMX6");
+        Assert.Equal(2, _asked);
+        main.StartFromScratch();
+        Edit(main.Edits);
+        main.PrepareFavouriteName();
+        await main.SaveFavouriteAsync();
+        main.Edits.ShowingOriginal = true;
+        Assert.False(main.IsShownFavourite);
+        Assert.False(main.ShowsUnsavedScratchEdit);
+        main.SelectedSynthesisTarget = Target(main, "Nome6");
+        Assert.Equal(2, _asked);
+        Assert.Null(main.ShownPatch);
+
+        // The same in the Library tab.
+        LibraryViewModel library = main.Library;
+        await library.EnsureLoadedAsync();
+        library.StartFromScratch();
+        Edit(library.Edits);
+        Edit(library.Edits);
+        Assert.NotNull(await library.SaveFavouriteAsync("kept", library.ShownPatch!, SynthesisProfiles.SuperColliderFm7, ScratchSound.Origin));
+        library.Edits.ShowingOriginal = true;
+        Assert.False(library.ShowsUnsavedScratchEdit);
+        await library.SelectAsync(0);
+        Assert.Equal(2, _asked);
+        Assert.Equal(0, library.SelectedIndex);
+    }
+
+    [Fact]
+    public async Task AQuestionThatFails_CountsAsCancel()
+    {
+        using MainViewModel main = Main();
+        main.AskToReplace = static () => throw new InvalidOperationException("no window to ask in");
+        main.StartFromScratch();
+        Edit(main.Edits);
+        string edit = Hash(main.ShownPatch);
+        var raised = new List<string?>();
+        main.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        main.SelectedSynthesisTarget = Target(main, "FMX6");
+
+        Assert.Same(Target(main, "FM7"), main.SelectedSynthesisTarget);
+        Assert.Contains(nameof(MainViewModel.SelectedSynthesisTarget), raised);
+        Assert.Equal(edit, Hash(main.ShownPatch));
+        Assert.Contains("no window to ask in", main.Status, StringComparison.Ordinal);
+
+        // A question whose task fails, in the Library tab.
+        LibraryViewModel library = main.Library;
+        library.AskToReplace = static () => Task.FromException<bool>(new InvalidOperationException("the dialog failed"));
+        await library.EnsureLoadedAsync();
+        library.StartFromScratch();
+        string libraryEdit = Hash(library.ShownPatch);
+        Assert.True(library.ShowsUnsavedScratchEdit);
+        await library.SelectAsync(0);
+        Assert.Equal(-1, library.SelectedIndex);
+        Assert.Equal(libraryEdit, Hash(library.ShownPatch));
+        Assert.Contains("the dialog failed", main.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LivePlayer_WithoutAnAudioDevice_PlaysNothing_AndClosesItsNotesOnDispose()
+    {
+        var live = new LivePlayer(Path.Combine(_directory, "studio-settings.json"), openAudioDevice: false);
+        Assert.False(live.CanPlay);
+        Assert.False(live.Closing.IsCancellationRequested);
+        var sound = new Sound(ScratchSound.Patch, SynthesisProfiles.SuperColliderFm7, StructureLibrary.ReferenceRequest);
+        Assert.False(live.Play(sound, 57, 0.8, new object()));
+
+        live.Dispose();
+
+        Assert.True(live.Closing.IsCancellationRequested);
     }
 }

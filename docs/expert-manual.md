@@ -361,9 +361,10 @@ profile, while the Studio runs, brings back the edits made to it before; the Ori
 sine. The button only shows in an empty tab, though, so an edited new sound that is not kept is asked about before
 anything replaces it: *Replace your new sound?* **Replace** (the default) goes on; **Cancel** leaves everything as it
 was, and ☆ then keeps it. In the Search tab that is Run search, Add WAV, another target in the Target selector (which
-then goes back on Cancel) and Show in Search from the Library tab (which shows the Search tab for the question); in the
-Library tab a click on a node, a favourite or an import, and Find in library. An unedited new sound, or one whose
-version shown is a favourite, is replaced without asking.
+then goes back on Cancel) and Show in Search from the Library tab (which shows the Search tab for the question, and is
+not offered while a search runs); in the Library tab a click on a node, a favourite or an import, and Find in library.
+A placement that waits for its library asks when the new sound was started meanwhile. An unedited new sound, or one
+whose edit is a favourite, is replaced without asking, whichever side of the Original ⇄ Edited switch is shown.
 
 **Editing a sound.** Whatever the patch card shows (a finalist, a library sound, a favourite, a placed import) can be
 edited in the block diagram, in both tabs. The original is never changed: editing works on a copy, and the next note
