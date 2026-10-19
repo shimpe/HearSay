@@ -6,7 +6,6 @@ using HearSay.Editing;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Playing;
-using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -60,9 +59,8 @@ public sealed record FavouriteItem(Favourite Favourite)
 /// <param name="Title">For example <c>FMX6 #50123456</c>, or an import's name.</param>
 /// <param name="Patch">Patch.</param>
 /// <param name="Profile">Profile it plays on.</param>
-/// <param name="Scd">Its SuperCollider code.</param>
-/// <param name="HeaderComments">Header lines of the code, for Save.</param>
-public sealed record LibraryPatch(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Scd, IReadOnlyList<string> HeaderComments)
+/// <param name="HeaderComments">Header lines of its code, the Search tab's code view and Save.</param>
+public sealed record LibraryPatch(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, IReadOnlyList<string> HeaderComments)
 {
     /// <summary>The gain to play it at, for an edit or a favourite that kept one; null to normalise it as usual.</summary>
     public float? Gain { get; init; }
@@ -544,7 +542,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         {
             if (FindFavourite(patch, profile) is { } existing)
             {
-                RenameFavourite(existing, nickname);
+                await RenameFavouriteAsync(existing, nickname);
                 return null;
             }
 
@@ -560,15 +558,18 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Gives a favourite another nickname.</summary>
+    /// <summary>
+    /// Gives a favourite another nickname; its code is written again, at the gain it plays at, which may render its
+    /// reference note, so this runs off the interface thread.
+    /// </summary>
     /// <param name="item">Favourite.</param>
     /// <param name="nickname">New nickname.</param>
-    public void RenameFavourite(FavouriteItem item, string nickname)
+    public async Task RenameFavouriteAsync(FavouriteItem item, string nickname)
     {
         ArgumentNullException.ThrowIfNull(item);
         try
         {
-            Favourite renamed = _favouriteStore.Rename(item.Favourite, nickname);
+            Favourite renamed = await Task.Run(() => _favouriteStore.Rename(item.Favourite, nickname));
             ReloadFavourites();
             SelectedFavourite = Favourites.FirstOrDefault(f => f.Favourite.Directory == renamed.Directory);
             _status($"Renamed to {renamed.Nickname}.");
@@ -862,13 +863,15 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <param name="directory">Destination folder.</param>
     public async Task SaveAsync(string directory)
     {
+        // The gain the shown version plays at, which its code carries; waited for while it is being computed.
+        float? gain = await Edits.DisplayedGainAsync();
         if (_selection is not { } selection || Edits.DisplayedPatch is not { } patch)
         {
             return;
         }
 
         IReadOnlyList<string> header = ShownHeader(selection);
-        IReadOnlyList<string> files = await Task.Run(() => LibrarySoundWriter.Write(patch, selection.Profile, directory, header));
+        IReadOnlyList<string> files = await Task.Run(() => LibrarySoundWriter.Write(patch, selection.Profile, directory, header, gain));
         _status($"{files.Count} files written to {directory}.");
     }
 
@@ -887,16 +890,20 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         string origin = Edits.FavouriteOrigin;
         IReadOnlyList<string> header = ShownHeader(selection);
         float? gain = await Edits.FavouriteGainAsync();
-        string scd = edited ? Export(patch, selection.Profile, header) : selection.Scd;
-        _showInSearch(new LibraryPatch(selection.Title + (edited ? " edited" : string.Empty), patch, selection.Profile, scd, header) { Gain = gain, Origin = origin });
+        _showInSearch(new LibraryPatch(selection.Title + (edited ? " edited" : string.Empty), patch, selection.Profile, header) { Gain = gain, Origin = origin });
     }
 
     /// <summary>The header of the shown version's code: an edit's says so.</summary>
     private IReadOnlyList<string> ShownHeader(Selection selection) =>
         Edits.ShowsEdit ? PatchEditorViewModel.WithEditedLine(selection.HeaderComments) : selection.HeaderComments;
 
-    private static string Export(OperatorMatrixPatch patch, SynthesisProfile profile, IReadOnlyList<string> headerComments) =>
-        SynthesisBackends.ExporterFor(profile)?.Export(patch, new PatchExportOptions { HeaderComments = headerComments }) ?? "This profile has no export backend.";
+    /// <summary>What Copy puts on the clipboard: <see cref="Scd"/> once the gain of the version shown is known.</summary>
+    public async Task<string> CodeToCopyAsync()
+    {
+        await Edits.WhenGainKnownAsync();
+        ShowCode();
+        return Scd;
+    }
 
     /// <summary>What follows an edit of the shown sound: the diagram and the keyboard at once, the code a moment later.</summary>
     private void OnEditsChanged(object? sender, PropertyChangedEventArgs e)
@@ -909,6 +916,10 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 break;
             case nameof(PatchEditorViewModel.DisplayedSound):
                 OnPropertyChanged(nameof(CurrentSound));
+                break;
+            case nameof(PatchEditorViewModel.DisplayedGain):
+                // The code carries the gain the shown version plays at, once it is known or matched.
+                ScheduleCode();
                 break;
             case nameof(PatchEditorViewModel.LastRefusal) when Edits.LastRefusal is { } refusal:
                 _status(refusal);
@@ -940,9 +951,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// <summary>The code of the version shown, the selection line and the star.</summary>
     private void ShowCode()
     {
-        _scd = _selection is not { } s
-            ? string.Empty
-            : Edits.ShowsEdit && Edits.DisplayedPatch is { } patch ? Export(patch, s.Profile, ShownHeader(s)) : s.Scd;
+        _scd = _selection is { } s ? Edits.DisplayedCode(s.HeaderComments) : string.Empty;
         OnPropertyChanged(nameof(Scd));
         OnPropertyChanged(nameof(SelectionText));
         OnPropertyChanged(nameof(IsShownFavourite));
@@ -1214,8 +1223,5 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     private void OnPropertyChanged(string? name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    private sealed record Selection(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Description, IReadOnlyList<string> HeaderComments, float? Gain = null)
-    {
-        public string Scd { get; } = SynthesisBackends.ExporterFor(Profile)?.Export(Patch, new PatchExportOptions { HeaderComments = HeaderComments }) ?? "This profile has no export backend.";
-    }
+    private sealed record Selection(string Title, OperatorMatrixPatch Patch, SynthesisProfile Profile, string Description, IReadOnlyList<string> HeaderComments, float? Gain = null);
 }

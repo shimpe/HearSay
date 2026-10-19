@@ -184,8 +184,8 @@ public sealed class Fmx6FilterTests(ITestOutputHelper output)
         var exporter = new SuperColliderFmx6Exporter();
         OperatorFilter five = OperatorFilter.Formants(800, 41, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 0));
         string header = exporter.Export(ThreeFilters(five)).Split('\n')[0];
-        Assert.Contains("five formants", header, StringComparison.Ordinal);
-        Assert.Contains("208cac8", header, StringComparison.Ordinal);
+        Assert.Contains("with five formants (fmx6 commit 208cac8 or later); HearSay itself is not needed.", header, StringComparison.Ordinal);
+        Assert.DoesNotContain("branch", header, StringComparison.Ordinal);
 
         // The patch of before keeps its header.
         string plain = exporter.Export(ThreeFilters(OperatorFilter.FormantAt(700, 1.8, 0.5, 8))).Split('\n')[0];

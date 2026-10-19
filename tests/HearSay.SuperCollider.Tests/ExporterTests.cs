@@ -6,7 +6,7 @@ using HearSay.Synthesis.Rendering;
 
 namespace HearSay.SuperCollider.Tests;
 
-public sealed class ExporterTests
+public sealed class ExporterTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly SuperColliderFm7Exporter Exporter = new();
 
@@ -111,5 +111,68 @@ public sealed class ExporterTests
         Assert.DoesNotContain("E-", scd);
         Assert.Contains("// line one line two", scd);
         Assert.DoesNotContain("Pbind", scd);
+    }
+
+    [Fact]
+    public void Export_WithGain_MultipliesTheOutput()
+    {
+        string scd = Exporter.Export(Patch(), new PatchExportOptions { Gain = 3.2109f });
+        string[] lines = scd.Split('\n');
+        int at = Array.FindIndex(lines, static l => l.Contains("Out.ar(", StringComparison.Ordinal));
+
+        // The level comment and the gain on the output, as the last lines of the SynthDef.
+        Assert.Equal("\t// Level: x 3.2109, the gain HearSay plays this sound at (its reference note peaks at 0.5 before amp).", lines[at - 1]);
+        Assert.Equal("\tOut.ar(out, (signal * amp * 3.2109) ! 2);", lines[at]);
+        Assert.Equal("}).add;", lines[at + 1]);
+        Assert.DoesNotContain("(signal * amp) ! 2", scd, StringComparison.Ordinal);
+
+        // The usual number formatting: a whole gain is a float literal.
+        Assert.Contains("(signal * amp * 2.0) ! 2", Exporter.Export(Patch(), new PatchExportOptions { Gain = 2f }), StringComparison.Ordinal);
+
+        // The SynthDef of a non-realtime render stays raw.
+        Assert.Contains("Out.ar(out, (signal * amp) ! 2);", Exporter.ExportSynthDef(Patch()), StringComparison.Ordinal);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => Exporter.Export(Patch(), new PatchExportOptions { Gain = 0f }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Exporter.Export(Patch(), new PatchExportOptions { Gain = float.NaN }));
+    }
+
+    private static string Sha256(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+
+    [Fact]
+    public void Export_WithoutGain_IsUnchanged()
+    {
+        // Captured from the exporter before the gain was added.
+        const string Before = "21BA943F4243801BB60F1F6041470D70140E4E94E9F07EFEB9DBAB5C10184208";
+        Assert.Equal(Before, Sha256(Exporter.Export(Patch())));
+        Assert.Equal(Before, Sha256(Exporter.Export(Patch(), new PatchExportOptions { Gain = null })));
+        Assert.DoesNotContain("Level:", Exporter.Export(Patch()), StringComparison.Ordinal);
+    }
+
+    /// <summary>The SynthDef of <see cref="SuperColliderOperatorMatrixExporter.Export"/> with a gain, for a non-realtime render.</summary>
+    private sealed class GainedExporter(float gain) : ISynthDefExporter
+    {
+        public int ControlBlockSize => Exporter.ControlBlockSize;
+
+        public string ExportSynthDef(OperatorMatrixPatch patch, string synthDefName = "HearSayPatch")
+        {
+            string scd = Exporter.Export(patch, new PatchExportOptions { InstrumentName = synthDefName, IncludeUsageExample = false, Gain = gain });
+            int start = scd.IndexOf("\nSynthDef(", StringComparison.Ordinal) + 1;
+            return scd[start..scd.LastIndexOf(".add;", StringComparison.Ordinal)];
+        }
+    }
+
+    [SuperColliderFact]
+    public void Export_WithGain_PeaksAtHalfAmpInSuperCollider()
+    {
+        // The reference note of the library at full velocity; HearSay's gain brings its peak to 0.5 (PlaybackLevel).
+        var request = new RenderRequest(220, null, 1.0, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.3), 48000);
+        float peak = new HearSay.Synthesis.Fm7Compatible.Rendering.Fm7CompatibleOperatorMatrixRenderer().Render(Patch(), request).Peak;
+        float gain = 0.5f / peak;
+
+        // Rendered by sclang at amp 1: the exported code peaks at 0.5 x amp, within 1 dB for the SC/C# difference.
+        RenderedAudio sc = new Validation.SuperColliderFm7Renderer(SuperColliderFactAttribute.Installation.Value!, new GainedExporter(gain), SynthesisProfiles.SuperColliderFm7.Capabilities).Render(Patch(), request);
+        double db = 20 * Math.Log10(sc.Peak / 0.5);
+        output.WriteLine(FormattableString.Invariant($"C# peak {peak:F4}, gain {gain:F4}, SuperCollider peak {sc.Peak:F4} ({db:F3} dB from 0.5)"));
+        Assert.True(Math.Abs(db) < 1.0, FormattableString.Invariant($"peak {sc.Peak:F4} at gain {gain:F4}: {db:F2} dB from 0.5"));
     }
 }

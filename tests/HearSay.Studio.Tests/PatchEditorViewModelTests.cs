@@ -201,6 +201,50 @@ public sealed class PatchEditorViewModelTests
     }
 
     [Fact]
+    public async Task CodeView_CarriesTheDisplayedSoundsGain()
+    {
+        static string Output(string code) => code.Split('\n').Single(static l => l.Contains("Out.ar(", StringComparison.Ordinal)).Trim();
+        string[] header = ["HearSay library test, seed 1."];
+        var gains = new FakeGains();
+        PatchEditorViewModel vm = Shown(new EditSessions(), gains);
+
+        // The original at the gain it plays at: here the one a favourite kept.
+        string code = vm.DisplayedCode(header);
+        Assert.Equal(OriginalGain, vm.DisplayedGain);
+        Assert.Equal("Out.ar(out, (signal * amp * 0.5) ! 2);", Output(code));
+        Assert.Contains("// Level: x 0.5, the gain HearSay plays this sound at", code, StringComparison.Ordinal);
+        Assert.Contains("// HearSay library test, seed 1.", code, StringComparison.Ordinal);
+        Assert.DoesNotContain(PatchEditorViewModel.EditedHeaderLine, code, StringComparison.Ordinal);
+
+        // An edit plays at the original's gain, and says it is an edit.
+        vm.Apply(SetRatio(2));
+        code = vm.DisplayedCode(header);
+        Assert.Equal("Out.ar(out, (signal * amp * 0.5) ! 2);", Output(code));
+        Assert.Contains("(freq * 2.0)", code, StringComparison.Ordinal);
+        Assert.Contains(PatchEditorViewModel.EditedHeaderLine, code, StringComparison.Ordinal);
+
+        // Matched: the edit's own gain; the Original side keeps the original's.
+        await vm.MatchLoudnessAsync();
+        Assert.Equal(FreshGain, vm.DisplayedGain);
+        Assert.Equal("Out.ar(out, (signal * amp * 8.0) ! 2);", Output(vm.DisplayedCode(header)));
+        vm.ShowingOriginal = true;
+        Assert.Equal("Out.ar(out, (signal * amp * 0.5) ! 2);", Output(vm.DisplayedCode(header)));
+
+        // Without a kept gain: the gain the mixer computes for it, once known; before, the code has no level.
+        PatchEditorViewModel fresh = new(new EditSessions(), gains.Of);
+        fresh.Show(Original(3), Fmx6, StructureLibrary.ReferenceRequest, "test");
+        Assert.Equal("Out.ar(out, (signal * amp * 8.0) ! 2);", Output(fresh.DisplayedCode(header)));
+        gains.Next = _ => new TaskCompletionSource<float>().Task;
+        fresh.Show(Original(4), Fmx6, StructureLibrary.ReferenceRequest, "test");
+        Assert.Null(fresh.DisplayedGain);
+        Assert.Equal("Out.ar(out, (signal * amp) ! 2);", Output(fresh.DisplayedCode(header)));
+        Assert.DoesNotContain("Level:", fresh.DisplayedCode(header), StringComparison.Ordinal);
+
+        fresh.Show(null, null, null, string.Empty);
+        Assert.Equal(string.Empty, fresh.DisplayedCode(header));
+    }
+
+    [Fact]
     public async Task MatchLoudness_ReportsOnlyAFailedComputation()
     {
         // The gain cannot be computed: the status line says so, and the edit keeps its gain.

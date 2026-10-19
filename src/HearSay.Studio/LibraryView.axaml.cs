@@ -37,7 +37,7 @@ public sealed partial class LibraryView : UserControl
     {
         if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard && ViewModel.Scd.Length > 0)
         {
-            await clipboard.SetTextAsync(ViewModel.Scd);
+            await clipboard.SetTextAsync(await ViewModel.CodeToCopyAsync());
         }
     }
 
@@ -111,12 +111,12 @@ public sealed partial class LibraryView : UserControl
         Avalonia.Threading.Dispatcher.UIThread.Post(() => { RenameBox.Focus(); RenameBox.SelectAll(); });
     }
 
-    private void OnRename(object? sender, RoutedEventArgs e)
+    private async void OnRename(object? sender, RoutedEventArgs e)
     {
         RenameButton.Flyout?.Hide();
         if (ViewModel.SelectedFavourite is { } item)
         {
-            ViewModel.RenameFavourite(item, ViewModel.FavouriteNickname);
+            await ViewModel.RenameFavouriteAsync(item, ViewModel.FavouriteNickname);
         }
     }
 

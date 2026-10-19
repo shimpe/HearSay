@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Avalonia.Threading;
 using HearSay.Editing;
 using HearSay.Playing;
+using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -162,6 +163,40 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
 
             return _gainKnown ? original with { Patch = editor.Current, FixedGain = _gain } : null;
         }
+    }
+
+    /// <summary>
+    /// The gain <see cref="DisplayedSound"/> plays at, once known: its fixed gain (an edit's, or a favourite's), else the
+    /// gain the live player computed for the original. Null while it is not known yet, when nothing is shown, and when
+    /// the original's gain could not be computed.
+    /// </summary>
+    public float? DisplayedGain => DisplayedSound is { } sound ? sound.FixedGain ?? (ShowsEdit ? null : OriginalGain) : null;
+
+    /// <summary>
+    /// The SuperCollider code of the displayed version: the header comments (with <see cref="EditedHeaderLine"/> for an
+    /// edit) and, once known, the gain it plays at (<see cref="DisplayedGain"/>); empty when nothing is shown.
+    /// </summary>
+    /// <param name="header">The header comments of the original.</param>
+    public string DisplayedCode(IReadOnlyList<string> header)
+    {
+        ArgumentNullException.ThrowIfNull(header);
+        if (DisplayedPatch is not { } patch || _original is not { } original)
+        {
+            return string.Empty;
+        }
+
+        var options = new PatchExportOptions { HeaderComments = ShowsEdit ? WithEditedLine(header) : header, Gain = DisplayedGain };
+        return SynthesisBackends.ExporterFor(original.Profile)?.Export(patch, options) ?? "This profile has no export backend.";
+    }
+
+    /// <summary>
+    /// <see cref="DisplayedGain"/> once the original's gain is known, or could not be computed: for Save and Copy, which
+    /// then carry the gain even when they are asked for before it is known.
+    /// </summary>
+    public async Task<float?> DisplayedGainAsync()
+    {
+        await _gainTask;
+        return DisplayedGain;
     }
 
     /// <summary>True when Match loudness can be clicked: the edit is displayed and its gain is not being computed.</summary>
@@ -483,6 +518,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanMatchLoudness));
         OnPropertyChanged(nameof(MatchedGain));
         OnPropertyChanged(nameof(DisplayedSound));
+        OnPropertyChanged(nameof(DisplayedGain));
     }
 
     /// <summary>Says what follows the edit: the displayed version, the switch, undo and redo, the sound and the inspector's values.</summary>
@@ -500,6 +536,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanMatchLoudness));
         OnPropertyChanged(nameof(MatchedGain));
         OnPropertyChanged(nameof(DisplayedSound));
+        OnPropertyChanged(nameof(DisplayedGain));
         OnPropertyChanged(nameof(FavouriteOrigin));
         UpdateSelectedValues(force: false);
     }

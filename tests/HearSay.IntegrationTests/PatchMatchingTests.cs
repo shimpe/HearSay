@@ -349,6 +349,57 @@ public sealed class PatchMatchingTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ResultCode_CarriesTheGainOfItsReferenceNote()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "hearsay-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            PatchMatchResult result = new OperatorMatrixPatchMatcher().Match(TargetOf("simple-2op"), new PatchMatchOptions { EvaluationBudget = 300, StructureLibrarySize = 0 });
+            Assert.True(result.AlternativePatches.Count >= 2);
+
+            // The gain the Studio plays a finalist at: its reference note, the result's request, at full velocity.
+            float StudioGain(OperatorMatrixPatch patch, RenderRequest request) => new HearSay.Playing.Sound(patch, result.Profile, request).ComputeGain();
+            float? Written(string file) => FavouriteSoundsTests.GainIn(File.ReadAllText(Path.Combine(directory, file)));
+
+            PatchMatchResultWriter.Write(result, directory);
+            Assert.Equal(StudioGain(result.BestPatch, result.Request), Written("patch.scd"));
+            Assert.Equal(HearSay.Playing.PlaybackLevel.GainFor(result.PreviewAudio.Peak), Written("patch.scd"));
+            Assert.Equal(StudioGain(result.AlternativePatches[1].Patch, result.Request), Written(Path.Combine("alternatives", "01-patch.scd")));
+
+            // A reference note below full velocity: the gain is still that of the note at full velocity, as the Studio
+            // computes it, not of the preview at the searched velocity.
+            OperatorMatrixPatch sensitive = result.BestPatch;
+            for (int i = 0; i < sensitive.OperatorCount; i++)
+            {
+                if (sensitive.Operators[i].Enabled)
+                {
+                    sensitive = sensitive.WithOperator(i, sensitive.Operators[i] with { VelocitySensitivity = 1.0 });
+                }
+            }
+
+            PatchMatchResult soft = result with
+            {
+                BestPatch = sensitive,
+                PreviewAudio = Renderer.Render(sensitive, result.Request with { Velocity = 0.25 }),
+                AlternativePatches = [result.AlternativePatches[0] with { Patch = sensitive }, result.AlternativePatches[1] with { Patch = sensitive }],
+                Request = result.Request with { Velocity = 0.25 },
+            };
+            PatchMatchResultWriter.Write(soft, directory);
+            float full = StudioGain(sensitive, soft.Request);
+            Assert.Equal(full, Written("patch.scd"));
+            Assert.Equal(full, Written(Path.Combine("alternatives", "01-patch.scd")));
+            Assert.NotEqual(HearSay.Playing.PlaybackLevel.GainFor(soft.PreviewAudio.Peak), full);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void Matcher_RefusesUnusableTargetsAndReservedProfiles()
     {
         var matcher = new OperatorMatrixPatchMatcher();

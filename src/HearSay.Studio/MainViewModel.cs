@@ -7,7 +7,6 @@ using HearSay.Analysis;
 using HearSay.Editing;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Playing;
-using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
 using HearSay.Synthesis.Rendering;
@@ -557,11 +556,22 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Whether the profile of the shown patch has a shared noise source, which the block diagram then draws.</summary>
     public bool ShownPatchSharesNoise => (_libraryPatch?.Profile ?? _result?.Profile)?.Capabilities.SupportsSharedNoise == true;
 
-    /// <summary>The generated SuperCollider code.</summary>
+    /// <summary>
+    /// The generated SuperCollider code of the version shown, with the gain it plays at once that is known: until then
+    /// without it.
+    /// </summary>
     public string Scd
     {
         get => _scd;
         private set => Set(ref _scd, value);
+    }
+
+    /// <summary>What Copy puts on the clipboard: <see cref="Scd"/> once the gain of the version shown is known.</summary>
+    public async Task<string> CodeToCopyAsync()
+    {
+        await Edits.WhenGainKnownAsync();
+        ShowDetails();
+        return Scd;
     }
 
     /// <summary>Headline numbers of the result, empty without one.</summary>
@@ -879,11 +889,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <param name="directory">Destination folder.</param>
     public async Task SaveAsync(string directory)
     {
+        // The gain the shown version plays at, which its code carries; waited for while it is being computed.
+        float? gain = await Edits.DisplayedGainAsync();
         if (_libraryPatch is { } library)
         {
             OperatorMatrixPatch patch = Edits.DisplayedPatch ?? library.Patch;
             IReadOnlyList<string> header = Edits.ShowsEdit ? PatchEditorViewModel.WithEditedLine(library.HeaderComments) : library.HeaderComments;
-            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(patch, library.Profile, directory, header));
+            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(patch, library.Profile, directory, header, gain));
             Status = $"{written.Count} files written to {directory}.";
             return;
         }
@@ -897,7 +909,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             PatchMatchResult shown = _result;
             IReadOnlyList<string> header = PatchEditorViewModel.WithEditedLine(FinalistHeader(shown, candidate));
-            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(edited, shown.Profile, directory, header));
+            IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(edited, shown.Profile, directory, header, gain));
             Status = $"{written.Count} files of the edited sound written to {directory}.";
             return;
         }
@@ -1074,6 +1086,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             case nameof(PatchEditorViewModel.DisplayedSound):
                 Live.SoundChanged();
                 break;
+            case nameof(PatchEditorViewModel.DisplayedGain):
+                // The code carries the gain the shown version plays at, once it is known or matched.
+                ScheduleDetails();
+                break;
             case nameof(PatchEditorViewModel.ShowsEdit):
                 OnPropertyChanged(nameof(SaveLabel));
                 break;
@@ -1118,7 +1134,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (_libraryPatch is { } library)
         {
             ResultSummary = $"from the library: {library.Title}{(edited ? ", edited" : string.Empty)}\n\n{Routing(patch)}";
-            Scd = edited ? Export(library.Profile, patch, PatchEditorViewModel.WithEditedLine(library.HeaderComments)) : library.Scd;
+            Scd = Edits.DisplayedCode(library.HeaderComments);
         }
         else if (_result is { } result && _candidate is { } candidate)
         {
@@ -1132,8 +1148,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
                 {Routing(patch)}
                 """);
-            IReadOnlyList<string> header = FinalistHeader(result, candidate);
-            Scd = Export(result.Profile, patch, edited ? PatchEditorViewModel.WithEditedLine(header) : header);
+            Scd = Edits.DisplayedCode(FinalistHeader(result, candidate));
             if (_statsShowEdit != edited || !ReferenceEquals(_statsCandidate, candidate))
             {
                 ShowStats(result, candidate, edited);
@@ -1154,9 +1169,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             string.Create(CultureInfo.InvariantCulture, $"{(isBest ? "Best patch" : "Alternative")}: {candidate.Origin}"),
         ];
     }
-
-    private static string Export(SynthesisProfile profile, OperatorMatrixPatch patch, IReadOnlyList<string> headerComments) =>
-        SynthesisBackends.ExporterFor(profile)?.Export(patch, new PatchExportOptions { HeaderComments = headerComments }) ?? "This profile has no export backend.";
 
     /// <summary>The routing of a patch, without the matrix the Search tab draws.</summary>
     private static string Routing(OperatorMatrixPatch patch)

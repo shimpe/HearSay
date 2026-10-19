@@ -234,7 +234,7 @@ public sealed partial class MainWindow : Window
     {
         if (Clipboard is not null && ViewModel.Scd.Length > 0)
         {
-            await Clipboard.SetTextAsync(ViewModel.Scd);
+            await Clipboard.SetTextAsync(await ViewModel.CodeToCopyAsync());
         }
     }
 }

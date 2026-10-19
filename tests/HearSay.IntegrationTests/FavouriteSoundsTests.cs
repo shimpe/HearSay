@@ -59,6 +59,41 @@ public sealed class FavouriteSoundsTests : IDisposable
         Assert.Equal("old", old.Origin);
     }
 
+    /// <summary>The gain the exported code multiplies its output by; null when it has none.</summary>
+    internal static float? GainIn(string code)
+    {
+        System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(code, @"Out\.ar\(out, \(signal \* amp \* ([0-9.]+)\) ! 2\);");
+        Assert.Equal(match.Success, code.Contains("// Level: x ", StringComparison.Ordinal));
+        return match.Success ? float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : null;
+    }
+
+    [Fact]
+    public void Favourite_Code_CarriesItsGain()
+    {
+        var favourites = new FavouriteSounds(_directory);
+        string Code(Favourite f) => File.ReadAllText(Path.Combine(f.Directory, "patch.scd"));
+
+        // A stored gain is the gain it plays at.
+        Favourite stored = favourites.Add("stored", Bell, SynthesisProfiles.SuperColliderFm7, "edited from search best", gain: 2.5f);
+        Assert.Equal(2.5f, GainIn(Code(stored)));
+
+        // Without one, the Library plays it at the gain of its reference note, as the mixer computes it.
+        float computed = new HearSay.Playing.Sound(Piano, SynthesisProfiles.SuperColliderFm7, HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest).ComputeGain();
+        Favourite plain = favourites.Add("plain", Piano, SynthesisProfiles.SuperColliderFm7, "search best");
+        Assert.Equal(computed, GainIn(Code(plain)));
+        Assert.NotEqual(1f, computed);
+
+        // Renaming keeps it.
+        Assert.Equal(2.5f, GainIn(Code(favourites.Rename(stored, "stored renamed"))));
+        Favourite renamed = favourites.Rename(plain, "plain renamed");
+        Assert.Equal(computed, GainIn(Code(renamed)));
+
+        // An update carries the gain it is given, or the computed one of its new patch.
+        Assert.Equal(0.75f, GainIn(Code(favourites.Update(renamed, Bell, SynthesisProfiles.SuperColliderFm7, gain: 0.75f))));
+        float bell = new HearSay.Playing.Sound(Bell, SynthesisProfiles.SuperColliderFm7, HearSay.OperatorMatrix.Priors.StructureLibrary.ReferenceRequest).ComputeGain();
+        Assert.Equal(bell, GainIn(Code(favourites.Update(renamed, Bell, SynthesisProfiles.SuperColliderFm7))));
+    }
+
     [Theory]
     [InlineData("-1")]
     [InlineData("0")]

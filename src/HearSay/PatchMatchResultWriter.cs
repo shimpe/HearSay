@@ -4,6 +4,7 @@ using HearSay.Envelope;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Partials;
 using HearSay.Pitch;
+using HearSay.Playing;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Rendering;
@@ -173,7 +174,7 @@ public static class PatchMatchResultWriter
     /// </summary>
     /// <param name="result">Match result.</param>
     /// <param name="directory">Output folder; created when missing.</param>
-    /// <param name="renderer">Renderer for the previews of the alternatives; the profile default when null.</param>
+    /// <param name="renderer">Renderer for the previews of the alternatives and the gains of the exports; the profile default when null.</param>
     /// <param name="exporter">Backend exporter; the profile default when null. Profiles without an exporter get no export file.</param>
     /// <returns>Paths of all files written.</returns>
     public static IReadOnlyList<string> Write(PatchMatchResult result, string directory, IOperatorMatrixRenderer? renderer = null, IPatchExporter? exporter = null)
@@ -196,13 +197,21 @@ public static class PatchMatchResultWriter
             FormattableString.Invariant($"Profile {result.Profile.Name}, seed {result.SearchSummary.RandomSeed}, {result.SearchSummary.EvaluationsUsed} renders."),
         ];
 
+        // The gain HearSay plays a finalist at: that of the result's reference note at full velocity (Sound.ComputeGain),
+        // from the preview when the preview is that render, else rendered once.
+        RenderRequest gainReference = result.Request with { Velocity = 1.0 };
+        IOperatorMatrixRenderer Renderer() => renderer ??= SynthesisBackends.RendererFor(result.Profile);
+        float GainOf(OperatorMatrixPatch patch, RenderedAudio preview) =>
+            PlaybackLevel.GainFor((gainReference == result.Request ? preview : Renderer().Render(patch, gainReference)).Peak);
+
         WriteText(Path.Combine(directory, "patch.json"), result.BestPatch.ToJson());
         string preview = Path.Combine(directory, "preview.wav");
         result.PreviewAudio.WriteWav(preview, normalizePeakTo: 0.7f);
         written.Add(preview);
         if (exporter is not null)
         {
-            WriteText(Path.Combine(directory, "patch" + exporter.FileExtension), exporter.Export(result.BestPatch, new PatchExportOptions { HeaderComments = header }));
+            var options = new PatchExportOptions { HeaderComments = header, Gain = GainOf(result.BestPatch, result.PreviewAudio) };
+            WriteText(Path.Combine(directory, "patch" + exporter.FileExtension), exporter.Export(result.BestPatch, options));
         }
 
         WriteText(Path.Combine(directory, "analysis.json"), HearSayJson.Serialize(TargetAnalysisReport.From(result.Analysis)));
@@ -226,7 +235,6 @@ public static class PatchMatchResultWriter
 
         if (result.AlternativePatches.Count > 1)
         {
-            renderer ??= SynthesisBackends.RendererFor(result.Profile);
             string alternatives = Path.Combine(directory, "alternatives");
             Directory.CreateDirectory(alternatives);
             for (int i = 1; i < result.AlternativePatches.Count; i++)
@@ -235,7 +243,8 @@ public static class PatchMatchResultWriter
                 string prefix = Path.Combine(alternatives, i.ToString("00", CultureInfo.InvariantCulture));
                 WriteText(prefix + "-patch.json", candidate.Patch.ToJson());
                 string wav = prefix + "-preview.wav";
-                renderer.Render(candidate.Patch, result.Request).WriteWav(wav, normalizePeakTo: 0.7f);
+                RenderedAudio audio = Renderer().Render(candidate.Patch, result.Request);
+                audio.WriteWav(wav, normalizePeakTo: 0.7f);
                 written.Add(wav);
                 if (exporter is not null)
                 {
@@ -243,6 +252,7 @@ public static class PatchMatchResultWriter
                     {
                         InstrumentName = "HearSayAlternative" + i.ToString(CultureInfo.InvariantCulture),
                         HeaderComments = [FormattableString.Invariant($"Alternative {i}: audio loss {candidate.AudioLoss:F4}. {candidate.Origin}")],
+                        Gain = GainOf(candidate.Patch, audio),
                     }));
                 }
             }

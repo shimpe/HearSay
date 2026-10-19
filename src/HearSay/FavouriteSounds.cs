@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using HearSay.OperatorMatrix.Priors;
+using HearSay.Playing;
 using HearSay.Synthesis.Export;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Profiles;
@@ -82,7 +84,7 @@ public sealed class FavouriteSounds
         ArgumentNullException.ThrowIfNull(origin);
         string name = FreeName(SafeName(nickname), except: null);
         string folder = Path.Combine(DirectoryPath, name);
-        LibrarySoundWriter.Write(patch, profile, folder, Header(name, origin));
+        LibrarySoundWriter.Write(patch, profile, folder, Header(name, origin), gain);
         File.WriteAllText(Path.Combine(folder, OriginFile), HearSayJson.Serialize(new FavouriteFile(origin, gain)));
         return new Favourite(name, folder, new ExportedSound(name, Path.Combine(folder, "patch.json"), patch, profile), origin, gain);
     }
@@ -107,7 +109,7 @@ public sealed class FavouriteSounds
         string written = Path.Combine(staging, "new-" + suffix), replaced = Path.Combine(staging, "old-" + suffix);
         try
         {
-            LibrarySoundWriter.Write(patch, profile, written, Header(favourite.Nickname, favourite.Origin));
+            LibrarySoundWriter.Write(patch, profile, written, Header(favourite.Nickname, favourite.Origin), gain);
             File.WriteAllText(Path.Combine(written, OriginFile), HearSayJson.Serialize(new FavouriteFile(favourite.Origin, gain)));
         }
         catch
@@ -131,7 +133,10 @@ public sealed class FavouriteSounds
         return favourite with { Sound = new ExportedSound(favourite.Nickname, Path.Combine(folder, "patch.json"), patch, profile), Gain = gain };
     }
 
-    /// <summary>Gives a favourite another nickname: its folder is renamed and its code says the new name.</summary>
+    /// <summary>
+    /// Gives a favourite another nickname: its folder is renamed and its code says the new name, at the gain it plays at.
+    /// Renders its reference note when it keeps no gain, so not for an interface thread.
+    /// </summary>
     /// <param name="favourite">Favourite.</param>
     /// <param name="nickname">New name; a name that is taken gets a number.</param>
     public Favourite Rename(Favourite favourite, string nickname)
@@ -150,7 +155,10 @@ public sealed class FavouriteSounds
         ExportedSound sound = favourite.Sound with { Name = name, PatchFile = Path.Combine(folder, "patch.json") };
         if (SynthesisBackends.ExporterFor(sound.Profile) is { } exporter)
         {
-            File.WriteAllText(Path.Combine(folder, "patch" + exporter.FileExtension), exporter.Export(sound.Patch, new PatchExportOptions { HeaderComments = Header(name, favourite.Origin) }));
+            // The gain the Library plays it at: the kept one, else that of the library's reference note.
+            float gain = new Sound(sound.Patch, sound.Profile, StructureLibrary.ReferenceRequest) { FixedGain = favourite.Gain }.ComputeGain();
+            var options = new PatchExportOptions { HeaderComments = Header(name, favourite.Origin), Gain = gain };
+            File.WriteAllText(Path.Combine(folder, "patch" + exporter.FileExtension), exporter.Export(sound.Patch, options));
         }
 
         return favourite with { Nickname = name, Directory = folder, Sound = sound };

@@ -14,6 +14,13 @@ public sealed record PatchExportOptions
 
     /// <summary>Free-text lines written as a comment at the top of the export, for example where the patch came from.</summary>
     public IReadOnlyList<string> HeaderComments { get; init; } = [];
+
+    /// <summary>
+    /// The gain HearSay plays the sound at (<c>PlaybackLevel.GainFor</c> the peak of its reference note), multiplied into
+    /// the output so that the export sounds as loud as in HearSay, with the backend's own volume control on top; null
+    /// for none, and the export is exactly as without it.
+    /// </summary>
+    public float? Gain { get; init; }
 }
 
 /// <summary>

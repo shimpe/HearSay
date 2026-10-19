@@ -237,7 +237,7 @@ spectrum and envelope, and the second-best is sometimes the more musical one.
 | File | Content |
 | --- | --- |
 | `patch.json` | the best patch in the canonical model, editable and re-exportable |
-| `patch.scd` | the SuperCollider SynthDef with a usage example; needs only SuperCollider and the UGen |
+| `patch.scd` | the SuperCollider SynthDef at HearSay's level (section 8), with a usage example; needs only SuperCollider and the UGen |
 | `preview.wav` | the best patch rendered at the reference note by the backend-exact renderer |
 | `analysis.json` | analysis of the reference note (fundamental, partials, envelope, issues) |
 | `comparison.json` | HearSay's full diagnosis of preview against target: scores, differences, hints |
@@ -264,6 +264,23 @@ sample-exact with the preview.
 
 The synth frees itself when its longest envelope has finished after `gate` goes to 0 (`Done.freeSelf`); a patch with
 one-shot envelopes only frees itself after the longest one, so it can be played without a gate.
+
+The code carries HearSay's level, so that the sound is as loud in SuperCollider as in the Studio: the last lines of the
+SynthDef multiply the output by the gain HearSay plays the sound at, the gain that brings its reference note at full
+velocity to a peak of 0.5 (a quiet patch, such as a narrow pulse through formants, gets a large one):
+
+```supercollider
+	// Level: x 3.2109, the gain HearSay plays this sound at (its reference note peaks at 0.5 before amp).
+	Out.ar(out, (signal * amp * 3.2109) ! 2);
+```
+
+`amp` (default 0.2) scales on top of it; at `amp` 1 a note peaks where it does in the Studio. A result folder's
+`patch.scd` has the gain of the searched note (each alternative its own); the Studio's code view, Copy, Save… and a
+favourite's `patch.scd` have the gain the Studio plays the shown version at: an edit's is the original's or its matched
+one, a favourite's the one it kept, else that of the library's reference note. The code view shows the code without the
+level until the gain is known, a moment after a sound is shown. `IPatchExporter.Export` adds it only when
+`PatchExportOptions.Gain` is set; `ExportSynthDef` never does. HearSay plays a patch without velocity sensitivity with
+the key velocity as volume; the SynthDef does not, so such a patch plays at full level at any `velocity`.
 
 ## 9. HearSay Studio
 
@@ -306,11 +323,11 @@ selected finalist, the list of finalists, the keyboard, the modulation matrix an
 - **Matrix**: rows are destinations, columns sources, values in radians; the diagonal is self-feedback.
   Off operators leave their cells empty.
 
-**SuperCollider patch.** The code of the shown finalist. Copy puts it on the clipboard; Save result folder writes
-the whole folder of section 7 for the result. **Find in library** opens the Library tab on the library of the
-result's profile and places the shown finalist among the library sounds like it, as an imported sound: a star,
-selected and played, with its neighbours around it. It joins the imported sounds as *search best* or *search #2*, so
-several finalists can be compared there.
+**SuperCollider patch.** The code of the shown finalist, at the level HearSay plays it at (section 8). Copy puts it
+on the clipboard; Save result folder writes the whole folder of section 7 for the result. **Find in library** opens
+the Library tab on the library of the result's profile and places the shown finalist among the library sounds like
+it, as an imported sound: a star, selected and played, with its neighbours around it. It joins the imported sounds as
+*search best* or *search #2*, so several finalists can be compared there.
 
 **Block diagram.** The second tab of the patch card draws the operators in use (greyed when they cannot be heard; see
 *Editing a sound* below): carriers on the bottom row
@@ -500,8 +517,9 @@ nearest neighbours.
   the key. Double-click a family, or click the plus, to open it; the
   breadcrumb goes back up. Resting the pointer on a node shows a few words about it: brightness, envelope, the
   waveform of the loudest carrier, *filtered*, *noisy*, and the number of sounds.
-- **Copy** copies the SuperCollider code, with the library and seed in its header. **Save…** writes `patch.json`,
-  `patch.scd`, `preview.wav` and a `search-summary.json` with the profile, a folder that can be imported again.
+- **Copy** copies the SuperCollider code, with the library and seed in its header and the level the sound plays at
+  here (section 8). **Save…** writes `patch.json`, `patch.scd`, `preview.wav` and a `search-summary.json` with the
+  profile, a folder that can be imported again.
   **Show in Search** makes the sound the patch of the Search tab, until the next search.
 - **Import folder…** reads every `patch.json` (and the alternatives) under a folder of exported results. Click one in
   the list to place it: the tab opens the family whose centre is closest at every level and shows the sound there as a

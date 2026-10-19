@@ -51,9 +51,15 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
     public string FileExtension => ".scd";
 
     /// <inheritdoc />
+    /// <exception cref="ArgumentOutOfRangeException">The gain of the options is not a positive finite number.</exception>
     public string Export(OperatorMatrixPatch patch, PatchExportOptions? options = null)
     {
         options ??= new PatchExportOptions();
+        if (options.Gain is float g && !(float.IsFinite(g) && g > 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), g, "The gain must be a positive finite number.");
+        }
+
         string name = options.InstrumentName;
         string comments = string.Concat(options.HeaderComments.Select(static c => $"// {c.ReplaceLineEndings(" ")}\n"));
         string text = $$"""
@@ -63,7 +69,7 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
             // Ratio operators follow freq, fixed operators do not.
             // modMatrix[destination][source] is in radians; the diagonal is self-feedback.
             (
-            {{ExportSynthDef(patch, name)}}.add;
+            {{SynthDef(patch, name, options.Gain)}}.add;
             )
 
             """;
@@ -100,12 +106,15 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
 
     /// <summary>
     /// Returns only the <c>SynthDef(...)</c> expression, without <c>.add</c>, for callers that send the definition to
-    /// a server themselves, such as a non-realtime render.
+    /// a server themselves, such as a non-realtime render. It never carries a gain: its output is the raw sound.
     /// </summary>
     /// <param name="patch">Patch to export.</param>
     /// <param name="synthDefName">Name of the SynthDef.</param>
     /// <exception cref="PatchNotSupportedException">The backend cannot represent the patch.</exception>
-    public string ExportSynthDef(OperatorMatrixPatch patch, string synthDefName = "HearSayPatch")
+    public string ExportSynthDef(OperatorMatrixPatch patch, string synthDefName = "HearSayPatch") => SynthDef(patch, synthDefName, gain: null);
+
+    /// <summary>The <c>SynthDef(...)</c> expression, with the output multiplied by a gain when there is one.</summary>
+    private string SynthDef(OperatorMatrixPatch patch, string synthDefName, float? gain)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentException.ThrowIfNullOrWhiteSpace(synthDefName);
@@ -143,6 +152,9 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
             d => $"[{List(n, s => ModulationAmount(patch, audible, s, d))}]",
             d => $"into OP{d + 1}");
         string levels = List(n, i => audible[i] ? Number(patch.OutputLevels[i]) : "0");
+        string output = gain is float g
+            ? $"// Level: x {Number(g)}, the gain HearSay plays this sound at (its reference note peaks at 0.5 before amp).\n\tOut.ar(out, (signal * amp * {Number(g)}) ! 2);"
+            : "Out.ar(out, (signal * amp) ! 2);";
         string synthDef = $$"""
             SynthDef(\{{synthDefName}}, { |out = 0, freq = 440, gate = 1, velocity = 1, amp = 0.2|
             	var ctlMatrix, modMatrix, operators, signal;{{note}}{{pitch}}
@@ -162,7 +174,7 @@ public abstract class SuperColliderOperatorMatrixExporter : IPatchExporter, ISyn
 
             	// Frees the synth when the note is over.
             	{{Lifetime(patch)}}
-            	Out.ar(out, (signal * amp) ! 2);
+            	{{output}}
             })
             """;
         return synthDef.ReplaceLineEndings("\n");

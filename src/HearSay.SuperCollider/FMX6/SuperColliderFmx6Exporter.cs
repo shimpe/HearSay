@@ -32,7 +32,7 @@ public sealed class SuperColliderFmx6Exporter : SuperColliderOperatorMatrixExpor
     /// <inheritdoc />
     protected override string RequirementFor(OperatorMatrixPatch patch, bool[] audible) =>
         Enumerable.Range(0, patch.OperatorCount).Any(i => audible[i] && patch.Operators[i].Filter is { UsesExtendedFormants: true })
-            ? Requirement + " with five formants (fmx6 commit 208cac8 or later, branch five-formants)"
+            ? Requirement + " with five formants (fmx6 commit 208cac8 or later)"
             : Requirement;
 
     /// <inheritdoc />
