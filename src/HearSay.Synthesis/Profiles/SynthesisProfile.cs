@@ -152,10 +152,10 @@ public static class SynthesisProfiles
         ControlBlockSize: 64,
         "Six operators with sine, triangle, saw, square, pulse, noise and filtered-noise waveforms and a filter per operator, full 6x6 matrix, SuperCollider FMX6 UGen.")
     {
-        // Version 6: every operator with a formant filter has at least 64 harmonics; version 5 gave every formant filter
-        // a third peak (version 4 to half of them). No older file is reused, as the formant sounds of versions 2 to 5
-        // differ.
-        StructureLibraryVersion = 6,
+        // Version 7: every tonal operator with a formant filter is a voice source (a 1 % pulse with at least 64
+        // harmonics); version 6 gave it at least 64 harmonics, version 5 every formant filter a third peak (version 4
+        // half of them). No older file is reused, as the formant sounds of versions 2 to 6 differ.
+        StructureLibraryVersion = 7,
     };
 
     /// <summary>

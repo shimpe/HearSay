@@ -59,7 +59,7 @@ public sealed class RandomPatchGenerator
 {
     private static readonly double[] Ratios = [0.5, 1, 1, 1, 2, 2, 3, 3.5, 4, 5, 7, 1.41, 2.73];
 
-    /// <summary>The fewest harmonics an operator with a formant filter is given.</summary>
+    /// <summary>The fewest harmonics an operator with a formant filter is given (the <see cref="VoiceSource"/>'s).</summary>
     public const int FormantHarmonics = 64;
 
     private readonly SynthesisCapabilities _capabilities;
@@ -207,12 +207,14 @@ public sealed class RandomPatchGenerator
                     OperatorFilter filter = RandomFilter(filterRandom);
                     operators[i] = operators[i] with { Filter = filter };
 
-                    // A formant filter shapes the harmonics up to F3 and beyond: at least 64 of them, so that a band-limited
-                    // waveform gives its upper formants something to shape. No random draw, so every other patch stays as
-                    // its seed gave it.
+                    // A formant filter shapes the harmonics it is given: a tonal operator with one is the voice source, a
+                    // 1 % pulse with at least 64 harmonics; noise stays noise (a whisper). No random draw, so every other
+                    // patch stays as its seed gave it. A profile without a pulse only gets the harmonics.
                     if (filter.Type == OperatorFilterType.Formant)
                     {
-                        operators[i] = operators[i] with { HarmonicLimit = Math.Max(operators[i].HarmonicLimit, FormantHarmonics) };
+                        operators[i] = _capabilities.SupportedWaveforms.Contains(OperatorWaveform.Pulse)
+                            ? VoiceSource.AsVoiceSource(operators[i], keepPulseWidth: false)
+                            : operators[i] with { HarmonicLimit = Math.Max(operators[i].HarmonicLimit, FormantHarmonics) };
                     }
                 }
             }

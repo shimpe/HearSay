@@ -116,7 +116,7 @@ public sealed class StructureLibraryTests
             StructureLibrary library = StructureLibrary.For(fmx6, 120, new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer(), directory);
 
             Assert.Single(Directory.GetFiles(directory, $"{fm7.Name}-v1-30.bin"));
-            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v6-120.bin"));
+            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v7-120.bin"));
             int filtered = 0;
             foreach ((int seed, long _) in library.Nearest(new byte[SpectralFingerprint.Length], 240))
             {
@@ -217,10 +217,10 @@ public sealed class StructureLibraryTests
     [Fact]
     public void Fmx6LibraryVersion_IsBumped_AndDoesNotReuseOldFormantSounds()
     {
-        // Version 6: every operator with a formant filter has at least 64 harmonics (version 5 gave every formant filter
-        // a third peak, version 4 half of them), so the sounds of versions 2 to 5 (whose formant sounds differ) must
-        // not be read for it.
-        Assert.Equal((6, (int?)null), (Fmx6.StructureLibraryVersion, Fmx6.StructureLibraryReusedVersion));
+        // Version 7: every tonal operator with a formant filter is a voice source (version 6 gave it at least 64
+        // harmonics, version 5 every formant filter a third peak, version 4 half of them), so the sounds of versions 2
+        // to 6 (whose formant sounds differ) must not be read for it.
+        Assert.Equal((7, (int?)null), (Fmx6.StructureLibraryVersion, Fmx6.StructureLibraryReusedVersion));
 
         string directory = Path.Combine(Path.GetTempPath(), "hearsay-library-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -231,11 +231,12 @@ public sealed class StructureLibraryTests
             WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 3, StructureLibraryReusedVersion = null }, 40, directory), 3, 40, marker: 9);
             WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 4, StructureLibraryReusedVersion = null }, 40, directory), 4, 40, marker: 11);
             WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 5, StructureLibraryReusedVersion = null }, 40, directory), 5, 40, marker: 13);
+            WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 6, StructureLibraryReusedVersion = null }, 40, directory), 6, 40, marker: 15);
 
-            // Every sound of version 6 is rendered, none is read from the old files.
+            // Every sound of version 7 is rendered, none is read from the old files.
             Assert.False(StructureLibrary.IsAvailable(profile, 40, directory));
             Assert.Equal(StructureLibrary.CountFor(profile.Capabilities, 40), StructureLibrary.SoundsToRender(profile, 40, directory));
-            Assert.EndsWith("-v6-40.bin", StructureLibrary.FileOf(profile, 40, directory), StringComparison.Ordinal);
+            Assert.EndsWith("-v7-40.bin", StructureLibrary.FileOf(profile, 40, directory), StringComparison.Ordinal);
         }
         finally
         {

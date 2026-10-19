@@ -34,6 +34,10 @@ public sealed class FormantPresetsTests
             .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.01, 0.2, 0.5, 0.1)).WithWaveform(OperatorWaveform.Saw) with { Filter = filter })
             .WithOutputLevel(0, 1.0);
 
+    /// <summary>The carrier as the voice source, a 1 % pulse with 64 harmonics, through a filter.</summary>
+    private static OperatorMatrixPatch VoiceSourceCarrier(OperatorFilter filter)
+        => Carrier(filter).WithOperator(0, Carrier(filter).Operators[0].WithWaveform(OperatorWaveform.Pulse) with { Shape = 0.01, HarmonicLimit = 64 });
+
     /// <summary>
     /// The level of each of F2..F5 relative to F1 in the spec's cascade model: a two-pole resonance of unity gain at
     /// 0 Hz per formant, times a 1/f source-plus-radiation slope; written out here independently of the code.
@@ -103,10 +107,11 @@ public sealed class FormantPresetsTests
                     OperatorMatrixPatch patch = Carrier(filter);
                     Assert.True(PatchCompatibilityValidator.Instance.Validate(patch, Fmx6.Capabilities).IsCompatible, what);
 
+                    // Through the edit on the bare saw, which becomes the voice source as well.
                     var editor = new PatchEditor(Carrier(), Fmx6);
                     EditOutcome outcome = editor.Apply(PatchEdits.SetFormantPreset(0, set, speaker, vowel.Key));
                     Assert.False(outcome.IsRefused, outcome.Refusal);
-                    Assert.Equal(patch.ComputeHash(), editor.Current.ComputeHash());
+                    Assert.Equal(VoiceSourceCarrier(filter).ComputeHash(), editor.Current.ComputeHash());
                     count++;
                 }
             }
@@ -365,8 +370,8 @@ public sealed class FormantPresetsTests
         Assert.Same(sweep, filter.Envelope);
         Assert.Equal(986.0, filter.FixedHz);
 
-        // The rest of the operator stays as it was.
-        Assert.Equal(lowPass.Operators[0] with { Filter = null }, editor.Current.Operators[0] with { Filter = null });
+        // The rest of the operator stays as it was, but for the voice source the saw became.
+        Assert.Equal(VoiceSourceCarrier(OperatorFilter.LowPass(3)).Operators[0] with { Filter = null, AmplitudeEnvelope = lowPass.Operators[0].AmplitudeEnvelope }, editor.Current.Operators[0] with { Filter = null });
 
         // Without a filter, the preset gives the operator one, without a sweep.
         var bare = new PatchEditor(Carrier(), Fmx6);
@@ -402,6 +407,46 @@ public sealed class FormantPresetsTests
         Assert.False(editor.CanUndo);
         Assert.Throws<ArgumentException>(() => FormantPresets.Filter(Dutch, "children", "ie", null));
         Assert.Throws<ArgumentException>(() => FormantPresets.Filter(new FormantPresetSet("Sung", "", ["soprano"], [new("a", "a", "/a/")]), "soprano", "a", null));
+    }
+
+    [Fact]
+    public void Preset_OnAFormantOperator_LeavesTheSourceAlone()
+    {
+        // A saw, and a pulse of a tuned width, that have a formant filter: a preset changes only the formants.
+        OperatorMatrixPatch saw = Carrier(OperatorFilter.FormantAt(700, 1.8, 0.5, 8));
+        OperatorMatrixPatch pulse = saw.WithOperator(0, saw.Operators[0].WithWaveform(OperatorWaveform.Pulse) with { Shape = 0.3, HarmonicLimit = 16 });
+        foreach (OperatorMatrixPatch patch in new[] { saw, pulse })
+        {
+            var editor = new PatchEditor(patch, Fmx6);
+            Assert.False(editor.Apply(PatchEdits.SetFormantPreset(0, Sung, "bass", "a")).IsRefused);
+            OperatorFilter preset = FormantPresets.Filter(Sung, "bass", "a", patch.Operators[0].Filter);
+            Assert.Equal(patch.WithOperator(0, patch.Operators[0] with { Filter = preset }).ComputeHash(), editor.Current.ComputeHash());
+        }
+    }
+
+    [Fact]
+    public void Preset_OnAnotherFilter_MakesAVoiceSource()
+    {
+        // A saw through a low-pass, and one without a filter: the preset makes it the voice source in the same step.
+        foreach (OperatorFilter? before in new[] { OperatorFilter.LowPass(3), null })
+        {
+            OperatorMatrixPatch patch = Carrier(before);
+            var editor = new PatchEditor(patch, Fmx6);
+            Assert.False(editor.Apply(PatchEdits.SetFormantPreset(0, English, "women", "ae")).IsRefused);
+            OperatorFilter preset = FormantPresets.Filter(English, "women", "ae", before);
+            Assert.Equal(VoiceSourceCarrier(preset).ComputeHash(), editor.Current.ComputeHash());
+
+            editor.Undo();
+            Assert.Equal(patch.ComputeHash(), editor.Current.ComputeHash());
+            Assert.False(editor.CanUndo);
+        }
+
+        // Noise stays noise: a whispered vowel.
+        OperatorMatrixPatch noise = Carrier(OperatorFilter.LowPass(3));
+        noise = noise.WithOperator(0, noise.Operators[0].WithWaveform(OperatorWaveform.FilteredNoise) with { Shape = 0.7 });
+        var whisper = new PatchEditor(noise, Fmx6);
+        Assert.False(whisper.Apply(PatchEdits.SetFormantPreset(0, Dutch, "men", "aa")).IsRefused);
+        Assert.Equal(noise.WithOperator(0, noise.Operators[0] with { Filter = FormantPresets.Filter(Dutch, "men", "aa", noise.Operators[0].Filter) }).ComputeHash(), whisper.Current.ComputeHash());
     }
 
     [Fact]

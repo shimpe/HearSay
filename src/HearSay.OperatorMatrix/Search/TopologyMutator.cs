@@ -61,7 +61,7 @@ public sealed class TopologyMutator
         for (int attempt = 0; attempt < count * 8 && result.Count < count; attempt++)
         {
             TopologyMutation? mutation = Mutate(patch, analysis, random);
-            mutation = mutation is null ? null : mutation with { Patch = WithFormantHarmonics(mutation.Patch) };
+            mutation = mutation is null ? null : mutation with { Patch = WithVoiceSources(patch, mutation.Patch) };
             if (mutation is null
                 || !seen.Add(mutation.Patch.ComputeHash())
                 || !PatchCompatibilityValidator.Instance.Validate(mutation.Patch, _capabilities).IsCompatible)
@@ -246,10 +246,10 @@ public sealed class TopologyMutator
             }
         }
 
-        // Every operator with a formant filter keeps at least 64 harmonics; a variant that comes back to the patch itself
-        // (fewer harmonics for a formant operator) is no variant.
+        // Every tonal operator with a formant filter is a voice source; a variant that comes back to the patch itself
+        // (fewer harmonics, or another tonal waveform, for a formant operator) is no variant.
         string unchanged = patch.ComputeHash();
-        candidates = [.. candidates.Select(static c => c with { Patch = WithFormantHarmonics(c.Patch) })];
+        candidates = [.. candidates.Select(c => c with { Patch = WithVoiceSources(patch, c.Patch) })];
         candidates.RemoveAll(c => c.Patch.ComputeHash() == unchanged);
         candidates.RemoveAll(c => !PatchCompatibilityValidator.Instance.Validate(c.Patch, _capabilities).IsCompatible);
         if (candidates.Count > maxScreened)
@@ -627,32 +627,45 @@ public sealed class TopologyMutator
     }
 
     /// <summary>
-    /// Filter variants of the heard operators, with starting values from the target: a low-pass at its roll-off, a
-    /// high-pass under a weak fundamental, a band-pass and a peak on the strongest maximum of its spectral envelope, a
-    /// formant filter on its formants (F1 to F3); and for a filtered operator its removal, the other slope, a band-pass
-    /// instead of a low-pass and back, a formant filter's F3 moved to the target's third formant, and the sweep of the
-    /// target's brightness.
+    /// A variant of a patch with every tonal operator that has a formant filter a voice source
+    /// (<see cref="VoiceSource.AsVoiceSource"/>), as the library's sounds are; noise stays noise (a whisper). An
+    /// operator that was a pulse with a formant filter in the parent keeps the width the search tuned (and so a change
+    /// to another tonal waveform comes back to the parent); any other starts at the voice source's width.
     /// </summary>
-    /// <summary>
-    /// The patch with every operator that has a formant filter at <see cref="RandomPatchGenerator.FormantHarmonics"/>
-    /// harmonics or more, as the library's sounds are: a formant filter shapes the harmonics up to F3 and beyond.
-    /// </summary>
-    /// <param name="patch">Patch.</param>
-    internal static OperatorMatrixPatch WithFormantHarmonics(OperatorMatrixPatch patch)
+    /// <param name="parent">The patch the variant was made from.</param>
+    /// <param name="patch">The variant.</param>
+    internal static OperatorMatrixPatch WithVoiceSources(OperatorMatrixPatch parent, OperatorMatrixPatch patch)
     {
         OperatorMatrixPatch result = patch;
         for (int i = 0; i < patch.OperatorCount; i++)
         {
             OperatorPatch op = patch.Operators[i];
-            if (op.Filter?.Type == OperatorFilterType.Formant && op.HarmonicLimit < RandomPatchGenerator.FormantHarmonics)
+            if (op.Filter?.Type != OperatorFilterType.Formant)
             {
-                result = result.WithOperator(i, op with { HarmonicLimit = RandomPatchGenerator.FormantHarmonics });
+                continue;
+            }
+
+            OperatorPatch before = parent.Operators[i];
+            bool tuned = before is { Waveform: OperatorWaveform.Pulse, Filter.Type: OperatorFilterType.Formant } && !op.Waveform.IsNoise();
+            OperatorPatch source = tuned
+                ? VoiceSource.AsVoiceSource(op with { Waveform = OperatorWaveform.Pulse, Shape = before.Shape }, keepPulseWidth: true)
+                : VoiceSource.AsVoiceSource(op, keepPulseWidth: false);
+            if (source != op)
+            {
+                result = result.WithOperator(i, source);
             }
         }
 
         return result;
     }
 
+    /// <summary>
+    /// Filter variants of the heard operators, with starting values from the target: a low-pass at its roll-off, a
+    /// high-pass under a weak fundamental, a band-pass and a peak on the strongest maximum of its spectral envelope, a
+    /// formant filter on its formants (F1 to F3); and for a filtered operator its removal, the other slope, a band-pass
+    /// instead of a low-pass and back, a formant filter's F3 moved to the target's third formant, and the sweep of the
+    /// target's brightness. A tonal operator given a formant filter becomes the voice source.
+    /// </summary>
     internal static List<TopologyMutation> FilterVariants(OperatorMatrixPatch patch, TargetAnalysis analysis, List<int> used)
     {
         var variants = new List<TopologyMutation>();
@@ -665,7 +678,7 @@ public sealed class TopologyMutator
         foreach (int op in used)
         {
             OperatorPatch current = patch.Operators[op];
-            OperatorMatrixPatch With(OperatorFilter? filter) => WithFormantHarmonics(patch.WithOperator(op, current with { Filter = filter }));
+            OperatorMatrixPatch With(OperatorFilter? filter) => WithVoiceSources(patch, patch.WithOperator(op, current with { Filter = filter }));
             string name = $"OP{op + 1} filter";
             if (current.Filter is not { } filter)
             {

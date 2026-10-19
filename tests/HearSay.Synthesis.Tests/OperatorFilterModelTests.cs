@@ -183,7 +183,7 @@ public sealed class OperatorFilterModelTests
         Assert.True(fmx6.SupportsOperatorFilters);
         Assert.False(fmx6.IsSubsetOf(fmx6 with { SupportsOperatorFilters = false }));
         Assert.True((fmx6 with { SupportsOperatorFilters = false }).IsSubsetOf(fmx6));
-        Assert.Equal(6, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
+        Assert.Equal(7, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
         Assert.Equal(1, SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion);
         Assert.Equal(2, SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion);
     }
@@ -203,16 +203,28 @@ public sealed class OperatorFilterModelTests
             Assert.True(PatchCompatibilityValidator.Instance.Validate(b, fmx6).IsCompatible);
             withFilter += b.Operators.Count(static o => o.Filter is not null);
 
-            // A formant filter brings at least 64 harmonics; everything else is what the seed gave.
+            // A formant filter makes a tonal operator the voice source (waveform, shape, harmonics and NoiseM); everything
+            // else is what the seed gave.
             for (int i = 0; i < b.OperatorCount; i++)
             {
-                int expected = b.Operators[i].Filter?.Type == OperatorFilterType.Formant
-                    ? Math.Max(a.Operators[i].HarmonicLimit, RandomPatchGenerator.FormantHarmonics)
-                    : a.Operators[i].HarmonicLimit;
-                Assert.Equal(expected, b.Operators[i].HarmonicLimit);
+                OperatorPatch expected = b.Operators[i].Filter?.Type == OperatorFilterType.Formant
+                    ? VoiceSource.AsVoiceSource(a.Operators[i], keepPulseWidth: false)
+                    : a.Operators[i];
+                OperatorPatch got = b.Operators[i];
+                Assert.Equal((expected.Waveform, expected.Shape, expected.HarmonicLimit, expected.NoiseM), (got.Waveform, got.Shape, got.HarmonicLimit, got.NoiseM));
             }
 
-            OperatorMatrixPatch stripped = b with { Operators = [.. b.Operators.Select((o, i) => o with { Filter = null, HarmonicLimit = a.Operators[i].HarmonicLimit })] };
+            OperatorMatrixPatch stripped = b with
+            {
+                Operators = [.. b.Operators.Select((o, i) => o with
+                {
+                    Filter = null,
+                    Waveform = a.Operators[i].Waveform,
+                    Shape = a.Operators[i].Shape,
+                    HarmonicLimit = a.Operators[i].HarmonicLimit,
+                    NoiseM = a.Operators[i].NoiseM,
+                })],
+            };
             Assert.Equal(a.ComputeHash(), stripped.ComputeHash());
         }
 
@@ -252,25 +264,59 @@ public sealed class OperatorFilterModelTests
     }
 
     [Fact]
-    public void Generator_EveryFormantOperator_HasAtLeast64Harmonics()
+    public void Generator_EveryTonalFormantOperator_IsAVoiceSource()
     {
-        // A formant filter shapes harmonics up to F3 and beyond; a band-limited waveform with fewer than 64 harmonics
-        // leaves the upper formants with nothing to shape at ordinary notes. Other limits are left as drawn.
+        // A formant filter shapes the harmonics it is given: every tonal operator with one is the voice source, a 1 %
+        // pulse with at least 64 harmonics; a noise operator with one stays noise (a whisper). Other operators are left
+        // as drawn.
         SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
         var generator = new RandomPatchGenerator(fmx6, new RandomPatchOptions { FilterProbability = 1.0 });
-        var formant = new List<OperatorPatch>();
+        var tonal = new List<OperatorPatch>();
+        var noise = new List<OperatorPatch>();
         var other = new List<OperatorPatch>();
         for (int seed = 0; seed < 400; seed++)
         {
             foreach (OperatorPatch op in generator.Generate(seed).Operators.Where(static o => o.Enabled && o.Filter is not null))
             {
-                (op.Filter!.Type == OperatorFilterType.Formant ? formant : other).Add(op);
+                (op.Filter!.Type != OperatorFilterType.Formant ? other : op.Waveform.IsNoise() ? noise : tonal).Add(op);
             }
         }
 
-        Assert.True(formant.Count > 100, $"{formant.Count} formant operators");
-        Assert.All(formant, static o => Assert.True(o.HarmonicLimit >= 64, $"{o.Waveform} with {o.HarmonicLimit} harmonics"));
+        Assert.True(tonal.Count > 60, $"{tonal.Count} tonal formant operators");
+        Assert.All(tonal, static o => Assert.Equal((OperatorWaveform.Pulse, VoiceSource.Width, 0.0), (o.Waveform, o.Shape, o.NoiseM)));
+        Assert.All(tonal, static o => Assert.True(o.HarmonicLimit >= 64, $"{o.HarmonicLimit} harmonics"));
+        Assert.Contains(tonal, static o => o.HarmonicLimit == 128);
+        Assert.True(noise.Count > 20, $"{noise.Count} noise formant operators");
+        Assert.Contains(noise, static o => o.Waveform == OperatorWaveform.FilteredNoise);
+        Assert.Contains(noise, static o => o.Waveform == OperatorWaveform.Noise);
         Assert.Contains(other, static o => o.HarmonicLimit < 64);
+        Assert.Contains(other, static o => o.Waveform is OperatorWaveform.Saw or OperatorWaveform.Sine);
+    }
+
+    [Fact]
+    public void AsVoiceSource_MakesATonalOperatorANarrowPulse_AndKeepsNoise()
+    {
+        OperatorFilter vowel = OperatorFilter.FormantAt(700, 1.8, 0.5, 8);
+        OperatorPatch saw = OperatorPatch.Sine(OperatorFrequency.AtRatio(2)).WithWaveform(OperatorWaveform.Saw) with { HarmonicLimit = 8, Filter = vowel, NoisePhase = 0.2 };
+        OperatorPatch source = VoiceSource.AsVoiceSource(saw, keepPulseWidth: true);
+        Assert.Equal((OperatorWaveform.Pulse, 0.01, 64), (source.Waveform, source.Shape, source.HarmonicLimit));
+        Assert.Equal(saw with { Waveform = OperatorWaveform.Pulse, Shape = 0.01, HarmonicLimit = 64 }, source);
+
+        // A pulse keeps its width only when asked; more harmonics than 64 stay; noise on m goes.
+        OperatorPatch pulse = saw with { Waveform = OperatorWaveform.Pulse, Shape = 0.3, HarmonicLimit = 128, NoiseM = 0.1 };
+        Assert.Equal(pulse with { NoiseM = 0.0 }, VoiceSource.AsVoiceSource(pulse, keepPulseWidth: true));
+        Assert.Equal(pulse with { Shape = 0.01, NoiseM = 0.0 }, VoiceSource.AsVoiceSource(pulse, keepPulseWidth: false));
+        OperatorPatch elliptic = VoiceSource.AsVoiceSource(saw.WithWaveform(OperatorWaveform.Elliptic) with { NoiseM = 0.2 }, keepPulseWidth: true);
+        Assert.Equal((OperatorWaveform.Pulse, 0.01, 64, 0.0), (elliptic.Waveform, elliptic.Shape, elliptic.HarmonicLimit, elliptic.NoiseM));
+
+        // Noise stays as it is.
+        foreach (OperatorWaveform waveform in new[] { OperatorWaveform.Noise, OperatorWaveform.SampleHoldNoise, OperatorWaveform.FilteredNoise })
+        {
+            OperatorPatch noise = saw with { Waveform = waveform, Shape = 0.7 };
+            Assert.Same(noise, VoiceSource.AsVoiceSource(noise, keepPulseWidth: false));
+        }
+
+        Assert.Equal(64, VoiceSource.Harmonics);
     }
 
     [Fact]

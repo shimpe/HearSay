@@ -280,9 +280,56 @@ public sealed class PatchEditsTests
         Assert.Equal(OperatorFilterType.BandPass, bandPass.Operators[0].Filter!.Type);
         Assert.Equal(4.0, bandPass.Operators[0].Filter!.CutoffRatio);
 
+        // Removing the filter leaves the voice source the formant filter made.
         OperatorMatrixPatch removed = Done(formant, Fmx6, PatchEdits.SetFilter(0, null));
         Assert.Null(removed.Operators[0].Filter);
-        Assert.Equal(TwoOperators().ComputeHash(), removed.ComputeHash());
+        Assert.Equal(formant.WithOperator(0, formant.Operators[0] with { Filter = null }).ComputeHash(), removed.ComputeHash());
+        OperatorMatrixPatch bare = Done(lowPass, Fmx6, PatchEdits.SetFilter(0, null));
+        Assert.Equal(TwoOperators().ComputeHash(), bare.ComputeHash());
+    }
+
+    [Fact]
+    public void SetFilterToFormant_MakesAVoiceSource_InOneStep()
+    {
+        // A saw with 8 harmonics through a low-pass: choosing Formant makes it the voice source as well, a 1 % pulse
+        // with 64 harmonics, in the same step; the rest of the operator and of the patch stay.
+        OperatorMatrixPatch patch = WithOperator(TwoOperators(), 0, static op => op.WithWaveform(OperatorWaveform.Saw) with { HarmonicLimit = 8, Filter = OperatorFilter.LowPass(3) });
+        var editor = new PatchEditor(patch, Fmx6);
+        Assert.False(editor.Apply(PatchEdits.SetFilter(0, OperatorFilterType.Formant)).IsRefused);
+        OperatorPatch source = editor.Current.Operators[0];
+        Assert.Equal((OperatorWaveform.Pulse, PatchEdits.VoiceSourceWidth, PatchEdits.VoiceSourceHarmonics, 0.0), (source.Waveform, source.Shape, source.HarmonicLimit, source.NoiseM));
+        Assert.Equal(OperatorFilterType.Formant, source.Filter!.Type);
+        Assert.Equal(patch.Operators[0] with { Waveform = OperatorWaveform.Pulse, Shape = 0.01, HarmonicLimit = 64, Filter = source.Filter }, source);
+        Assert.Equal(patch.ComputeHash(), editor.Current.WithOperator(0, patch.Operators[0]).ComputeHash());
+
+        editor.Undo();
+        Assert.Equal(patch.ComputeHash(), editor.Current.ComputeHash());
+        Assert.False(editor.CanUndo);
+
+        // A pulse of another width becomes the full voice source; more harmonics than 64 stay.
+        OperatorMatrixPatch wide = WithOperator(TwoOperators(), 0, static op => op.WithWaveform(OperatorWaveform.Pulse) with { Shape = 0.4, HarmonicLimit = 128 });
+        OperatorPatch pulse = Done(wide, Fmx6, PatchEdits.SetFilter(0, OperatorFilterType.Formant)).Operators[0];
+        Assert.Equal((OperatorWaveform.Pulse, 0.01, 128), (pulse.Waveform, pulse.Shape, pulse.HarmonicLimit));
+
+        // An operator that has a formant filter already is left as it is.
+        OperatorMatrixPatch tuned = WithOperator(wide, 0, static op => op with { Filter = OperatorFilter.FormantAt(500, 2.0, 0.5, 8) });
+        Assert.Equal(tuned.ComputeHash(), Done(tuned, Fmx6, PatchEdits.SetFilter(0, OperatorFilterType.Formant)).ComputeHash());
+
+        // Other filter types leave the waveform alone.
+        Assert.Equal(OperatorWaveform.Saw, Done(patch, Fmx6, PatchEdits.SetFilter(0, OperatorFilterType.Peak)).Operators[0].Waveform);
+    }
+
+    [Fact]
+    public void SetFilterToFormant_OnNoise_KeepsTheNoise()
+    {
+        // Noise through a formant filter is a whisper: it stays noise, with its own shape.
+        foreach (OperatorWaveform waveform in new[] { OperatorWaveform.Noise, OperatorWaveform.SampleHoldNoise, OperatorWaveform.FilteredNoise })
+        {
+            OperatorMatrixPatch patch = WithOperator(TwoOperators(), 0, op => op.WithWaveform(waveform) with { Shape = 0.7, HarmonicLimit = 8 });
+            OperatorMatrixPatch edited = Done(patch, Fmx6, PatchEdits.SetFilter(0, OperatorFilterType.Formant));
+            Assert.Equal(OperatorFilterType.Formant, edited.Operators[0].Filter!.Type);
+            Assert.Equal(patch.Operators[0], edited.Operators[0] with { Filter = null });
+        }
     }
 
     [Fact]

@@ -252,7 +252,9 @@ public static class PatchEdits
     /// <summary>
     /// Adds an operator filter, changes its type or removes it (a null type). A new filter is a low-pass at 4 times the
     /// note; a change of type keeps the frequency where both types have it (the multiple of the note of low-pass,
-    /// high-pass, band-pass and notch, the hertz of peak and formant) and the sweep. Refused on a profile without filters.
+    /// high-pass, band-pass and notch, the hertz of peak and formant) and the sweep. An operator that gets a formant
+    /// filter becomes the voice source in the same step (a 1 % pulse with at least 64 harmonics; noise stays noise).
+    /// Refused on a profile without filters.
     /// </summary>
     /// <param name="op">The operator.</param>
     /// <param name="type">The filter type, or null for no filter.</param>
@@ -285,13 +287,15 @@ public static class PatchEdits
             filter = filter with { EnvelopeOctaves = old.EnvelopeOctaves, Envelope = old.Envelope };
         }
 
-        return EditOutcome.Done(patch.WithOperator(op, patch.Operators[op] with { Filter = filter }));
+        return EditOutcome.Done(patch.WithOperator(op, WithFilter(patch.Operators[op], filter, c)));
     };
 
     /// <summary>
     /// Sets an operator's filter to a vowel preset (<see cref="FormantPresets"/>): all five formants, with their levels
     /// and own Qs. The sweep of the filter it replaces stays; an operator without a filter, or with another type, gets a
-    /// formant filter. Refused on a profile without filters, and for a speaker or vowel the set does not have.
+    /// formant filter and becomes the voice source in the same step (noise stays noise), while one that has a formant
+    /// filter keeps its waveform and width. Refused on a profile without filters, and for a speaker or vowel the set
+    /// does not have.
     /// </summary>
     /// <param name="op">The operator.</param>
     /// <param name="set">One of <see cref="FormantPresets.Sets"/>.</param>
@@ -316,14 +320,14 @@ public static class PatchEdits
         }
 
         OperatorFilter filter = FormantPresets.Filter(set, speaker, vowelKey, patch.Operators[op].Filter);
-        return EditOutcome.Done(patch.WithOperator(op, patch.Operators[op] with { Filter = filter }));
+        return EditOutcome.Done(patch.WithOperator(op, WithFilter(patch.Operators[op], filter, c)));
     };
 
     /// <summary>Duty cycle of a voice source: a pulse this narrow has many harmonics of nearly the same strength.</summary>
-    public const double VoiceSourceWidth = 0.01;
+    public const double VoiceSourceWidth = VoiceSource.Width;
 
     /// <summary>Harmonics of a voice source: enough for the formants of a vowel up to F5 on a low note.</summary>
-    public const int VoiceSourceHarmonics = 64;
+    public const int VoiceSourceHarmonics = VoiceSource.Harmonics;
 
     /// <summary>
     /// Makes an operator a vowel source: a narrow pulse (<see cref="VoiceSourceWidth"/>, 1 %) with
@@ -497,6 +501,20 @@ public static class PatchEdits
             ? OperatorFilter.PeakAt(1000, 6, 2)
             : OperatorFilter.FormantAt(700, 1.8, 0.5, 8);
         return old is { IsKeyTracked: false } ? fixedHz with { FixedHz = old.FixedHz } : fixedHz;
+    }
+
+    /// <summary>
+    /// An operator with another filter. One that gets a formant filter where it had none, or another type, becomes the
+    /// voice source as well (<see cref="VoiceSource.AsVoiceSource"/>: a 1 % pulse with at least 64 harmonics), noise
+    /// staying noise; one that had a formant filter keeps its source, width and all.
+    /// </summary>
+    private static OperatorPatch WithFilter(OperatorPatch present, OperatorFilter filter, SynthesisCapabilities c)
+    {
+        OperatorPatch changed = present with { Filter = filter };
+        bool becomesFormant = filter.Type == OperatorFilterType.Formant && present.Filter?.Type != OperatorFilterType.Formant;
+        return becomesFormant && c.SupportedWaveforms.Contains(OperatorWaveform.Pulse)
+            ? VoiceSource.AsVoiceSource(changed, keepPulseWidth: false)
+            : changed;
     }
 
     /// <summary>An enabled operator that is mixed into the output.</summary>
