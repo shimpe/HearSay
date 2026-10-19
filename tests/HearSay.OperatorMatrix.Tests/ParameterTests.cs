@@ -315,7 +315,7 @@ public sealed class ParameterTests
         Assert.Equal((0.125, 8.0), (q3.Minimum, q3.Maximum));
         Assert.Equal((OperatorFilter.MinQ, OperatorFilter.MaxFormantQ), (schema.Find("op1.operatorFilter.q")!.Minimum, schema.Find("op1.operatorFilter.q")!.Maximum));
         Assert.Equal((1.0, 16.0), (ratio3.Minimum, ratio3.Maximum));
-        Assert.Equal((0.0, 1.0), (level3.Minimum, level3.Maximum));
+        Assert.Equal((0.001, 1.0), (level3.Minimum, level3.Maximum));
         Assert.Same(ParameterTransforms.Logarithmic, q2.Transform);
         Assert.Same(ParameterTransforms.Logarithmic, ratio3.Transform);
         Assert.Same(ParameterTransforms.Logarithmic, q3.Transform);
@@ -333,13 +333,12 @@ public sealed class ParameterTests
         OperatorMatrixPatch broad = FilteredSaw(OperatorFilter.Formants(500, 2, new FormantPeak(2.4, 0.5, 0)));
         Assert.Equal(0.5, q2.Set(broad, 0.125).Operators[0].Filter!.FormantQ2);
 
-        // Two formants: F2's own Q is searched, starting at the shared Q; F3 is off, so it adds no dead directions.
+        // Two formants: F2's own Q is searched, starting at the shared Q, and so is F3 (see Schema_EveryFormantFilter_HasF3).
         // Reading and writing back the shared Q leaves "same as Q", so a first write changes nothing.
         OperatorMatrixPatch two = FilteredSaw(OperatorFilter.FormantAt(700, 1.8, 0.5, 8));
         PatchParameterSchema twoSchema = PatchParameterSchema.Build(two, fmx6);
         ids = twoSchema.ActiveSmooth(two).Select(static p => p.Id).ToHashSet();
         Assert.Contains("op1.operatorFilter.formantQ2", ids);
-        Assert.All(f3, id => Assert.DoesNotContain(id, ids));
         PatchParameter sharedQ2 = twoSchema.Find("op1.operatorFilter.formantQ2")!;
         Assert.Equal(1.0, sharedQ2.Get(two), 10);
         Assert.Equal(two.ComputeHash(), sharedQ2.SetNormalized(two, sharedQ2.GetNormalized(two)).ComputeHash());
@@ -360,6 +359,120 @@ public sealed class ParameterTests
         PatchParameterSchema lowSchema = PatchParameterSchema.Build(lowPass, fmx6);
         Assert.DoesNotContain(lowSchema.ActiveSmooth(lowPass), static p => p.Id.Contains("formant", StringComparison.Ordinal));
         Assert.Equal(OperatorFilter.MaxQ, lowSchema.Find("op1.operatorFilter.q")!.Maximum);
+    }
+
+    [Fact]
+    public void Schema_EveryFormantFilter_HasF3()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        string[] f3 = ["op1.operatorFilter.formant3Ratio", "op1.operatorFilter.formant3Level", "op1.operatorFilter.formant3Q"];
+
+        // Two peaks, F2 alone off, and three peaks: F3's ratio, level and Q are searched on every formant filter.
+        OperatorFilter two = OperatorFilter.FormantAt(700, 1.8, 0.5, 8);
+        OperatorFilter one = OperatorFilter.FormantAt(700, 2.0, 0.0, 8);
+        OperatorFilter three = OperatorFilter.Formants(500, 6, new(2.4, 0.5, 12), new(5.6, 0.2, 18));
+        foreach (OperatorFilter filter in new[] { two, one, three })
+        {
+            OperatorMatrixPatch patch = FilteredSaw(filter);
+            PatchParameterSchema schema = PatchParameterSchema.Build(patch, fmx6);
+            var ids = schema.ActiveSmooth(patch).Select(static p => p.Id).ToHashSet();
+            Assert.All(f3, id => Assert.Contains(id, ids));
+            Assert.DoesNotContain(schema.Parameters, static p => p.Id.Contains("formant4", StringComparison.Ordinal) || p.Id.Contains("formant5", StringComparison.Ordinal));
+        }
+
+        // With F3 off the search starts from a default F3: 3 x F1, kept above F2 (1.4 x F2 when that is higher),
+        // at the level floor, with the shared Q.
+        Assert.Equal(3.0, PatchParameterSchema.DefaultFormant3Ratio(two), 12);
+        Assert.Equal(9.8, PatchParameterSchema.DefaultFormant3Ratio(OperatorFilter.FormantAt(300, 7.0, 0.5, 8)), 12);
+        Assert.Equal(OperatorFilter.MaxFormantRatio, PatchParameterSchema.DefaultFormant3Ratio(OperatorFilter.FormantAt(50, 24, 0.5, 8)));
+        OperatorMatrixPatch twoPeaks = FilteredSaw(two);
+        PatchParameterSchema twoSchema = PatchParameterSchema.Build(twoPeaks, fmx6);
+        PatchParameter ratio3 = twoSchema.Find(f3[0])!, level3 = twoSchema.Find(f3[1])!, q3 = twoSchema.Find(f3[2])!;
+        Assert.Equal((3.0, 0.001, 1.0), (ratio3.Get(twoPeaks), level3.Get(twoPeaks), q3.Get(twoPeaks)));
+
+        // Moving any one of them turns F3 on, with the defaults for the other two.
+        Assert.Equal((3.0, 0.3, 0.0), F3(level3.Set(twoPeaks, 0.3)));
+        Assert.Equal((4.0, 0.001, 0.0), F3(ratio3.Set(twoPeaks, 4.0)));
+        Assert.Equal((3.0, 0.001, 16.0), F3(q3.Set(twoPeaks, 2.0)));
+        Assert.True(level3.Set(twoPeaks, 0.3).Operators[0].Filter!.UsesExtendedFormants);
+
+        // A filter with F3 on reads its own values.
+        OperatorMatrixPatch threePeaks = FilteredSaw(three);
+        PatchParameterSchema threeSchema = PatchParameterSchema.Build(threePeaks, fmx6);
+        Assert.Equal((5.6, 0.2, 3.0), (threeSchema.Find(f3[0])!.Get(threePeaks), threeSchema.Find(f3[1])!.Get(threePeaks), threeSchema.Find(f3[2])!.Get(threePeaks)));
+
+        // A hand-made F2 far up (24 x F1) puts the default F3 at the model's 32, and the search range reaches it.
+        OperatorMatrixPatch high = FilteredSaw(OperatorFilter.FormantAt(50, 24, 0.5, 8));
+        PatchParameter highRatio3 = PatchParameterSchema.Build(high, fmx6).Find(f3[0])!;
+        Assert.Equal(OperatorFilter.MaxFormantRatio, highRatio3.Maximum);
+        Assert.Equal(high.ComputeHash(), highRatio3.SetNormalized(high, highRatio3.GetNormalized(high)).ComputeHash());
+
+        static (double Ratio, double Level, double Q) F3(OperatorMatrixPatch p) =>
+            (p.Operators[0].Filter!.Formant3Ratio, p.Operators[0].Filter!.Formant3Level, p.Operators[0].Filter!.Formant3Q);
+    }
+
+    [Fact]
+    public void F3Level_HasAFloor_InTheSearch()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        OperatorMatrixPatch three = FilteredSaw(OperatorFilter.Formants(500, 6, new(2.4, 0.5, 12), new(5.6, 0.2, 18)));
+        PatchParameter level3 = PatchParameterSchema.Build(three, fmx6).Find("op1.operatorFilter.formant3Level")!;
+
+        // The search range starts at 0.001, as roughness starts at 1e-4: the optimizer can turn F3 down to -60 dB but
+        // never off, so its ratio and Q stay live directions.
+        Assert.Equal(0.001, PatchParameterSchema.MinFormant3Level);
+        Assert.Equal((0.001, 1.0), (level3.Minimum, level3.Maximum));
+        Assert.Equal(0.001, level3.Set(three, 0.0).Operators[0].Filter!.Formant3Level);
+        Assert.Equal(0.001, level3.SetNormalized(three, 0.0).Operators[0].Filter!.Formant3Level);
+        var set = new ActiveParameterSet([level3]);
+        Assert.Equal(0.001, set.Apply(three, [0.0]).Operators[0].Filter!.Formant3Level);
+        Assert.Equal(0.001, set.Apply(three, [-1.0]).Operators[0].Filter!.Formant3Level);
+
+        // A hand-made level under the floor widens the range, so the first write does not move it.
+        OperatorMatrixPatch faint = FilteredSaw(OperatorFilter.Formants(500, 6, new(2.4, 0.5, 12), new(5.6, 0.0006, 18)));
+        PatchParameter faintLevel = PatchParameterSchema.Build(faint, fmx6).Find("op1.operatorFilter.formant3Level")!;
+        Assert.Equal(0.0006, faintLevel.Minimum, 12);
+        Assert.Equal(faint.ComputeHash(), faintLevel.SetNormalized(faint, faintLevel.GetNormalized(faint)).ComputeHash());
+    }
+
+    [Fact]
+    public void UntouchedTwoPeakPatch_RoundTripsUnchanged()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+
+        // Two peaks, F2 high enough that the default F3 follows it, and F2 off: F3 is off in all three.
+        foreach (OperatorFilter filter in new[] { OperatorFilter.FormantAt(700, 1.8, 0.5, 8), OperatorFilter.FormantAt(300, 7.0, 0.5, 8), OperatorFilter.FormantAt(700, 2.0, 0.0, 8) })
+        {
+            OperatorMatrixPatch patch = FilteredSaw(filter);
+            PatchParameterSchema schema = PatchParameterSchema.Build(patch, fmx6);
+
+            // Every searched value of the patch, read and written back: F3 stays off and the export keeps its rows.
+            // (Log parameters come back within an ulp, so the exact hash is checked on the values that do not.)
+            var all = new ActiveParameterSet(schema.ActiveSmooth(patch));
+            OperatorFilter back = all.Apply(patch, all.ToVector(patch)).Operators[0].Filter!;
+            Assert.Equal((1.0, 0.0, 0.0), (back.Formant3Ratio, back.Formant3Level, back.Formant3Q));
+            Assert.Equal(0.0, back.FormantQ2);
+            Assert.False(back.UsesExtendedFormants);
+
+            string[] exact = ["op1.operatorFilter.formantLevel", "op1.operatorFilter.formantQ2", "op1.operatorFilter.formant3Ratio", "op1.operatorFilter.formant3Level", "op1.operatorFilter.formant3Q"];
+            var untouched = new ActiveParameterSet([.. exact.Select(id => schema.Find(id)!)]);
+            Assert.Equal(patch.ComputeHash(), untouched.Apply(patch, untouched.ToVector(patch)).ComputeHash());
+
+            // Moving F2's ratio alone does not turn F3 on either, also where the default F3 follows F2 (7 x F1): the
+            // default is that of the patch the schema was built for.
+            PatchParameter ratio2 = schema.Find("op1.operatorFilter.formantRatio")!;
+            var withF2 = new ActiveParameterSet([ratio2, .. untouched.Parameters]);
+            double[] start = withF2.ToVector(patch);
+            start[0] = ratio2.Normalize(filter.FormantRatio * 1.05);
+            OperatorFilter movedF2 = withF2.Apply(patch, start).Operators[0].Filter!;
+            Assert.Equal(filter.FormantRatio * 1.05, movedF2.FormantRatio, 9);
+            Assert.Equal((1.0, 0.0, 0.0), (movedF2.Formant3Ratio, movedF2.Formant3Level, movedF2.Formant3Q));
+
+            // An actual move of an F3 value turns it on.
+            double[] moved = untouched.ToVector(patch);
+            moved[3] = 0.5;
+            Assert.True(untouched.Apply(patch, moved).Operators[0].Filter!.Formant3Level > 0.1);
+        }
     }
 
     [Fact]

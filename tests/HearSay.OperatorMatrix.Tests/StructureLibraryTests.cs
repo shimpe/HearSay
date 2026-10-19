@@ -116,7 +116,7 @@ public sealed class StructureLibraryTests
             StructureLibrary library = StructureLibrary.For(fmx6, 120, new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer(), directory);
 
             Assert.Single(Directory.GetFiles(directory, $"{fm7.Name}-v1-30.bin"));
-            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v4-120.bin"));
+            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v5-120.bin"));
             int filtered = 0;
             foreach ((int seed, long _) in library.Nearest(new byte[SpectralFingerprint.Length], 240))
             {
@@ -217,9 +217,9 @@ public sealed class StructureLibraryTests
     [Fact]
     public void Fmx6LibraryVersion_IsBumped_AndDoesNotReuseOldFormantSounds()
     {
-        // Version 4: the formant filters of the random patches got a third peak, so the sounds of versions 2 and 3
-        // (whose formant sounds were rendered with two peaks) must not be read for it.
-        Assert.Equal((4, (int?)null), (Fmx6.StructureLibraryVersion, Fmx6.StructureLibraryReusedVersion));
+        // Version 5: every formant filter of the random patches has a third peak (version 4 gave one to half of them),
+        // so the sounds of versions 2 to 4 (whose formant sounds differ) must not be read for it.
+        Assert.Equal((5, (int?)null), (Fmx6.StructureLibraryVersion, Fmx6.StructureLibraryReusedVersion));
 
         string directory = Path.Combine(Path.GetTempPath(), "hearsay-library-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -228,11 +228,12 @@ public sealed class StructureLibraryTests
             SynthesisProfile profile = Fmx6 with { Name = "test-fmx6-" + Guid.NewGuid().ToString("N") };
             WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 2, StructureLibraryReusedVersion = null }, 40, directory), 2, 40, marker: 7);
             WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 3, StructureLibraryReusedVersion = null }, 40, directory), 3, 40, marker: 9);
+            WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 4, StructureLibraryReusedVersion = null }, 40, directory), 4, 40, marker: 11);
 
-            // Every sound of version 4 is rendered, none is read from the old files.
+            // Every sound of version 5 is rendered, none is read from the old files.
             Assert.False(StructureLibrary.IsAvailable(profile, 40, directory));
             Assert.Equal(StructureLibrary.CountFor(profile.Capabilities, 40), StructureLibrary.SoundsToRender(profile, 40, directory));
-            Assert.EndsWith("-v4-40.bin", StructureLibrary.FileOf(profile, 40, directory), StringComparison.Ordinal);
+            Assert.EndsWith("-v5-40.bin", StructureLibrary.FileOf(profile, 40, directory), StringComparison.Ordinal);
         }
         finally
         {

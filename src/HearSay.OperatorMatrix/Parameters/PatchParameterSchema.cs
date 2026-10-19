@@ -19,6 +19,12 @@ public sealed class PatchParameterSchema
     private const double MinRelativeQ = 0.125;
     private const double MaxRelativeQ = 8.0;
 
+    /// <summary>
+    /// The smallest level of a third formant in the search, relative to F1 (-60 dB). As roughness never reaches 0
+    /// either, the search can turn F3 down but not off, so that its ratio and Q never become directions that do nothing.
+    /// </summary>
+    public const double MinFormant3Level = 0.001;
+
     private readonly Dictionary<string, PatchParameter> _byId;
 
     private PatchParameterSchema(List<PatchParameter> parameters)
@@ -127,16 +133,43 @@ public sealed class PatchParameterSchema
                 double lowHz = Math.Max(10.0, Math.Min(80.0, present?.FixedHz ?? 80.0));
                 double highHz = Math.Min(20000.0, Math.Max(8000.0, present?.FixedHz ?? 8000.0));
                 double highRatio = Math.Min(OperatorFilter.MaxFormantRatio, Math.Max(8.0, present?.FormantRatio ?? 8.0));
-                double highRatio3 = Math.Min(OperatorFilter.MaxFormantRatio, Math.Max(16.0, present?.Formant3Ratio ?? 16.0));
 
                 // A formant filter's peaks can be much narrower than the other filters' resonance.
                 double highQ = present?.Type == OperatorFilterType.Formant ? OperatorFilter.MaxFormantQ : OperatorFilter.MaxQ;
                 static double MaxQOf(OperatorFilter f) => f.Type == OperatorFilterType.Formant ? OperatorFilter.MaxFormantQ : OperatorFilter.MaxQ;
                 static bool IsFormant(OperatorFilter f) => f.Type == OperatorFilterType.Formant;
 
-                // A third formant is searched once a prior, a mutation or the library has given the filter one: while
-                // it is off, its ratio and Q would be directions that do nothing.
-                static bool HasF3(OperatorFilter f) => IsFormant(f) && f.Formant3Level > 0.0;
+                // F3 is searched on every formant filter, as F2 is; only F4 and F5 are left to the editor. A filter
+                // with F3 off is read as the default F3 (DefaultFormant3Ratio of this patch's F2, the level floor and
+                // the shared Q), and writing back exactly that default leaves F3 off, as an own Q of "same as Q" is
+                // kept: reading and writing back an untouched two-peak patch changes nothing. The default is taken
+                // from the patch the schema is built for, so that moving F2 does not move it. Moving any F3 value turns
+                // F3 on, with the defaults for the other two; the level then stays at or above the floor.
+                double defaultRatio3 = present is { Type: OperatorFilterType.Formant } ? DefaultFormant3Ratio(present) : 3.0;
+                double highRatio3 = Math.Min(OperatorFilter.MaxFormantRatio, Math.Max(16.0, present is { Formant3Level: > 0.0 } ? present.Formant3Ratio : defaultRatio3));
+                double lowLevel3 = present is { Type: OperatorFilterType.Formant, Formant3Level: > 0.0 } on ? Math.Min(MinFormant3Level, on.Formant3Level) : MinFormant3Level;
+                double Ratio3(OperatorFilter f) => f.Formant3Level > 0.0 ? f.Formant3Ratio : defaultRatio3;
+                double Level3(OperatorFilter f) => f.Formant3Level > 0.0 ? f.Formant3Level : MinFormant3Level;
+                static double RelativeQ3(OperatorFilter f) => f.Formant3Level > 0.0 ? RelativeQ(f.Formant3Q, f.Q) : 1.0;
+                OperatorFilter WithF3(OperatorFilter f, double value, Func<OperatorFilter, double> read, Func<OperatorFilter, OperatorFilter> write)
+                {
+                    if (!IsFormant(f))
+                    {
+                        return f;
+                    }
+
+                    if (f.Formant3Level <= 0.0)
+                    {
+                        if (Math.Abs(value - read(f)) <= 1e-9 * Math.Abs(read(f)))
+                        {
+                            return f;
+                        }
+
+                        f = f with { Formant3Ratio = defaultRatio3, Formant3Level = MinFormant3Level, Formant3Q = 0.0 };
+                    }
+
+                    return write(f);
+                }
 
                 // The own Qs of F2 and F3 are searched relative to the filter's Q: the coordinate is own Q / Q, and 1
                 // means "same as Q" (stored as 0). Moving Q alone then moves a peak without an own Q with it, as
@@ -152,9 +185,9 @@ public sealed class PatchParameterSchema
                 list.Add(Smooth(filterId + ".formantRatio", filterGroup, 1.0, highRatio, ParameterTransforms.Logarithmic, p => Read(p, static f => f.FormantRatio, 2.0), (p, v) => WithFilter(p, f => f with { FormantRatio = Math.Clamp(v, 1.0, highRatio) }), p => Has(p, IsFormant)));
                 list.Add(Smooth(filterId + ".formantLevel", filterGroup, 0.0, 1.0, ParameterTransforms.Linear, p => Read(p, static f => f.FormantLevel, 0.5), (p, v) => WithFilter(p, f => f with { FormantLevel = Math.Clamp(v, 0.0, 1.0) }), p => Has(p, IsFormant)));
                 list.Add(Smooth(filterId + ".formantQ2", filterGroup, lowQ2, highQ2, ParameterTransforms.Logarithmic, p => Read(p, static f => RelativeQ(f.FormantQ2, f.Q), 1.0), (p, v) => WithFilter(p, f => f with { FormantQ2 = OwnQ(v, f.Q) }), p => Has(p, IsFormant)));
-                list.Add(Smooth(filterId + ".formant3Ratio", filterGroup, 1.0, highRatio3, ParameterTransforms.Logarithmic, p => Read(p, static f => f.Formant3Ratio, 4.0), (p, v) => WithFilter(p, f => f with { Formant3Ratio = Math.Clamp(v, 1.0, highRatio3) }), p => Has(p, HasF3)));
-                list.Add(Smooth(filterId + ".formant3Level", filterGroup, 0.0, 1.0, ParameterTransforms.Linear, p => Read(p, static f => f.Formant3Level, 0.3), (p, v) => WithFilter(p, f => f with { Formant3Level = Math.Clamp(v, 0.0, 1.0) }), p => Has(p, HasF3)));
-                list.Add(Smooth(filterId + ".formant3Q", filterGroup, lowQ3, highQ3, ParameterTransforms.Logarithmic, p => Read(p, static f => RelativeQ(f.Formant3Q, f.Q), 1.0), (p, v) => WithFilter(p, f => f with { Formant3Q = OwnQ(v, f.Q) }), p => Has(p, HasF3)));
+                list.Add(Smooth(filterId + ".formant3Ratio", filterGroup, 1.0, highRatio3, ParameterTransforms.Logarithmic, p => Read(p, Ratio3, defaultRatio3), (p, v) => WithFilter(p, f => WithF3(f, v, Ratio3, g => g with { Formant3Ratio = Math.Clamp(v, 1.0, highRatio3) })), p => Has(p, IsFormant)));
+                list.Add(Smooth(filterId + ".formant3Level", filterGroup, lowLevel3, 1.0, ParameterTransforms.Linear, p => Read(p, Level3, MinFormant3Level), (p, v) => WithFilter(p, f => WithF3(f, v, Level3, g => g with { Formant3Level = Math.Clamp(v, lowLevel3, 1.0) })), p => Has(p, IsFormant)));
+                list.Add(Smooth(filterId + ".formant3Q", filterGroup, lowQ3, highQ3, ParameterTransforms.Logarithmic, p => Read(p, RelativeQ3, 1.0), (p, v) => WithFilter(p, f => WithF3(f, v, RelativeQ3, g => g with { Formant3Q = OwnQ(v, g.Q) })), p => Has(p, IsFormant)));
                 list.Add(Smooth(filterId + ".peakGain", filterGroup, -24.0, 24.0, ParameterTransforms.Linear, p => Read(p, static f => f.PeakGainDb, 6.0), (p, v) => WithFilter(p, f => f with { PeakGainDb = Math.Clamp(v, -24.0, 24.0) }), p => Has(p, static f => f.Type == OperatorFilterType.Peak)));
                 list.Add(Smooth(filterId + ".octaves", filterGroup, -4.0, 4.0, ParameterTransforms.Linear, p => Read(p, static f => f.EnvelopeOctaves, 0.0), (p, v) => WithFilter(p, f => f with { EnvelopeOctaves = Math.Clamp(v, -4.0, 4.0) }), p => Has(p, static f => f.Envelope is not null)));
                 if (patch.Operators[op].Filter?.Envelope is { } filterShape)
@@ -293,6 +326,18 @@ public sealed class PatchParameterSchema
         }
 
         return new PatchParameterSchema(list);
+    }
+
+    /// <summary>
+    /// The ratio to F1 of the third formant the search starts from on a formant filter without one: 3 (F3 at three
+    /// times F1), or 1.4 times F2's ratio when that is higher, so that it lies above F2 (the third formants of the
+    /// formant table are 1.4 to 3.2 times as high as their second); at most the model's 32.
+    /// </summary>
+    /// <param name="filter">A formant filter.</param>
+    public static double DefaultFormant3Ratio(OperatorFilter filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        return Math.Min(OperatorFilter.MaxFormantRatio, Math.Max(3.0, 1.4 * filter.FormantRatio));
     }
 
     /// <summary>True when an audible operator plays the shared noise or is roughened by it.</summary>

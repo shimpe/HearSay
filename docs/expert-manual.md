@@ -126,13 +126,16 @@ sample-exactly like the UGen.
 | low-pass, high-pass (2 or 4 poles) | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
 | band-pass, notch | `CutoffRatio` x the note, 0.25..64 | `Q` 0.5..20 |
 | peak | `FixedHz` 80..8000 Hz | `Q` 0.5..20, `PeakGainDb` -24..24 |
-| formant | F1 = `FixedHz` 80..8000 Hz, F2 = F1 x `FormantRatio` 1..8 by search (up to 32 by hand or if the patch already has more), F3 = F1 x `Formant3Ratio` 1..16 by search (32 by hand) | `Q` 0.5..50 (F1, and every formant without a Q of its own), F2: `FormantLevel` 0..1 and its own Q; F3, once it is on: `Formant3Level` 0..1 and its own Q |
+| formant | F1 = `FixedHz` 80..8000 Hz, F2 = F1 x `FormantRatio` 1..8 by search (up to 32 by hand or if the patch already has more), F3 = F1 x `Formant3Ratio` 1..16 by search (32 by hand) | `Q` 0.5..50 (F1, and every formant without a Q of its own), F2: `FormantLevel` 0..1 and its own Q; F3: `Formant3Level` 0.001..1 by search (0, off, by hand) and its own Q |
 
 The formant filter has up to five formants, each a band-pass peak of unity gain: F1 in hertz (`FixedHz`) with the
 filter's `Q`, and F2..F5 at a ratio to F1 (1..32 by hand; the search keeps F2 within 8 and F3 within 16, so that moving F1 moves the whole vowel), each with a level
 relative to F1 (0..1; F3, F4 and F5 at 0 are off) and its own Q (0.5..50; 0, the default, plays at the filter's `Q`).
-The search uses F1–F3: it gives F2 its own Q and F3 its ratio, level and own Q (both own Qs relative to `Q`, so that
-moving `Q` alone moves a formant without a Q of its own with it), and never sets F4 or F5. Those come from the vowel
+The search uses F1–F3 on every formant filter: it gives F2 its own Q and F3 its ratio, level and own Q (both own Qs
+relative to `Q`, so that moving `Q` alone moves a formant without a Q of its own with it), and never sets F4 or F5. On
+a filter with F3 off it starts from a default F3 (3 x F1, or 1.4 x F2 when that is higher, at the level floor 0.001
+with the filter's `Q`); the filter stays as it is until the search moves one of those values, and from then on F3's
+level stays at 0.001 or more. Those come from the vowel
 presets of the Studio editor (section 9, *Editing a sound*) or from typing them. A formant filter with only F1 and F2
 at one Q exports the filter rows of before; with an own Q on F2 or F3..F5 on, its rows carry the extra formants and
 need the FMX6 plugin with five formants (the header comment of the export says so).
@@ -144,18 +147,22 @@ type and the number of poles are structural: the search changes them only by mut
 
 Where filters come from:
 
-- **Priors.** The formant prior fits a smooth envelope through the harmonic levels, compared with a sawtooth, and
-  proposes a saw or pulse carrier through a formant filter on its three strongest maxima, F1, F2 and F3 by frequency (and variants
-  with the two strongest, with one peak and with F1 + F3), each peak with the Q of its width; its accuracy is about
-  half the fundamental. The subtractive prior proposes a saw or square through a
+- **Priors.** The formant prior reads the target's formants from the harmonic levels, compared with a sawtooth,
+  without smoothing them: the lowest three maxima (at most 36 dB below the strongest), F1, F2 and F3, each with a
+  resonance fitted through its harmonic and the two next to it, which gives its centre between the harmonics and its
+  own width (Q up to 50). It proposes a saw or pulse carrier through a formant filter on them (and variants with the
+  two strongest, with one peak and with F1 + F3); every one of these filters has F3, the heard one or the search's
+  default. Formants less than about two harmonics apart merge into one peak, so at high notes (a soprano at 220 Hz
+  and up) F1 and F2 of "a", "o" and "u" are read as one. The subtractive prior proposes a saw or square through a
   low-pass at the roll-off of the harmonics, 4 poles when they fall 18 dB per octave or faster, with a sweep when the
   brightness moves during the note.
 - **Mutations.** Screened like the other structural steps: add a low-pass, high-pass, band-pass, peak or formant
-  filter with starting values from the target; remove a filter; switch 2 and 4 poles or low-pass and band-pass; add
-  the sweep read from the target's brightness.
-- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 4 for FMX6
-  only (half of its formant filters have a third formant), so it is rebuilt once after upgrading; the FM7 and Nome6
-  libraries are kept.
+  filter with starting values from the target; remove a filter; switch 2 and 4 poles or low-pass and band-pass; move
+  a formant filter's F3 to the target's third formant (when that lies above the filter's F2); add the sweep read from
+  the target's brightness.
+- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 5 for FMX6
+  only (every one of its formant filters has a third formant), so it is rebuilt once after upgrading; the FM7 and
+  Nome6 libraries are kept.
 
 A filter adds 0.05 to the complexity and its envelope another 0.03, so between two patches that sound alike the one
 without a filter wins. A patch without filters exports exactly as before and runs on FMX6 builds without operator

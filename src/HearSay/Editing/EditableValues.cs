@@ -227,14 +227,14 @@ public static class EditableValues
                 useSchema);
 
         // A formant F2..F5 (n = 2..5): its ratio to F1, its level and its own Q. The model's ranges, not the search's:
-        // the search keeps the ratios lower, and has the own Qs of F2 and F3 relative to Q (own Q / Q) where the editor
-        // shows the Q itself. An own Q that is "same as Q" (0) shows the Q the formant plays at; setting it stores it.
+        // the search keeps the ratios lower, keeps F3's level above a floor where the editor can turn it off (0), and has
+        // the own Qs of F2 and F3 relative to Q (own Q / Q) where the editor shows the Q itself. An own Q that is "same as Q" (0) shows the Q the formant plays at; setting it stores it.
         void AddFormant(int n, string ratioName, string levelName, string qName, Func<OperatorFilter, FormantPeak> get, Func<OperatorFilter, FormantPeak, OperatorFilter> set)
         {
             string label = "F" + n.ToString(CultureInfo.InvariantCulture);
             static bool IsFormant(OperatorFilter f) => f.Type == OperatorFilterType.Formant;
             AddFilter(ratioName, label + " ratio", "", (1.0, OperatorFilter.MaxFormantRatio, true), IsFormant, f => get(f).Ratio, (f, v) => set(f, get(f) with { Ratio = v }), useSchema: false);
-            AddFilter(levelName, label + " level", "", (0.0, 1.0, false), IsFormant, f => get(f).Level, (f, v) => set(f, get(f) with { Level = v }));
+            AddFilter(levelName, label + " level", "", (0.0, 1.0, false), IsFormant, f => get(f).Level, (f, v) => set(f, get(f) with { Level = v }), useSchema: false);
             AddFilter(qName, label + " Q", "", (OperatorFilter.MinQ, OperatorFilter.MaxFormantQ, true), IsFormant, f => get(f).Q > 0.0 ? get(f).Q : f.Q, (f, v) => set(f, get(f) with { Q = v }), useSchema: false);
         }
 

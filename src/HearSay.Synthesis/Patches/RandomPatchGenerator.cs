@@ -238,18 +238,14 @@ public sealed class RandomPatchGenerator
     }
 
     /// <summary>
-    /// A formant filter: F1 and F2 as always, and in half the cases a third peak, 1.2 to 2.5 times as high as F2, at
-    /// 0.1 to 0.6 of F1 and with its own Q of 8 to 30, as the third formants of sung vowels have. The draws for the
-    /// third peak come after those of the first two, and only here, so every other filter draws as before.
+    /// A formant filter: F1 and F2 as always, and a third peak, 1.2 to 2.5 times as high as F2, at 0.1 to 0.6 of F1 and
+    /// with its own Q of 8 to 30, as the third formants of sung vowels have; the search uses F1 to F3 on every formant
+    /// filter. The draws for the third peak come after those of the first two, and only here, so every other filter
+    /// draws as before.
     /// </summary>
     private static OperatorFilter RandomFormant(Random random)
     {
         OperatorFilter filter = OperatorFilter.FormantAt(Round(250 + (random.NextDouble() * 650)), Round(1.5 + (random.NextDouble() * 2.5)), Round(0.3 + (random.NextDouble() * 0.7)), Round(4 + (random.NextDouble() * 8)));
-        if (random.NextDouble() >= 0.5)
-        {
-            return filter;
-        }
-
         return filter with
         {
             Formant3Ratio = Round(filter.FormantRatio * (1.2 + (random.NextDouble() * 1.3))),

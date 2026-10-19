@@ -72,11 +72,11 @@ public sealed class FilterTuningTests
         ActiveParameterSet joint = Assert.Single(optimizer.SelectSubsets(patch, ContinuousStage.Joint, tuningMatters: false));
         Assert.Contains(joint.Parameters, static p => p.Id == "op2.operatorFilter.formantQ2");
 
-        // The third formant's values are searched only while it is on, and a peak filter's gain is.
+        // The third formant's values are searched on a formant filter with F3 off as well, and a peak filter's gain is.
         OperatorMatrixPatch twoPeaks = patch.WithOperator(1, patch.Operators[1] with { Filter = patch.Operators[1].Filter! with { Formant3Level = 0.0 } });
         string[] withoutF3 = [.. optimizer.SelectSubsets(twoPeaks, ContinuousStage.Spectral, tuningMatters: false).SelectMany(static s => s.Parameters).Select(static p => p.Id)];
         Assert.Contains("op2.operatorFilter.formantQ2", withoutF3);
-        Assert.DoesNotContain(withoutF3, static id => id.Contains(".formant3", StringComparison.Ordinal));
+        Assert.All(FormantIds, id => Assert.Contains(id, withoutF3));
         OperatorMatrixPatch peak = patch.WithOperator(0, patch.Operators[0] with { Filter = OperatorFilter.PeakAt(1200, 6, 2) });
         Assert.Contains("op1.operatorFilter.peakGain", optimizer.SelectSubsets(peak, ContinuousStage.Spectral, tuningMatters: false).SelectMany(static s => s.Parameters).Select(static p => p.Id));
     }

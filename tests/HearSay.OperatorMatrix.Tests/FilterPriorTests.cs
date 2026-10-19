@@ -1,4 +1,5 @@
 using HearSay.Analysis;
+using HearSay.OperatorMatrix.Parameters;
 using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Synthesis.Fmx6Compatible.Rendering;
@@ -41,7 +42,7 @@ public sealed class FilterPriorTests
     {
         const double f0 = 110.0, f1 = 400.0, ratio2 = 3.0, ratio3 = 7.0;
         TargetAnalysis analysis = Analyze(Saw(OperatorFilter.Formants(f1, 8, new(ratio2, 0.6, 0), new(ratio3, 0.5, 0))), f0);
-        Assert.Equal(3, FilterPriors.Peaks(analysis, 3).Count);
+        Assert.Equal(3, FilterPriors.FormantPeaks(analysis, 3).Count);
         OperatorFilter found = FilterPriors.Formant(analysis)!;
 
         // F1 is the lowest peak; F2 and F3 are ratios to it, with levels relative to it. F1 and F2 are within half the
@@ -62,7 +63,7 @@ public sealed class FilterPriorTests
         // The prior, the provider and the mutation all offer it.
         IReadOnlyList<PatchHypothesis> hypotheses = new FormantPriorProvider().Generate(analysis, Fmx6);
         Assert.Equal(found, hypotheses[0].Patch.Operators[0].Filter);
-        Assert.Contains(hypotheses, static h => h.Patch.Operators[0].Filter!.Formant3Level == 0.0 && h.Patch.Operators[0].Filter!.FormantLevel > 0.0);
+        Assert.Contains(hypotheses, static h => h.Patch.Operators[0].Filter!.Formant3Level == PatchParameterSchema.MinFormant3Level && h.Patch.Operators[0].Filter!.FormantLevel > 0.0);
         Assert.All(hypotheses, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, Fmx6).IsCompatible));
         OperatorMatrixPatch plain = Saw(null);
         TopologyMutation formant = Assert.Single(TopologyMutator.FilterVariants(plain, analysis, [0]), static m => m.Description == "OP1 filter formant");
@@ -77,6 +78,11 @@ public sealed class FilterPriorTests
         Assert.Equal(found.Formant3Level, added.Formant3Level);
         Assert.Equal(found.Formant3Q > 0 ? found.Formant3Q : found.Q, added.Formant3Q > 0 ? added.Formant3Q : added.Q);
         Assert.DoesNotContain(TopologyMutator.FilterVariants(third.Patch, analysis, [0]), static m => m.Description == "OP1 filter third formant");
+
+        // A filter whose F3 is on elsewhere has it moved to the heard third peak.
+        OperatorMatrixPatch elsewhere = Saw(OperatorFilter.Formants(380, 8, new(3.1, 0.6, 0), new(4.0, 0.05, 30)));
+        OperatorFilter moved = Assert.Single(TopologyMutator.FilterVariants(elsewhere, analysis, [0]), static m => m.Description == "OP1 filter third formant").Patch.Operators[0].Filter!;
+        Assert.Equal(added, moved);
     }
 
     [Fact]
@@ -97,15 +103,145 @@ public sealed class FilterPriorTests
     }
 
     [Fact]
-    public void FormantPrior_TwoPeaks_LeaveF3Off()
+    public void FormantPrior_TwoPeaks_GiveTheDefaultF3()
     {
         TargetAnalysis analysis = Analyze(Saw(OperatorFilter.FormantAt(700, 1.7, 0.6, 8)), 110);
-        Assert.Equal(2, FilterPriors.Peaks(analysis, 3).Count);
+        Assert.Equal(2, FilterPriors.FormantPeaks(analysis, 3).Count);
         OperatorFilter found = FilterPriors.Formant(analysis)!;
         Assert.True(found.FormantLevel > 0.0);
-        Assert.Equal((1.0, 0.0, 0.0), (found.Formant3Ratio, found.Formant3Level, found.Formant3Q));
+
+        // No third peak is heard: F3 is the search's default, 3 x F1 (above F2 here) at the level floor, same Q.
+        Assert.Equal((PatchParameterSchema.DefaultFormant3Ratio(found), PatchParameterSchema.MinFormant3Level, 0.0), (found.Formant3Ratio, found.Formant3Level, found.Formant3Q));
+        Assert.True(found.Formant3Ratio > found.FormantRatio);
         Assert.Equal((0.0, 0.0), (found.Formant4Level, found.Formant5Level));
         Assert.DoesNotContain(TopologyMutator.FilterVariants(Saw(OperatorFilter.FormantAt(700, 1.7, 0.6, 8)), analysis, [0]), static m => m.Description == "OP1 filter third formant");
+    }
+
+    [Fact]
+    public void FormantHypotheses_AlwaysHaveF3()
+    {
+        // Three, two and one heard peaks: every formant hypothesis has F3 on, the heard third peak where there is one
+        // (the first hypothesis) and the default otherwise; F4 and F5 stay off.
+        foreach (OperatorFilter hidden in new[] { OperatorFilter.Formants(400, 8, new(3.0, 0.6, 0), new(7.0, 0.5, 0)), OperatorFilter.FormantAt(700, 1.7, 0.6, 8), OperatorFilter.FormantAt(700, 2.0, 0.0, 8) })
+        {
+            TargetAnalysis analysis = Analyze(Saw(hidden), 110);
+            IReadOnlyList<SpectralPeak> peaks = FilterPriors.FormantPeaks(analysis, 3);
+            IReadOnlyList<PatchHypothesis> hypotheses = new FormantPriorProvider().Generate(analysis, Fmx6);
+            Assert.NotEmpty(hypotheses);
+            Assert.All(hypotheses, h =>
+            {
+                OperatorFilter f = h.Patch.Operators[0].Filter!;
+                Assert.True(f.Formant3Level >= PatchParameterSchema.MinFormant3Level, $"{h.Origin}: F3 level {f.Formant3Level}");
+                Assert.True(f.Formant3Ratio > f.FormantRatio, $"{h.Origin}: F3 ratio {f.Formant3Ratio}, F2 ratio {f.FormantRatio}");
+                Assert.Equal((0.0, 0.0), (f.Formant4Level, f.Formant5Level));
+                Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, Fmx6).IsCompatible);
+            });
+
+            OperatorFilter first = hypotheses[0].Patch.Operators[0].Filter!;
+            if (peaks.Count == 3)
+            {
+                double heard = peaks.Max(static p => p.Hz);
+                Assert.Equal(heard, first.FixedHz * first.Formant3Ratio, 6);
+                Assert.True(first.Formant3Level > PatchParameterSchema.MinFormant3Level);
+            }
+            else
+            {
+                Assert.Equal(PatchParameterSchema.MinFormant3Level, first.Formant3Level);
+            }
+        }
+
+        // The mutation that gives an unfiltered operator a formant filter gives it F3 as well.
+        TargetAnalysis two = Analyze(Saw(OperatorFilter.FormantAt(700, 1.7, 0.6, 8)), 110);
+        TopologyMutation formant = Assert.Single(TopologyMutator.FilterVariants(Saw(null), two, [0]), static m => m.Description == "OP1 filter formant");
+        Assert.True(formant.Patch.Operators[0].Filter!.Formant3Level > 0.0);
+    }
+
+    /// <summary>
+    /// Rows of the spec's Csound formant table (TABLE III): F1..F5 in hertz, their levels in dB and their bandwidths
+    /// in hertz.
+    /// </summary>
+    private static readonly Dictionary<string, (double[] Hz, double[] Db, double[] Bw)> Vowels = new()
+    {
+        ["bass a"] = ([600, 1040, 2250, 2450, 2750], [0, -7, -9, -9, -20], [60, 70, 110, 120, 130]),
+        ["soprano e"] = ([350, 2000, 2800, 3600, 4950], [0, -20, -15, -40, -56], [60, 100, 120, 150, 200]),
+        ["soprano i"] = ([270, 2140, 2950, 3900, 4950], [0, -12, -26, -26, -44], [60, 90, 100, 120, 120]),
+    };
+
+    /// <summary>
+    /// A vowel-like target made without HearSay's filter, as the benchmark made them: 1/n harmonics of the note up to
+    /// 20 kHz, each weighted by the sum of the table's five resonances 10^(dB/20) / sqrt(1 + ((f² - F²) / (f·BW))²);
+    /// 1 s at 48 kHz with a 20 ms attack and a 100 ms release, peak 0.7. Analysed as the search analyses a target.
+    /// </summary>
+    private static TargetAnalysis Vowel(string name, double f0)
+    {
+        const int rate = 48000;
+        (double[] hz, double[] db, double[] bw) = Vowels[name];
+        var samples = new double[rate];
+        for (int n = 1; n * f0 < 20000.0; n++)
+        {
+            double f = n * f0, weight = 0.0;
+            for (int k = 0; k < hz.Length; k++)
+            {
+                double x = ((f * f) - (hz[k] * hz[k])) / (f * bw[k]);
+                weight += Math.Pow(10.0, db[k] / 20.0) / Math.Sqrt(1.0 + (x * x));
+            }
+
+            double amplitude = weight / n, step = 2.0 * Math.PI * f / rate;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                samples[i] += amplitude * Math.Sin(step * i);
+            }
+        }
+
+        double peak = samples.Max(Math.Abs);
+        var output = new float[rate];
+        for (int i = 0; i < rate; i++)
+        {
+            double t = (double)i / rate;
+            double envelope = Math.Min(1.0, Math.Min(t / 0.02, (1.0 - t) / 0.1));
+            output[i] = (float)(0.7 * envelope * samples[i] / peak);
+        }
+
+        return new TargetAnalyzer().Analyze(new AudioTarget(output, rate, f0));
+    }
+
+    [Fact]
+    public void FormantPeaks_OfVowelTargets_AreWhereTheTableSays()
+    {
+        // Bass "a" at 130 Hz: harmonics close enough to read all three formants within 15 %, and F3's width: its Q
+        // within a factor 2 of the table's 2250 / 110. (Read: 609, 1024 and 2423 Hz, F3's Q 12.5; F3 is pulled up by
+        // F4, 200 Hz above it and as strong.)
+        TargetAnalysis bassA = Vowel("bass a", 130);
+        SpectralPeak[] bass = [.. FilterPriors.FormantPeaks(bassA, 3).OrderBy(static p => p.Hz)];
+        Assert.Equal(3, bass.Length);
+        Assert.All(new[] { 600.0, 1040.0, 2250.0 }.Zip(bass), static pair => Assert.InRange(pair.Second.Hz, 0.85 * pair.First, 1.15 * pair.First));
+        Assert.InRange(bass[2].Q, 2250.0 / 110.0 / 2.0, 2.0 * 2250.0 / 110.0);
+
+        // The formant filter read from it has three peaks at those places, F3 with its own Q.
+        OperatorFilter filter = FilterPriors.Formant(bassA)!;
+        Assert.InRange(filter.FixedHz * filter.Formant3Ratio, 0.85 * 2250.0, 1.15 * 2250.0);
+        Assert.True(filter.Formant3Level > 0.1, $"F3 level {filter.Formant3Level}");
+        Assert.True(filter.Formant3Q > 0.0);
+
+        // The old reading of the peaks, which other priors still use, merges and misses formants here (618, 2335 Hz).
+        Assert.True(FilterPriors.Peaks(bassA, 3).Count < 3);
+
+        // A soprano at 220 Hz has a harmonic only every 220 Hz, which limits what can be read. Where the formants are
+        // several harmonics apart, as in "e", all three are found (read: 351, 1983, 2803 Hz), and F3's Q within a
+        // factor 2.5 of the table's (read: 12.9 for 23.3).
+        SpectralPeak[] e = [.. FilterPriors.FormantPeaks(Vowel("soprano e", 220), 3).OrderBy(static p => p.Hz)];
+        Assert.Equal(3, e.Length);
+        Assert.All(new[] { 350.0, 2000.0, 2800.0 }.Zip(e), static pair => Assert.InRange(pair.Second.Hz, 0.85 * pair.First, 1.15 * pair.First));
+        Assert.InRange(e[2].Q, 2800.0 / 120.0 / 2.5, 2.5 * 2800.0 / 120.0);
+
+        // In "i" F1 (270 Hz) is read at the fundamental, the lowest harmonic (within half the fundamental), and F2
+        // within 15 % (read: 220, 2149 Hz); F3, 26 dB down between the skirts of F2 and F4, is not resolved, so the
+        // third peak read is F4 (3907 Hz). Where F1 and F2 are less than two harmonics apart (soprano "a", "o", "u")
+        // they merge into one peak.
+        SpectralPeak[] i = [.. FilterPriors.FormantPeaks(Vowel("soprano i", 220), 3).OrderBy(static p => p.Hz)];
+        Assert.True(i.Length >= 2);
+        Assert.InRange(i[0].Hz, 270.0 - 110.0, 270.0 + 110.0);
+        Assert.InRange(i[1].Hz, 0.85 * 2140.0, 1.15 * 2140.0);
     }
 
     [Fact]

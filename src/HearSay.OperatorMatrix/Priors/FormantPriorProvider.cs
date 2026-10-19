@@ -6,9 +6,10 @@ namespace HearSay.OperatorMatrix.Priors;
 
 /// <summary>
 /// Hypotheses for voice-like targets on profiles with operator filters: a rich carrier (saw, or a pulse) through a
-/// formant filter whose peaks are read from the spectral envelope (<see cref="FilterPriors"/>): with three peaks (F1 to
-/// F3) when there are three, with the two strongest, with the strongest alone, and with the first and the third when
-/// there are three.
+/// formant filter whose peaks are the target's formants (<see cref="FilterPriors.FormantPeaks"/>): with three peaks (F1
+/// to F3) when there are three, with the two strongest, with the strongest alone, and with the first and the third when
+/// there are three. Every one of these filters has F3, as the search tunes F1 to F3 on every formant filter: the heard
+/// third peak in the first, the search's default (at the level floor) in the others.
 /// </summary>
 public sealed class FormantPriorProvider : ISynthesisPriorProvider
 {
@@ -26,7 +27,7 @@ public sealed class FormantPriorProvider : ISynthesisPriorProvider
             return hypotheses;
         }
 
-        IReadOnlyList<SpectralPeak> peaks = FilterPriors.Peaks(analysis, 3);
+        IReadOnlyList<SpectralPeak> peaks = FilterPriors.FormantPeaks(analysis, 3);
         if (peaks.Count == 0)
         {
             return hypotheses;
@@ -40,7 +41,7 @@ public sealed class FormantPriorProvider : ISynthesisPriorProvider
             filters.Add((three, FormattableString.Invariant($"formants {three.FixedHz:0} Hz / {three.FixedHz * three.FormantRatio:0} Hz / {three.FixedHz * three.Formant3Ratio:0} Hz")));
         }
 
-        // The two strongest peaks, without a third.
+        // The two strongest peaks, with F3 at its default rather than on the third heard peak.
         if (peaks.Count >= 2)
         {
             OperatorFilter two = FilterPriors.Formant([peaks[0], peaks[1]])!;
