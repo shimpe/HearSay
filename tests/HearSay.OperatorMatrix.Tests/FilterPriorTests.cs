@@ -37,6 +37,61 @@ public sealed class FilterPriorTests
     }
 
     [Fact]
+    public void FormantPrior_ThreePeaks_GiveF3()
+    {
+        const double f0 = 110.0, f1 = 400.0, ratio2 = 3.0, ratio3 = 7.0;
+        TargetAnalysis analysis = Analyze(Saw(OperatorFilter.Formants(f1, 8, new(ratio2, 0.6, 0), new(ratio3, 0.5, 0))), f0);
+        Assert.Equal(3, FilterPriors.Peaks(analysis, 3).Count);
+        OperatorFilter found = FilterPriors.Formant(analysis)!;
+
+        // F1 is the lowest peak; F2 and F3 are ratios to it, with levels relative to it. F1 and F2 are within half the
+        // fundamental; F3 within the fundamental, as the envelope's grid of 1/24 octave is 80 Hz wide up there.
+        Assert.InRange(found.FixedHz, f1 - (f0 / 2), f1 + (f0 / 2));
+        Assert.InRange(found.FixedHz * found.FormantRatio, (f1 * ratio2) - (f0 / 2), (f1 * ratio2) + (f0 / 2));
+        Assert.InRange(found.FixedHz * found.Formant3Ratio, (f1 * ratio3) - f0, (f1 * ratio3) + f0);
+        Assert.InRange(found.FormantLevel, 0.2, 1.0);
+        Assert.InRange(found.Formant3Level, 0.1, 1.0);
+
+        // Own Qs from the peak widths, within the formant range; F4 and F5 are never set.
+        Assert.InRange(found.Q, 2.0, OperatorFilter.MaxFormantQ);
+        Assert.True(found.FormantQ2 == 0.0 || found.FormantQ2 is >= 2.0 and <= OperatorFilter.MaxFormantQ, $"Q2 {found.FormantQ2}");
+        Assert.True(found.Formant3Q == 0.0 || found.Formant3Q is >= 2.0 and <= OperatorFilter.MaxFormantQ, $"Q3 {found.Formant3Q}");
+        Assert.Equal((0.0, 0.0), (found.Formant4Level, found.Formant5Level));
+        Assert.Empty(Saw(found).Validate());
+
+        // The prior, the provider and the mutation all offer it.
+        IReadOnlyList<PatchHypothesis> hypotheses = new FormantPriorProvider().Generate(analysis, Fmx6);
+        Assert.Equal(found, hypotheses[0].Patch.Operators[0].Filter);
+        Assert.Contains(hypotheses, static h => h.Patch.Operators[0].Filter!.Formant3Level == 0.0 && h.Patch.Operators[0].Filter!.FormantLevel > 0.0);
+        Assert.All(hypotheses, h => Assert.True(PatchCompatibilityValidator.Instance.Validate(h.Patch, Fmx6).IsCompatible));
+        OperatorMatrixPatch plain = Saw(null);
+        TopologyMutation formant = Assert.Single(TopologyMutator.FilterVariants(plain, analysis, [0]), static m => m.Description == "OP1 filter formant");
+        Assert.Equal(found, formant.Patch.Operators[0].Filter);
+
+        // A two-formant filter can be given the target's third formant, as a ratio to its own F1.
+        OperatorMatrixPatch two = Saw(OperatorFilter.FormantAt(380, 3.1, 0.6, 8));
+        TopologyMutation third = Assert.Single(TopologyMutator.FilterVariants(two, analysis, [0]), static m => m.Description == "OP1 filter third formant");
+        OperatorFilter added = third.Patch.Operators[0].Filter!;
+        Assert.Equal((380.0, 3.1, 0.6, 8.0), (added.FixedHz, added.FormantRatio, added.FormantLevel, added.Q));
+        Assert.Equal(found.FixedHz * found.Formant3Ratio, 380.0 * added.Formant3Ratio, 6);
+        Assert.Equal(found.Formant3Level, added.Formant3Level);
+        Assert.Equal(found.Formant3Q > 0 ? found.Formant3Q : found.Q, added.Formant3Q > 0 ? added.Formant3Q : added.Q);
+        Assert.DoesNotContain(TopologyMutator.FilterVariants(third.Patch, analysis, [0]), static m => m.Description == "OP1 filter third formant");
+    }
+
+    [Fact]
+    public void FormantPrior_TwoPeaks_LeaveF3Off()
+    {
+        TargetAnalysis analysis = Analyze(Saw(OperatorFilter.FormantAt(700, 1.7, 0.6, 8)), 110);
+        Assert.Equal(2, FilterPriors.Peaks(analysis, 3).Count);
+        OperatorFilter found = FilterPriors.Formant(analysis)!;
+        Assert.True(found.FormantLevel > 0.0);
+        Assert.Equal((1.0, 0.0, 0.0), (found.Formant3Ratio, found.Formant3Level, found.Formant3Q));
+        Assert.Equal((0.0, 0.0), (found.Formant4Level, found.Formant5Level));
+        Assert.DoesNotContain(TopologyMutator.FilterVariants(Saw(OperatorFilter.FormantAt(700, 1.7, 0.6, 8)), analysis, [0]), static m => m.Description == "OP1 filter third formant");
+    }
+
+    [Fact]
     public void LowPass_FindsTheCutoff_AndTheSlope()
     {
         LowPassPrior? two = FilterPriors.LowPass(Analyze(Saw(OperatorFilter.LowPass(6)), 110));

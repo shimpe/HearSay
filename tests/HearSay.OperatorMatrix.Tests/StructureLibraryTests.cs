@@ -116,7 +116,7 @@ public sealed class StructureLibraryTests
             StructureLibrary library = StructureLibrary.For(fmx6, 120, new HearSay.Synthesis.Fmx6Compatible.Rendering.Fmx6CompatibleOperatorMatrixRenderer(), directory);
 
             Assert.Single(Directory.GetFiles(directory, $"{fm7.Name}-v1-30.bin"));
-            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v3-120.bin"));
+            Assert.Single(Directory.GetFiles(directory, $"{fmx6.Name}-v4-120.bin"));
             int filtered = 0;
             foreach ((int seed, long _) in library.Nearest(new byte[SpectralFingerprint.Length], 240))
             {
@@ -173,12 +173,71 @@ public sealed class StructureLibraryTests
         Assert.All(Enumerable.Range(0, 200), i => Assert.False(HasNoise(StructureLibrary.Generate(nome6, StructureLibrary.NoiseFreeFirstSeed + i))));
     }
 
+    /// <summary>A digest of the library patches of some seeds: every patch hash, in seed order.</summary>
+    private static string Digest(SynthesisCapabilities capabilities, IEnumerable<int> seeds, Func<OperatorMatrixPatch, bool>? keep = null)
+    {
+        var text = new System.Text.StringBuilder();
+        foreach (int seed in seeds)
+        {
+            OperatorMatrixPatch patch = StructureLibrary.Generate(capabilities, seed);
+            if (keep is null || keep(patch))
+            {
+                text.Append(seed).Append(':').Append(patch.ComputeHash()).Append('\n');
+            }
+        }
+
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text.ToString())));
+    }
+
+    [Fact]
+    public void Fm7AndNome6Patches_AreUnchangedByTheThirdFormant()
+    {
+        // Captured from the generator before formant filters got a third peak. The FM7 and Nome6 libraries are not
+        // rebuilt, so their patches must stay exactly what their seeds gave; so must every FMX6 patch without a
+        // formant filter, as the extra draws happen only on the formant path.
+        IEnumerable<int> regular = Enumerable.Range(50_000_000, 300);
+        IEnumerable<int> noiseFree = Enumerable.Range(StructureLibrary.NoiseFreeFirstSeed, 300);
+        static bool NoFormant(OperatorMatrixPatch p) => !p.Operators.Any(static o => o.Filter?.Type == OperatorFilterType.Formant);
+        Assert.Equal("B17C19F05BF7501AE11FABB7F34F0FD064E6318C90F5A4AD897D67074255846D", Digest(Fm7, regular));
+        Assert.Equal("6743B8E21EB980CAA9FBCEED879908E30D3DECAB07100EACFCD068D96C7E6DB3", Digest(SynthesisProfiles.SuperColliderNome6.Capabilities, regular));
+        Assert.Equal("7AAA85BB7F051AB4DEDAAB5DC9D251B2E0164D8460CD264C2C980ACADE40470C", Digest(SynthesisProfiles.SuperColliderNome6.Capabilities, noiseFree));
+
+        // 486 of these 600 FMX6 patches have no formant filter.
+        Assert.Equal(486, Enumerable.Range(50_000_000, 600).Count(s => NoFormant(StructureLibrary.Generate(Fmx6.Capabilities, s))));
+        Assert.Equal("9439CB8A856E6B71D55110BE6B36066237F314E38AD0F93D552FF36D57EF02C2", Digest(Fmx6.Capabilities, Enumerable.Range(50_000_000, 600), NoFormant));
+    }
+
     [Fact]
     public void ProfilesWithNoise_HaveANewLibraryVersionThatReusesTheOldOne()
     {
-        Assert.Equal((3, 2), (Fmx6.StructureLibraryVersion, Fmx6.StructureLibraryReusedVersion));
         Assert.Equal((2, 1), (SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion, SynthesisProfiles.SuperColliderNome6.StructureLibraryReusedVersion));
         Assert.Equal((1, (int?)null), (SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion, SynthesisProfiles.SuperColliderFm7.StructureLibraryReusedVersion));
+    }
+
+    [Fact]
+    public void Fmx6LibraryVersion_IsBumped_AndDoesNotReuseOldFormantSounds()
+    {
+        // Version 4: the formant filters of the random patches got a third peak, so the sounds of versions 2 and 3
+        // (whose formant sounds were rendered with two peaks) must not be read for it.
+        Assert.Equal((4, (int?)null), (Fmx6.StructureLibraryVersion, Fmx6.StructureLibraryReusedVersion));
+
+        string directory = Path.Combine(Path.GetTempPath(), "hearsay-library-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            SynthesisProfile profile = Fmx6 with { Name = "test-fmx6-" + Guid.NewGuid().ToString("N") };
+            WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 2, StructureLibraryReusedVersion = null }, 40, directory), 2, 40, marker: 7);
+            WriteOldLibrary(StructureLibrary.FileOf(profile with { StructureLibraryVersion = 3, StructureLibraryReusedVersion = null }, 40, directory), 3, 40, marker: 9);
+
+            // Every sound of version 4 is rendered, none is read from the old files.
+            Assert.False(StructureLibrary.IsAvailable(profile, 40, directory));
+            Assert.Equal(StructureLibrary.CountFor(profile.Capabilities, 40), StructureLibrary.SoundsToRender(profile, 40, directory));
+            Assert.EndsWith("-v4-40.bin", StructureLibrary.FileOf(profile, 40, directory), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     /// <summary>Writes a library file of an older version by hand: every fingerprint byte is <paramref name="marker"/>.</summary>
@@ -203,7 +262,8 @@ public sealed class StructureLibraryTests
         Directory.CreateDirectory(directory);
         try
         {
-            SynthesisProfile profile = Fmx6 with { Name = "test-fmx6-" + Guid.NewGuid().ToString("N") };
+            // The reuse as FMX6 version 3 had it (Nome6 still does): the sounds of version 2 are the regular ones of 3.
+            SynthesisProfile profile = Fmx6 with { Name = "test-fmx6-" + Guid.NewGuid().ToString("N"), StructureLibraryVersion = 3, StructureLibraryReusedVersion = 2 };
             SynthesisProfile old = profile with { StructureLibraryVersion = 2, StructureLibraryReusedVersion = null };
             Assert.Equal(80, StructureLibrary.SoundsToRender(profile, 40, directory));
             WriteOldLibrary(StructureLibrary.FileOf(old, 40, directory), 2, 40, marker: 7);

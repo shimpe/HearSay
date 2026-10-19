@@ -111,27 +111,44 @@ public static class FilterPriors
         return [.. peaks.OrderByDescending(static p => p.LevelDb).Take(max)];
     }
 
-    /// <summary>A formant filter from the two strongest peaks, or one peak when there is only one; null without peaks.</summary>
+    /// <summary>
+    /// A formant filter from the three strongest peaks (F1, F2 and F3), two when there are only two, or one; null
+    /// without peaks.
+    /// </summary>
     /// <param name="analysis">Target analysis.</param>
-    public static OperatorFilter? Formant(TargetAnalysis analysis)
+    public static OperatorFilter? Formant(TargetAnalysis analysis) => Formant(Peaks(analysis, 3));
+
+    /// <summary>
+    /// A formant filter on given peaks: F1 on the lowest, the others in rising frequency as ratios to it (1.05..16) with
+    /// levels relative to it (0..1); every peak has the Q of its width (2..50), and a higher peak whose Q is that of F1
+    /// shares it. A single peak gives F1 alone; F4 and F5 stay off. Null without peaks.
+    /// </summary>
+    /// <param name="peaks">One to three peaks, in any order.</param>
+    public static OperatorFilter? Formant(IReadOnlyList<SpectralPeak> peaks)
     {
-        IReadOnlyList<SpectralPeak> peaks = Peaks(analysis, 2);
+        ArgumentNullException.ThrowIfNull(peaks);
         if (peaks.Count == 0)
         {
             return null;
         }
 
-        if (peaks.Count == 1)
+        SpectralPeak[] rising = [.. peaks.OrderBy(static p => p.Hz).Take(3)];
+        SpectralPeak f1 = rising[0];
+        double q = FormantQ(f1);
+        double hz = Math.Clamp(f1.Hz, 80.0, 8000.0);
+        if (rising.Length == 1)
         {
-            return OperatorFilter.FormantAt(Math.Clamp(peaks[0].Hz, 80.0, 8000.0), 2.0, 0.0, Math.Clamp(peaks[0].Q, 2.0, OperatorFilter.MaxQ));
+            return OperatorFilter.FormantAt(hz, 2.0, 0.0, q);
         }
 
-        SpectralPeak f1 = peaks[0].Hz < peaks[1].Hz ? peaks[0] : peaks[1];
-        SpectralPeak f2 = ReferenceEquals(f1, peaks[0]) ? peaks[1] : peaks[0];
-        double level = Math.Clamp(Math.Pow(10.0, (f2.LevelDb - f1.LevelDb) / 20.0), 0.0, 1.0);
-        double q = Math.Clamp((f1.Q + f2.Q) / 2.0, 2.0, OperatorFilter.MaxQ);
-        return OperatorFilter.FormantAt(Math.Clamp(f1.Hz, 80.0, 8000.0), Math.Clamp(f2.Hz / f1.Hz, 1.05, 8.0), level, q);
+        FormantPeak Higher(SpectralPeak peak) => new(
+            Math.Clamp(peak.Hz / f1.Hz, 1.05, 16.0),
+            Math.Clamp(Math.Pow(10.0, (peak.LevelDb - f1.LevelDb) / 20.0), 0.0, 1.0),
+            FormantQ(peak) is var own && own != q ? own : 0.0);
+        return OperatorFilter.Formants(hz, q, [.. rising.Skip(1).Select(Higher)]);
     }
+
+    private static double FormantQ(SpectralPeak peak) => Math.Clamp(peak.Q, 2.0, OperatorFilter.MaxFormantQ);
 
     /// <summary>
     /// Where the harmonics fall 6 dB below their level at the bottom of the spectrum, relative to a sawtooth; null when

@@ -152,8 +152,9 @@ public static class SynthesisProfiles
         ControlBlockSize: 64,
         "Six operators with sine, triangle, saw, square, pulse, noise and filtered-noise waveforms and a filter per operator, full 6x6 matrix, SuperCollider FMX6 UGen.")
     {
-        StructureLibraryVersion = 3,
-        StructureLibraryReusedVersion = 2,
+        // Version 4: formant filters of the random patches may have a third peak. No older file is reused, as the
+        // formant sounds of versions 2 and 3 have only two.
+        StructureLibraryVersion = 4,
     };
 
     /// <summary>

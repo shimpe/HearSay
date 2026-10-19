@@ -223,7 +223,7 @@ public sealed class RandomPatchGenerator
             2 => OperatorFilter.BandPass(Round(1 + (random.NextDouble() * 7)), q),
             3 => OperatorFilter.Notch(Round(1 + (random.NextDouble() * 7)), q),
             4 => OperatorFilter.PeakAt(Round(200 * Math.Pow(20, random.NextDouble())), Round((random.NextDouble() * 24) - 12), q),
-            _ => OperatorFilter.FormantAt(Round(250 + (random.NextDouble() * 650)), Round(1.5 + (random.NextDouble() * 2.5)), Round(0.3 + (random.NextDouble() * 0.7)), Round(4 + (random.NextDouble() * 8))),
+            _ => RandomFormant(random),
         };
         if (random.NextDouble() >= 0.4)
         {
@@ -235,6 +235,27 @@ public sealed class RandomPatchGenerator
         double decay = Round(0.05 + (random.NextDouble() * 0.5));
         var envelope = new OperatorEnvelope([new EnvelopePoint(0, 0), new EnvelopePoint(attack, 1), new EnvelopePoint(decay, 0), new EnvelopePoint(0.1, 0)], SustainPoint: 2, ReleasePoint: 3);
         return filter with { EnvelopeOctaves = Round(0.5 + (random.NextDouble() * 2.5)), Envelope = envelope };
+    }
+
+    /// <summary>
+    /// A formant filter: F1 and F2 as always, and in half the cases a third peak, 1.2 to 2.5 times as high as F2, at
+    /// 0.1 to 0.6 of F1 and with its own Q of 8 to 30, as the third formants of sung vowels have. The draws for the
+    /// third peak come after those of the first two, and only here, so every other filter draws as before.
+    /// </summary>
+    private static OperatorFilter RandomFormant(Random random)
+    {
+        OperatorFilter filter = OperatorFilter.FormantAt(Round(250 + (random.NextDouble() * 650)), Round(1.5 + (random.NextDouble() * 2.5)), Round(0.3 + (random.NextDouble() * 0.7)), Round(4 + (random.NextDouble() * 8)));
+        if (random.NextDouble() >= 0.5)
+        {
+            return filter;
+        }
+
+        return filter with
+        {
+            Formant3Ratio = Round(filter.FormantRatio * (1.2 + (random.NextDouble() * 1.3))),
+            Formant3Level = Round(0.1 + (random.NextDouble() * 0.5)),
+            Formant3Q = Round(8 + (random.NextDouble() * 22)),
+        };
     }
 
     private static OperatorEnvelope RandomEnvelope(Random random) =>

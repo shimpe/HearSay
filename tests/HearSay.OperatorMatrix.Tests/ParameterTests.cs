@@ -280,14 +280,79 @@ public sealed class ParameterTests
         Assert.Contains("op1.operatorFilter.env.p1.time", ids);
         Assert.DoesNotContain("op1.operatorFilter.cutoff", ids);
 
-        // Writing through a parameter changes only the filter and stays in range.
+        // Writing through a parameter changes only the filter and stays in range: up to 50 for a formant filter, 20
+        // for the others.
         PatchParameter q = schema.Find("op1.operatorFilter.q")!;
-        OperatorMatrixPatch changed = q.Set(formant, 50.0);
-        Assert.Equal(20.0, changed.Operators[0].Filter!.Q);
+        OperatorMatrixPatch changed = q.Set(formant, 80.0);
+        Assert.Equal(50.0, changed.Operators[0].Filter!.Q);
         Assert.Empty(changed.Validate());
+        OperatorMatrixPatch sharp = PatchParameterSchema.Build(lowPass, fmx6).Find("op1.operatorFilter.q")!.Set(lowPass, 50.0);
+        Assert.Equal(20.0, sharp.Operators[0].Filter!.Q);
+        Assert.Empty(sharp.Validate());
 
         // Profiles without filters have no filter parameters at all.
         Assert.DoesNotContain(PatchParameterSchema.Build(lowPass, SynthesisProfiles.SuperColliderFm7.Capabilities).Parameters, static p => p.Id.Contains("operatorFilter", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Schema_FormantFilter_HasF3AndOwnQ2()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        string[] f3 = ["op1.operatorFilter.formant3Ratio", "op1.operatorFilter.formant3Level", "op1.operatorFilter.formant3Q"];
+
+        // A formant filter with a third peak: F2's own Q and F3's ratio, level and Q are searched, F4 and F5 are not.
+        OperatorMatrixPatch three = FilteredSaw(OperatorFilter.Formants(500, 6, new(2.4, 0.5, 12), new(5.6, 0.2, 18)));
+        PatchParameterSchema schema = PatchParameterSchema.Build(three, fmx6);
+        var ids = schema.ActiveSmooth(three).Select(static p => p.Id).ToHashSet();
+        Assert.Contains("op1.operatorFilter.formantQ2", ids);
+        Assert.All(f3, id => Assert.Contains(id, ids));
+        Assert.DoesNotContain(schema.Parameters, static p => p.Id.Contains("formant4", StringComparison.Ordinal) || p.Id.Contains("formant5", StringComparison.Ordinal));
+
+        // Ratios and Qs on a log scale, the level linear, within the model's ranges.
+        PatchParameter q2 = schema.Find("op1.operatorFilter.formantQ2")!, ratio3 = schema.Find(f3[0])!, level3 = schema.Find(f3[1])!, q3 = schema.Find(f3[2])!;
+        Assert.Equal((OperatorFilter.MinQ, OperatorFilter.MaxFormantQ), (q2.Minimum, q2.Maximum));
+        Assert.Equal((OperatorFilter.MinQ, OperatorFilter.MaxFormantQ), (q3.Minimum, q3.Maximum));
+        Assert.Equal((OperatorFilter.MinQ, OperatorFilter.MaxFormantQ), (schema.Find("op1.operatorFilter.q")!.Minimum, schema.Find("op1.operatorFilter.q")!.Maximum));
+        Assert.Equal((1.0, 16.0), (ratio3.Minimum, ratio3.Maximum));
+        Assert.Equal((0.0, 1.0), (level3.Minimum, level3.Maximum));
+        Assert.Same(ParameterTransforms.Logarithmic, q2.Transform);
+        Assert.Same(ParameterTransforms.Logarithmic, ratio3.Transform);
+        Assert.Same(ParameterTransforms.Logarithmic, q3.Transform);
+        Assert.Same(ParameterTransforms.Linear, level3.Transform);
+        Assert.Equal((12.0, 5.6, 0.2, 18.0), (q2.Get(three), ratio3.Get(three), level3.Get(three), q3.Get(three)));
+
+        // Writing them sets the model's fields, clamped to its ranges.
+        OperatorFilter written = q3.Set(level3.Set(ratio3.Set(q2.Set(three, 80.0), 40.0), 0.7), 0.1).Operators[0].Filter!;
+        Assert.Equal((50.0, 16.0, 0.7, 0.5), (written.FormantQ2, written.Formant3Ratio, written.Formant3Level, written.Formant3Q));
+        Assert.Empty(FilteredSaw(written).Validate());
+
+        // Two formants: F2's own Q is searched, starting at the shared Q; F3 is off, so it adds no dead directions.
+        // Reading and writing back the shared Q leaves "same as Q", so a first write changes nothing.
+        OperatorMatrixPatch two = FilteredSaw(OperatorFilter.FormantAt(700, 1.8, 0.5, 8));
+        PatchParameterSchema twoSchema = PatchParameterSchema.Build(two, fmx6);
+        ids = twoSchema.ActiveSmooth(two).Select(static p => p.Id).ToHashSet();
+        Assert.Contains("op1.operatorFilter.formantQ2", ids);
+        Assert.All(f3, id => Assert.DoesNotContain(id, ids));
+        PatchParameter sharedQ2 = twoSchema.Find("op1.operatorFilter.formantQ2")!;
+        Assert.Equal(8.0, sharedQ2.Get(two), 10);
+        Assert.Equal(two.ComputeHash(), sharedQ2.SetNormalized(two, sharedQ2.GetNormalized(two)).ComputeHash());
+        Assert.Equal(12.0, sharedQ2.Set(two, 12.0).Operators[0].Filter!.FormantQ2, 10);
+
+        // Other filter types have none of the formant values.
+        OperatorMatrixPatch lowPass = FilteredSaw(OperatorFilter.LowPass(4));
+        PatchParameterSchema lowSchema = PatchParameterSchema.Build(lowPass, fmx6);
+        Assert.DoesNotContain(lowSchema.ActiveSmooth(lowPass), static p => p.Id.Contains("formant", StringComparison.Ordinal));
+        Assert.Equal(OperatorFilter.MaxQ, lowSchema.Find("op1.operatorFilter.q")!.Maximum);
+    }
+
+    [Fact]
+    public void Schema_Fm7AndNome6_HaveNoFormantIds()
+    {
+        foreach (SynthesisProfile profile in new[] { SynthesisProfiles.SuperColliderFm7, SynthesisProfiles.SuperColliderNome6 })
+        {
+            PatchParameterSchema schema = PatchParameterSchema.Build(Stack(), profile.Capabilities);
+            Assert.DoesNotContain(schema.Parameters, static p => p.Id.Contains("formant", StringComparison.OrdinalIgnoreCase) || p.Id.Contains("operatorFilter", StringComparison.Ordinal));
+        }
     }
 
     [Fact]
@@ -302,6 +367,16 @@ public sealed class ParameterTests
             OperatorMatrixPatch same = parameter.SetNormalized(patch, parameter.GetNormalized(patch));
             OperatorFilter filter = same.Operators[0].Filter!;
             Assert.Equal(value, id.EndsWith("fixedHz", StringComparison.Ordinal) ? filter.FixedHz : filter.FormantRatio, 6);
+        }
+
+        // F2 at 24 x F1 and F3 at 28 x F1 are within the model's 32 but outside the search's 8 and 16.
+        OperatorMatrixPatch wide = FilteredSaw(OperatorFilter.Formants(50, 8, new(24, 0.5, 0), new(28, 0.3, 0)));
+        PatchParameterSchema wideSchema = PatchParameterSchema.Build(wide, SynthesisProfiles.SuperColliderFmx6.Capabilities);
+        foreach ((string id, double value) in new[] { ("op1.operatorFilter.formantRatio", 24.0), ("op1.operatorFilter.formant3Ratio", 28.0) })
+        {
+            PatchParameter parameter = wideSchema.Find(id)!;
+            Assert.Equal(value, parameter.Maximum);
+            Assert.Equal(value, parameter.Get(parameter.SetNormalized(wide, parameter.GetNormalized(wide))), 6);
         }
     }
 

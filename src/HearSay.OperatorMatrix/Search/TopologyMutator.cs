@@ -623,8 +623,9 @@ public sealed class TopologyMutator
     /// <summary>
     /// Filter variants of the heard operators, with starting values from the target: a low-pass at its roll-off, a
     /// high-pass under a weak fundamental, a band-pass and a peak on the strongest maximum of its spectral envelope, a
-    /// formant filter on its two strongest; and for a filtered operator its removal, the other slope, a band-pass
-    /// instead of a low-pass and back, and the sweep of the target's brightness.
+    /// formant filter on its three strongest; and for a filtered operator its removal, the other slope, a band-pass
+    /// instead of a low-pass and back, the target's third formant for a formant filter without one, and the sweep of
+    /// the target's brightness.
     /// </summary>
     internal static List<TopologyMutation> FilterVariants(OperatorMatrixPatch patch, TargetAnalysis analysis, List<int> used)
     {
@@ -676,6 +677,14 @@ public sealed class TopologyMutator
             else if (filter.Type == OperatorFilterType.BandPass)
             {
                 variants.Add(new TopologyMutation(With(filter with { Type = OperatorFilterType.LowPass }), name + " low-pass"));
+            }
+
+            if (filter.Type == OperatorFilterType.Formant && filter.Formant3Level == 0.0 && formant is { Formant3Level: > 0.0 } heard)
+            {
+                // The target's third formant, at its frequency as a ratio to this filter's own F1, with its Q.
+                double ratio3 = Math.Clamp(heard.FixedHz * heard.Formant3Ratio / filter.FixedHz, 1.0, OperatorFilter.MaxFormantRatio);
+                double q3 = heard.Formant3Q > 0.0 ? heard.Formant3Q : heard.Q;
+                variants.Add(new TopologyMutation(With(filter with { Formant3Ratio = ratio3, Formant3Level = heard.Formant3Level, Formant3Q = q3 == filter.Q ? 0.0 : q3 }), name + " third formant"));
             }
 
             if (sweep is not null && filter.Envelope is null)

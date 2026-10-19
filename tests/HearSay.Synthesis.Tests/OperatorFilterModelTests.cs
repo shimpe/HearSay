@@ -183,7 +183,7 @@ public sealed class OperatorFilterModelTests
         Assert.True(fmx6.SupportsOperatorFilters);
         Assert.False(fmx6.IsSubsetOf(fmx6 with { SupportsOperatorFilters = false }));
         Assert.True((fmx6 with { SupportsOperatorFilters = false }).IsSubsetOf(fmx6));
-        Assert.Equal(3, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
+        Assert.Equal(4, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
         Assert.Equal(1, SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion);
         Assert.Equal(2, SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion);
     }
@@ -211,6 +211,38 @@ public sealed class OperatorFilterModelTests
         // Profiles without filters never get one, whatever the option says.
         var fm7 = new RandomPatchGenerator(SynthesisProfiles.SuperColliderFm7.Capabilities, new RandomPatchOptions { FilterProbability = 1.0 });
         Assert.All(Enumerable.Range(0, 10), seed => Assert.All(fm7.Generate(seed).Operators, static o => Assert.Null(o.Filter)));
+    }
+
+    [Fact]
+    public void Generator_FormantFilters_SometimesHaveF3_NeverF4F5()
+    {
+        SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
+        var generator = new RandomPatchGenerator(fmx6, new RandomPatchOptions { FilterProbability = 1.0 });
+        var formants = new List<OperatorFilter>();
+        for (int seed = 0; seed < 400; seed++)
+        {
+            OperatorMatrixPatch patch = generator.Generate(seed);
+            Assert.Empty(patch.Validate());
+            Assert.True(PatchCompatibilityValidator.Instance.Validate(patch, fmx6).IsCompatible);
+            formants.AddRange(patch.Operators.Select(static o => o.Filter).OfType<OperatorFilter>().Where(static f => f.Type == OperatorFilterType.Formant));
+        }
+
+        // About half of the formant filters get a third peak above the second, with its own Q.
+        Assert.True(formants.Count > 100, $"{formants.Count} formant filters");
+        OperatorFilter[] withF3 = [.. formants.Where(static f => f.Formant3Level > 0.0)];
+        double share = (double)withF3.Length / formants.Count;
+        Assert.InRange(share, 0.4, 0.6);
+        Assert.All(withF3, static f =>
+        {
+            Assert.True(f.Formant3Ratio > f.FormantRatio, $"F3 ratio {f.Formant3Ratio} above F2 ratio {f.FormantRatio}");
+            Assert.InRange(f.Formant3Ratio, 1.0, OperatorFilter.MaxFormantRatio);
+            Assert.InRange(f.Formant3Level, 0.0, 1.0);
+            Assert.InRange(f.Formant3Q, OperatorFilter.MinQ, OperatorFilter.MaxFormantQ);
+        });
+
+        // Without a third peak the filter is exactly a two-formant one; F4 and F5 are never set.
+        Assert.All(formants.Where(static f => f.Formant3Level == 0.0), static f => Assert.Equal((1.0, 0.0), (f.Formant3Ratio, f.Formant3Q)));
+        Assert.All(formants, static f => Assert.Equal((1.0, 0.0, 0.0, 1.0, 0.0, 0.0), (f.Formant4Ratio, f.Formant4Level, f.Formant4Q, f.Formant5Ratio, f.Formant5Level, f.Formant5Q)));
     }
 
     [Fact]
