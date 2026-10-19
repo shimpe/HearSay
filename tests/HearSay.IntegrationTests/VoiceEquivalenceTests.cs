@@ -97,6 +97,24 @@ public sealed class VoiceEquivalenceTests(ITestOutputHelper output)
         AssertSameAsOffline(renderer, patch, heldBlocks: 20, releaseEarlySamples: 10);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(20)]
+    [InlineData(300)]
+    public void LiveVoice_EqualsOfflineRender_WithFiveFormants(int heldBlocks)
+    {
+        // Five formants with their own Qs and F1 at Q 41, swept by an envelope, on a saw modulated through a low-pass.
+        OperatorEnvelope adsr = OperatorEnvelope.Adsr(0.01, 0.2, 0.5, 0.3);
+        OperatorFilter five = OperatorFilter.Formants(800, 41, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 24.2), new FormantPeak(4.875, 0.1, 0), new FormantPeak(6.1875, 0.003, 35.4))
+            with { EnvelopeOctaves = 0.5, Envelope = OperatorEnvelope.Adsr(0.05, 0.3, 0.4, 0.4) };
+        OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), adsr) with { Waveform = OperatorWaveform.Saw, HarmonicLimit = 64, Filter = five })
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2), adsr) with { Waveform = OperatorWaveform.Square, Filter = OperatorFilter.LowPass(3, 2) })
+            .WithOutputLevel(0, 0.8)
+            .WithEdge(new ModulationEdge(1, 0, true, 0.7));
+        AssertSameAsOffline(new Fmx6CompatibleOperatorMatrixRenderer(), patch, heldBlocks);
+    }
+
     private static readonly Dictionary<string, OperatorMatrixPatch> Nome6Patches = BuildNome6Patches();
 
     public static TheoryData<string, int> Nome6Cases

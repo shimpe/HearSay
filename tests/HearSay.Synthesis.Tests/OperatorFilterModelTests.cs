@@ -37,6 +37,100 @@ public sealed class OperatorFilterModelTests
         Assert.Equal(1.8, back.Operators[0].Filter!.FormantRatio);
     }
 
+    [Fact]
+    public void OldFormantPatch_IsByteIdentical()
+    {
+        // Captured from the two-formant model, before F2 had its own Q and before F3..F5 existed.
+        const string FilterJson =
+            "\"filter\":{\"type\":\"Formant\",\"poles\":2,\"cutoffRatio\":4,\"fixedHz\":700,\"q\":8,\"formantRatio\":1.8,\"formantLevel\":0.6,\"peakGainDb\":6,\"envelopeOctaves\":1.5,"
+            + "\"envelope\":{\"points\":[{\"timeSeconds\":0,\"level\":0,\"curve\":\"Linear\"},{\"timeSeconds\":0.01,\"level\":1,\"curve\":\"Linear\"},{\"timeSeconds\":0.2,\"level\":0.3,\"curve\":\"Exponential\"},{\"timeSeconds\":0.1,\"level\":0,\"curve\":\"Exponential\"}],"
+            + "\"sustainPoint\":2,\"releasePoint\":3,\"hasExponentialSegments\":true,\"releaseSeconds\":0.1}},\"harmonicLimit\":32}";
+        const string Hash = "596E75144D9D980A0C002A8CB2D34A8B";
+        OperatorMatrixPatch patch = Carrier(OperatorFilter.FormantAt(700, 1.8, 0.6, 8) with { EnvelopeOctaves = 1.5, Envelope = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1) });
+
+        string json = patch.ToJson(indented: false);
+        Assert.Contains(FilterJson, json, StringComparison.Ordinal);
+        Assert.Equal(Hash, patch.ComputeHash());
+
+        // Read back, the old JSON has the defaults of the new fields: F2 with the shared Q, F3..F5 off.
+        OperatorFilter back = OperatorMatrixPatch.FromJson(json).Operators[0].Filter!;
+        Assert.Equal(patch.Operators[0].Filter! with { Envelope = null }, back with { Envelope = null });
+        Assert.Equal(json, OperatorMatrixPatch.FromJson(json).ToJson(indented: false));
+        Assert.Equal([new FormantPeak(1.8, 0.6, 0), new FormantPeak(1, 0, 0), new FormantPeak(1, 0, 0), new FormantPeak(1, 0, 0)], back.FormantPeaks);
+        Assert.False(back.UsesExtendedFormants);
+    }
+
+    [Fact]
+    public void Formants_RoundTripThroughJson_AndOnlyTheSetFieldsAreWritten()
+    {
+        OperatorFilter filter = OperatorFilter.Formants(800, 41, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 0), new FormantPeak(4.875, 0.1, 30));
+        OperatorMatrixPatch patch = Carrier(filter);
+        string json = patch.ToJson(indented: false);
+
+        Assert.Contains("\"formantQ2\":12.8", json, StringComparison.Ordinal);
+        Assert.Contains("\"formant3Ratio\":3.625,\"formant3Level\":0.025,\"formant4Ratio\":4.875,\"formant4Level\":0.1,\"formant4Q\":30", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("formant3Q", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("formant5", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("formantPeaks", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("usesExtendedFormants", json, StringComparison.Ordinal);
+
+        OperatorMatrixPatch back = OperatorMatrixPatch.FromJson(json);
+        Assert.Equal(filter, back.Operators[0].Filter);
+        Assert.Equal(patch.ComputeHash(), back.ComputeHash());
+        Assert.True(back.Operators[0].Filter!.UsesExtendedFormants);
+
+        // A ratio away from 1 is written even when its peak is off, so that the patch keeps every value it has.
+        OperatorFilter offPeak = OperatorFilter.FormantAt(700, 1.8, 0.5, 8) with { Formant5Ratio = 7 };
+        string offJson = Carrier(offPeak).ToJson(indented: false);
+        Assert.Contains("\"formant5Ratio\":7", offJson, StringComparison.Ordinal);
+        Assert.Equal(offPeak, OperatorMatrixPatch.FromJson(offJson).Operators[0].Filter);
+        Assert.False(offPeak.UsesExtendedFormants);
+    }
+
+    [Fact]
+    public void Formants_ValidatesRangesAndOwnQ()
+    {
+        OperatorFilter five = OperatorFilter.Formants(800, 41, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 24.2), new FormantPeak(4.875, 0.1, 30), new FormantPeak(6.1875, 0.003, 35.4));
+        Assert.Empty(Carrier(five).Validate());
+        Assert.Equal(800, five.FixedHz);
+        Assert.Equal(41, five.Q);
+        Assert.Equal(OperatorFilterType.Formant, five.Type);
+        Assert.Equal(new FormantPeak(6.1875, 0.003, 35.4), five.FormantPeaks[3]);
+        Assert.Equal((1.4375, 0.5, 12.8), (five.FormantRatio, five.FormantLevel, five.FormantQ2));
+        Assert.Equal((3.625, 0.025, 24.2), (five.Formant3Ratio, five.Formant3Level, five.Formant3Q));
+
+        // Peaks not given are off; FormantAt is the two-formant filter of before.
+        OperatorFilter one = OperatorFilter.Formants(500, 6);
+        Assert.Equal([new FormantPeak(1, 0, 0), new FormantPeak(1, 0, 0), new FormantPeak(1, 0, 0), new FormantPeak(1, 0, 0)], one.FormantPeaks);
+        Assert.Equal(OperatorFilter.FormantAt(700, 1.8, 0.5, 8), OperatorFilter.Formants(700, 8, new FormantPeak(1.8, 0.5, 0)));
+        Assert.Throws<ArgumentException>(() => OperatorFilter.Formants(700, 8, new(2, 1, 0), new(3, 1, 0), new(4, 1, 0), new(5, 1, 0), new(6, 1, 0)));
+
+        // Formant Qs go to 50, 0 meaning "the same as Q" for the peaks; other types keep 20.
+        Assert.Equal(50, OperatorFilter.MaxFormantQ);
+        Assert.Equal(32, OperatorFilter.MaxFormantRatio);
+        Assert.Empty(Carrier(OperatorFilter.FormantAt(700, 32, 0.5, 50)).Validate());
+        Assert.Empty(Carrier(five with { FormantQ2 = 0, Formant3Q = 0, Formant4Q = 0.5, Formant5Q = 50 }).Validate());
+        Assert.NotEmpty(Carrier(OperatorFilter.LowPass(4, q: 41)).Validate());
+        Assert.NotEmpty(Carrier(OperatorFilter.BandPass(2, 20.5)).Validate());
+        OperatorFilter[] invalid =
+        [
+            OperatorFilter.FormantAt(700, 1.8, 0.5, 51),
+            OperatorFilter.FormantAt(700, 1.8, 0.5, 0),
+            OperatorFilter.FormantAt(700, 33, 0.5, 8),
+            five with { FormantQ2 = 0.3 },
+            five with { FormantQ2 = 51 },
+            five with { Formant3Ratio = 0.9 },
+            five with { Formant3Ratio = 33 },
+            five with { Formant3Level = -0.1 },
+            five with { Formant3Q = -1 },
+            five with { Formant4Level = 1.2 },
+            five with { Formant4Q = 0.2 },
+            five with { Formant5Ratio = double.NaN },
+            five with { Formant5Q = 60 },
+        ];
+        Assert.All(invalid, f => Assert.Contains(Carrier(f).Validate(), p => p.StartsWith("OP1 filter", StringComparison.Ordinal)));
+    }
+
     public static TheoryData<OperatorFilter> InvalidFilters => new()
     {
         OperatorFilter.LowPass(4) with { Poles = 3 },

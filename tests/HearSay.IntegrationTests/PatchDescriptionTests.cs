@@ -20,6 +20,21 @@ public sealed class PatchDescriptionTests
     }
 
     [Fact]
+    public void Description_ListsTheFormants()
+    {
+        // The formants that are on, each with its Q when it has its own; F2 is always on.
+        OperatorFilter five = OperatorFilter.Formants(800, 10, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 0), new FormantPeak(4.875, 0, 30), new FormantPeak(6.1875, 0.0032, 35.4));
+        Assert.Equal(
+            "filter formant F1 800 Hz, F2 1150 Hz at 0.5 Q 12.8, F3 2900 Hz at 0.03, F5 4950 Hz at 0.0032 Q 35.4, Q 10",
+            PatchDescription.FilterDetail(five));
+
+        // The diagram label stays short: F1, F2 / F1, and how many formants more are on.
+        Assert.Equal("fmt 800/1.44 +2", PatchDescription.FilterLabel(five));
+        Assert.Equal("fmt 700/1.8", PatchDescription.FilterLabel(OperatorFilter.FormantAt(700, 1.8, 0.5, 41) with { FormantQ2 = 20, Formant4Ratio = 3 }));
+        Assert.Equal("filter formant F1 700 Hz, F2 1260 Hz at 0.5 Q 20, Q 41", PatchDescription.FilterDetail(OperatorFilter.FormantAt(700, 1.8, 0.5, 41) with { FormantQ2 = 20, Formant4Ratio = 3 }));
+    }
+
+    [Fact]
     public void OperatorDetail_OfACarrier_TellsItsTuningWaveformFilterEnvelopeAndPlaying()
     {
         OperatorPatch op = OperatorPatch.Sine(OperatorFrequency.AtRatio(1.41), OperatorEnvelope.Adsr(0.005, 0.2, 0.5, 0.1)) with

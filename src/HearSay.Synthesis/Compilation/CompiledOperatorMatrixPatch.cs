@@ -15,7 +15,11 @@ namespace HearSay.Synthesis.Compilation;
 /// <param name="FormantRatios">F2 / F1.</param>
 /// <param name="FormantLevels">Level of F2.</param>
 /// <param name="GainsDb">Peak gain.</param>
-public sealed record CompiledFilters(int[] Types, float[] BaseHz, float[][] Octaves, float[] Q, float[] FormantRatios, float[] FormantLevels, float[] GainsDb);
+/// <param name="FormantFields">
+/// The extra formant inputs, <see cref="OperatorFilterKernel.FormantFieldCount"/> per operator: the Q of F2, and ratio,
+/// level and Q of F3..F5.
+/// </param>
+public sealed record CompiledFilters(int[] Types, float[] BaseHz, float[][] Octaves, float[] Q, float[] FormantRatios, float[] FormantLevels, float[] GainsDb, float[] FormantFields);
 
 /// <summary>
 /// A patch bound to one note and flattened for a sample loop: only audible operators and live edges remain, and
@@ -167,10 +171,15 @@ public sealed class CompiledOperatorMatrixPatch
                 FilterQ = new float[n];
                 FormantRatios = new float[n];
                 FormantLevels = new float[n];
+                FormantFields = new float[n * OperatorFilterKernel.FormantFieldCount];
                 FilterGainsDb = new float[n];
                 Array.Fill(FilterTypes, OperatorFilterKernel.Off);
                 Array.Fill(FilterQ, 1f);
                 Array.Fill(FormantRatios, 1f);
+                for (int k = 0; k < n; k++)
+                {
+                    OperatorFilterKernel.FormantFields(null, FormantFields.AsSpan(k * OperatorFilterKernel.FormantFieldCount, OperatorFilterKernel.FormantFieldCount));
+                }
             }
             else
             {
@@ -179,6 +188,7 @@ public sealed class CompiledOperatorMatrixPatch
                 FilterQ = filters.Q;
                 FormantRatios = filters.FormantRatios;
                 FormantLevels = filters.FormantLevels;
+                FormantFields = filters.FormantFields;
                 FilterGainsDb = filters.GainsDb;
             }
 
@@ -234,6 +244,8 @@ public sealed class CompiledOperatorMatrixPatch
         public float[] FormantRatios { get; }
 
         public float[] FormantLevels { get; }
+
+        public float[] FormantFields { get; }
 
         public float[] FilterGainsDb { get; }
 
@@ -318,7 +330,7 @@ public static class PatchCompiler
         }
 
         CompiledFilters? filters = stream.HasFilters
-            ? new CompiledFilters(stream.FilterTypes, stream.FilterBaseHz, octaves!, stream.FilterQ, stream.FormantRatios, stream.FormantLevels, stream.FilterGainsDb)
+            ? new CompiledFilters(stream.FilterTypes, stream.FilterBaseHz, octaves!, stream.FilterQ, stream.FormantRatios, stream.FormantLevels, stream.FilterGainsDb, stream.FormantFields)
             : null;
         return new CompiledOperatorMatrixPatch(
             stream.SampleRate,

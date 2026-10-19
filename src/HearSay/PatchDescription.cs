@@ -28,7 +28,10 @@ public static class PatchDescription
         return string.Join("  ", new[] { waveform, phase, m, filter }.Where(static s => s.Length > 0));
     }
 
-    /// <summary>A few characters for an operator filter, as in the block diagram: <c>LP4 x4</c>, <c>fmt 700/1.8</c> (F1 and F2 / F1).</summary>
+    /// <summary>
+    /// A few characters for an operator filter, as in the block diagram: <c>LP4 x4</c>, <c>fmt 700/1.8</c> (F1 and
+    /// F2 / F1), <c>fmt 800/1.44 +3</c> (and three formants more).
+    /// </summary>
     /// <param name="filter">Filter.</param>
     public static string FilterLabel(OperatorFilter filter)
     {
@@ -40,8 +43,28 @@ public static class PatchDescription
             OperatorFilterType.BandPass => string.Create(CultureInfo.InvariantCulture, $"BP x{filter.CutoffRatio:0.##}"),
             OperatorFilterType.Notch => string.Create(CultureInfo.InvariantCulture, $"notch x{filter.CutoffRatio:0.##}"),
             OperatorFilterType.Peak => string.Create(CultureInfo.InvariantCulture, $"peak {filter.FixedHz:0} {(filter.PeakGainDb >= 0 ? "+" : string.Empty)}{filter.PeakGainDb:0.#}"),
-            _ => string.Create(CultureInfo.InvariantCulture, $"fmt {filter.FixedHz:0}/{filter.FormantRatio:0.##}"),
+            _ => string.Create(CultureInfo.InvariantCulture, $"fmt {filter.FixedHz:0}/{filter.FormantRatio:0.##}") + (HigherFormantsOn(filter) is > 0 and int more ? $" +{more}" : string.Empty),
         };
+    }
+
+    /// <summary>How many of F3..F5 of a formant filter are on.</summary>
+    private static int HigherFormantsOn(OperatorFilter filter) => filter.FormantPeaks.Skip(1).Count(static p => p.Level != 0.0);
+
+    /// <summary>The formants above F1 that are on, in words: <c>F2 1150 Hz at 0.5 Q 12.8, F3 2900 Hz at 0.03</c>.</summary>
+    private static string Formants(OperatorFilter filter)
+    {
+        IEnumerable<string> peaks = filter.FormantPeaks
+            .Select((p, i) => (Peak: p, N: i + 2))
+            .Where(static f => f.N == 2 || f.Peak.Level != 0.0)
+            .Select(f =>
+            {
+                string level = f.Peak.Level is 0.0 or >= 0.01
+                    ? f.Peak.Level.ToString("0.##", CultureInfo.InvariantCulture)
+                    : f.Peak.Level.ToString("0.####", CultureInfo.InvariantCulture);
+                string q = f.Peak.Q != 0.0 ? string.Create(CultureInfo.InvariantCulture, $" Q {f.Peak.Q:0.##}") : string.Empty;
+                return string.Create(CultureInfo.InvariantCulture, $"F{f.N} {filter.FixedHz * f.Peak.Ratio:0} Hz at {level}{q}");
+            });
+        return string.Join(", ", peaks);
     }
 
     /// <summary>An operator filter in words, with its sweep when it has one.</summary>
@@ -56,7 +79,7 @@ public static class PatchDescription
             OperatorFilterType.BandPass => string.Create(CultureInfo.InvariantCulture, $"band-pass, centre {filter.CutoffRatio:0.##}x"),
             OperatorFilterType.Notch => string.Create(CultureInfo.InvariantCulture, $"notch, centre {filter.CutoffRatio:0.##}x"),
             OperatorFilterType.Peak => string.Create(CultureInfo.InvariantCulture, $"peak {filter.FixedHz:0} Hz {filter.PeakGainDb:+0.#;-0.#;0} dB"),
-            _ => string.Create(CultureInfo.InvariantCulture, $"formant F1 {filter.FixedHz:0} Hz, F2 {filter.FixedHz * filter.FormantRatio:0} Hz at {filter.FormantLevel:0.##}"),
+            _ => string.Create(CultureInfo.InvariantCulture, $"formant F1 {filter.FixedHz:0} Hz, {Formants(filter)}"),
         };
         string sweep = filter.Envelope is null || filter.EnvelopeOctaves == 0.0 ? string.Empty : string.Create(CultureInfo.InvariantCulture, $", sweep {filter.EnvelopeOctaves:0.##} oct");
         return string.Create(CultureInfo.InvariantCulture, $"filter {text}, Q {filter.Q:0.##}{sweep}");

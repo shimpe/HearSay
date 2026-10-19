@@ -128,6 +128,12 @@ public interface IControlSource
     /// <summary>Level of F2 per audible operator.</summary>
     float[] FormantLevels { get; }
 
+    /// <summary>
+    /// The extra formant inputs of the UGen, <see cref="OperatorFilterKernel.FormantFieldCount"/> per audible operator
+    /// in a row (<see cref="OperatorFilterKernel.FormantFields"/>): the Q of F2, and ratio, level and Q of F3..F5.
+    /// </summary>
+    float[] FormantFields { get; }
+
     /// <summary>Peak filter gain in decibels per audible operator.</summary>
     float[] FilterGainsDb { get; }
 

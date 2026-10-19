@@ -143,6 +143,140 @@ public sealed class OperatorFilterKernelTests
         }
     }
 
+    /// <summary>
+    /// The five-formant formula of the UGen, without any caching: F1, then F2..F5 added left to right, a peak of
+    /// level 0 among F3..F5 skipped, a peak Q of 0 the same as Q, every Q clamped to 0.5..50.
+    /// </summary>
+    private static double ReferenceFormants(double x, double fc, double q, FormantPeak[] peaks, double rate, double[][] s)
+    {
+        static double Band(double x, double fc, double k, double rate, double[] s)
+        {
+            double f = Math.Max(10.0, Math.Min(fc, 0.49 * rate));
+            double g = Math.Tan(Math.PI * f / rate);
+            double a1 = 1.0 / (1.0 + (g * (g + k)));
+            double a2 = g * a1;
+            double a3 = g * a2;
+            double v3 = x - s[1];
+            double v1 = (a1 * s[0]) + (a2 * v3);
+            double v2 = s[1] + (a2 * s[0]) + (a3 * v3);
+            s[0] = (2.0 * v1) - s[0];
+            s[1] = (2.0 * v2) - s[1];
+            return v1;
+        }
+
+        double k1 = 1.0 / Math.Max(0.5, Math.Min(q, 50.0));
+        double y = k1 * Band(x, fc, k1, rate, s[0]);
+        for (int n = 0; n < peaks.Length; n++)
+        {
+            if (n >= 1 && peaks[n].Level == 0.0)
+            {
+                continue;
+            }
+
+            double kn = 1.0 / Math.Max(0.5, Math.Min(peaks[n].Q > 0.0 ? peaks[n].Q : q, 50.0));
+            y = y + (peaks[n].Level * (kn * Band(x, fc * peaks[n].Ratio, kn, rate, s[n + 1])));
+        }
+
+        return y;
+    }
+
+    [Fact]
+    public void KernelFormant_WithF3Off_IsTodaysFormula()
+    {
+        // F2 with the shared Q (0, or explicitly the same Q) and F3..F5 off, at Q up to 20: the two-peak formula of
+        // before, sample for sample, through the old call and the five-formant call alike.
+        var random = new Random(11);
+        foreach (double ownQ2 in new[] { 0.0, -1.0 })
+        {
+            var a = default(SvfState);
+            var b = default(SvfState);
+            var states = new SvfState[5];
+            double[] ra = new double[2], rb = new double[2];
+            double baseHz = 300, octaves = 0, q = 3;
+            for (int i = 0; i < 6000; i++)
+            {
+                if (i % 64 == 0)
+                {
+                    baseHz = random.Next(3) == 0 ? baseHz : 20 + (random.NextDouble() * 9000);
+                    octaves = i % 128 == 0 ? 0.0 : (random.NextDouble() * 4) - 2;
+                    q = 0.3 + (random.NextDouble() * 19.7);
+                }
+
+                // F3..F5 are off, whatever their ratio and Q.
+                FormantPeak[] peaks = [new(2.3, 0.6, ownQ2 < 0 ? q : ownQ2), new(3.1, 0, 7), new(4, 0, 0), new(5.5, 0, 40)];
+                double x = Math.Sin(i * 0.37) + (0.3 * Math.Sin(i * 2.1));
+                double expected = Reference(OperatorFilterKernel.Formant, x, baseHz, octaves, q, 2.3, 0.6, 0, Rate, ra, rb);
+                double old = OperatorFilterKernel.Process(OperatorFilterKernel.Formant, x, baseHz, octaves, q, 2.3, 0.6, 0, Rate, ref a, ref b);
+                double five = OperatorFilterKernel.Process(OperatorFilterKernel.Formant, x, baseHz, octaves, q, 0, peaks, Rate, states);
+                Assert.True(expected.Equals(old), FormattableString.Invariant($"old call, sample {i}: {expected:R} vs {old:R}"));
+                Assert.True(expected.Equals(five), FormattableString.Invariant($"five-formant call, sample {i}: {expected:R} vs {five:R}"));
+            }
+
+            // The states of the peaks that are off are never touched.
+            Assert.All(states[2..], static s => Assert.Equal<SvfState>(default, s));
+        }
+    }
+
+    [Fact]
+    public void KernelFormant_FivePeaks_IsTheUGenFormula()
+    {
+        var random = new Random(5);
+        var states = new SvfState[5];
+        double[][] reference = [new double[2], new double[2], new double[2], new double[2], new double[2]];
+        double baseHz = 700, octaves = 0, q = 41;
+        FormantPeak[] peaks = [new(1.6, 0.5, 0), new(3.6, 0.03, 24), new(4.9, 0.1, 0), new(6.2, 0, 35)];
+        for (int i = 0; i < 6000; i++)
+        {
+            if (i % 64 == 0)
+            {
+                baseHz = random.Next(3) == 0 ? baseHz : 80 + (random.NextDouble() * 3000);
+                octaves = i % 128 == 0 ? 0.0 : (random.NextDouble() * 2) - 1;
+                q = random.Next(2) == 0 ? q : 0.3 + (random.NextDouble() * 60);
+                peaks[1] = peaks[1] with { Q = random.Next(2) == 0 ? 0 : 0.2 + (random.NextDouble() * 60) };
+                peaks[3] = peaks[3] with { Level = random.Next(2) == 0 ? 0 : random.NextDouble() };
+            }
+
+            double x = Math.Sin(i * 0.37) + (0.3 * Math.Sin(i * 2.1));
+            double expected = ReferenceFormants(x, baseHz * Math.Pow(2.0, octaves), q, peaks, Rate, reference);
+            double actual = OperatorFilterKernel.Process(OperatorFilterKernel.Formant, x, baseHz, octaves, q, 0, peaks, Rate, states);
+            Assert.True(expected.Equals(actual), FormattableString.Invariant($"sample {i}: {expected:R} vs {actual:R}"));
+        }
+    }
+
+    [Fact]
+    public void Formant_ThirdPeak_AddsItsBand_WithItsOwnQ()
+    {
+        static double FiveGain(double sineHz, FormantPeak[] peaks, double q = 10)
+        {
+            var states = new SvfState[5];
+            double sumIn = 0, sumOut = 0;
+            for (int i = 0; i < 48000; i++)
+            {
+                double x = Math.Sin(2.0 * Math.PI * sineHz * i / Rate);
+                double y = OperatorFilterKernel.Process(OperatorFilterKernel.Formant, x, 700, 0, q, 0, peaks, Rate, states);
+                if (i >= 24000)
+                {
+                    sumIn += x * x;
+                    sumOut += y * y;
+                }
+            }
+
+            return Math.Sqrt(sumOut / sumIn);
+        }
+
+        // F3 at 4 x 700 = 2800 Hz, level 0.5: unity-gain band-pass at its centre, narrower with its own Q 40.
+        FormantPeak[] off = [new(1.8, 0.5, 0), new(4, 0, 0), new(1, 0, 0), new(1, 0, 0)];
+        FormantPeak[] on = [new(1.8, 0.5, 0), new(4, 0.5, 0), new(1, 0, 0), new(1, 0, 0)];
+        FormantPeak[] narrow = [new(1.8, 0.5, 0), new(4, 0.5, 40), new(1, 0, 0), new(1, 0, 0)];
+        Assert.True(FiveGain(2800, off) < 0.1);
+        Assert.InRange(FiveGain(2800, on), 0.45, 0.6);
+        Assert.InRange(FiveGain(2800, narrow), 0.45, 0.6);
+        Assert.True(FiveGain(2900, narrow) < FiveGain(2900, on) * 0.6, "the own Q narrows the third peak");
+
+        // Q 41 on F1: narrower than Q 20, which was the most before.
+        Assert.True(FiveGain(730, off, q: 41) < FiveGain(730, off, q: 20) * 0.7);
+    }
+
     [Fact]
     public void Kernel_IsBitIdenticalToTheUncachedFormulas_WhileItsInputsMoveAndHold()
     {

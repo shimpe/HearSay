@@ -133,6 +133,51 @@ public sealed class Fmx6FilterTests(ITestOutputHelper output)
         Assert.Contains("[0, 0, 0, 1, 1, 0, 0]", scd, StringComparison.Ordinal);
     }
 
+    /// <summary>A sawtooth through a lowpass sweep, a formant filter on a second carrier, and a disabled notch.</summary>
+    private static OperatorMatrixPatch ThreeFilters(OperatorFilter formant) =>
+        Saw(OperatorFilter.LowPass(4, 2, poles: 4) with { EnvelopeOctaves = 1.5, Envelope = OperatorEnvelope.Adsr(0.01, 0.2, 0.3, 0.1) })
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(1)) with { Filter = formant })
+            .WithOutputLevel(1, 0.5)
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(3)) with { Enabled = false, Filter = OperatorFilter.Notch(2, 2) });
+
+    private static string Sha256(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+
+    [Fact]
+    public void Export_WithoutExtras_IsUnchanged()
+    {
+        var exporter = new SuperColliderFmx6Exporter();
+
+        // Captured from the exporter of the two-formant model.
+        const string Before = "C7628EB4669C1C69E1C581802AB62E5531493DA5F1162FD973B3F474CA6BD5F7";
+        Assert.Equal(Before, Sha256(exporter.Export(ThreeFilters(OperatorFilter.FormantAt(700, 1.8, 0.5, 8)))));
+
+        // F3..F5 with a level of 0 are off and the Q of a formant filter is in the 7-field row, so these are 7-field
+        // rows too: a disabled operator's five formants are never heard, and neither are a ratio or a Q of a peak that is off.
+        OperatorMatrixPatch quiet = ThreeFilters(OperatorFilter.FormantAt(700, 1.8, 0.5, 41) with { Formant3Ratio = 3, Formant4Q = 20 })
+            .WithOperator(3, OperatorPatch.Sine(OperatorFrequency.AtRatio(5)) with { Enabled = false, Filter = OperatorFilter.Formants(500, 9, new FormantPeak(2, 1, 5), new FormantPeak(3, 1, 0)) });
+        string scd = exporter.Export(quiet);
+        Assert.Contains("[8, 700.0, 0, 41.0, 1.8, 0.5, 6.0], [0, 0, 0, 1, 1, 0, 0], [0, 0, 0, 1, 1, 0, 0], [0, 0, 0, 1, 1, 0, 0], [0, 0, 0, 1, 1, 0, 0]] /* [type, freq, octaves, q, formantRatio, formantLevel, gainDb] */", scd, StringComparison.Ordinal);
+        Assert.DoesNotContain("q2", scd, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Export_WithFiveFormants_Writes17FieldRows()
+    {
+        OperatorFilter five = OperatorFilter.Formants(800, 41, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 0), new FormantPeak(4.875, 0.1, 30));
+        string scd = new SuperColliderFmx6Exporter().Export(ThreeFilters(five));
+
+        // Every row has 17 fields: the low-pass and the off rows get the defaults of the extra fields.
+        Assert.Contains("filters: [[2, (freq * 4.0), (1.5 * EnvGen.kr(", scd, StringComparison.Ordinal);
+        Assert.Contains("2.0, 2.0, 0.5, 6.0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0], [8, 800.0, 0, 41.0, 1.4375, 0.5, 6.0, 12.8, 3.625, 0.025, 0, 4.875, 0.1, 30.0, 1, 0, 0], ", scd, StringComparison.Ordinal);
+        Assert.Contains(
+            "[0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0], [0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0]] /* [type, freq, octaves, q, ratio2, level2, gainDb, q2, ratio3, level3, q3, ratio4, level4, q4, ratio5, level5, q5] */",
+            scd,
+            StringComparison.Ordinal);
+
+        // An own Q for F2 alone is enough.
+        Assert.Contains("[8, 700.0, 0, 8.0, 1.8, 0.5, 6.0, 16.0, 1, 0, 0, 1, 0, 0, 1, 0, 0]", new SuperColliderFmx6Exporter().Export(ThreeFilters(OperatorFilter.FormantAt(700, 1.8, 0.5, 8) with { FormantQ2 = 16 })), StringComparison.Ordinal);
+    }
+
     /// <summary>The FMX6 SynthDef of a patch with the UGen at another oversampling factor.</summary>
     private sealed class OversampledExporter(int factor) : ISynthDefExporter
     {
@@ -173,6 +218,18 @@ public sealed class Fmx6FilterTests(ITestOutputHelper output)
 
             // Review focus 3: the envelope pushes the cutoff below 10 Hz, where both sides clamp.
             ("clamped low", Saw(OperatorFilter.LowPass(0.25, 2) with { EnvelopeOctaves = -4, Envelope = sweep })),
+
+            // Five formants, each with its own Q and F1 at Q 41: 17-field rows, the 175-input layout.
+            ("five formants", Saw(OperatorFilter.Formants(800, 41, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 24.2), new FormantPeak(4.875, 0.1, 0), new FormantPeak(6.1875, 0.003, 35.4)))),
+
+            // A 7-field row with a formant Q above 20: both sides clamp at 50.
+            ("formant q 41", Saw(OperatorFilter.FormantAt(500, 2.2, 0.4, 41))),
+
+            // A swept five-formant carrier and a low-passed modulator: a 17-field low-pass row and off rows.
+            ("five formants fm", modulated.WithOperator(0, modulated.Operators[0] with
+            {
+                Filter = OperatorFilter.Formants(600, 9, new FormantPeak(1.8, 0.7, 0), new FormantPeak(4.2, 0.3, 45)) with { EnvelopeOctaves = 0.8, Envelope = sweep },
+            })),
         ];
 
         IReadOnlyList<BackendExportValidation> results = validator.Validate([.. cases.Select(c => (c.Patch, request))]);

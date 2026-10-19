@@ -1,4 +1,5 @@
 using HearSay.Synthesis.Compilation;
+using HearSay.Synthesis.Filters;
 using HearSay.Synthesis.Patches;
 using HearSay.Synthesis.Rendering;
 
@@ -17,6 +18,7 @@ public sealed class ControlStreamTests
         ["fixed-frequency"] = (FixedFrequency(), 220, null),
         ["edge-amount-envelope"] = (EdgeAmountEnvelope(), 196, null),
         ["fmx6-filter-sweep"] = (FilterSweep(), 110, null),
+        ["fmx6-five-formants"] = (FiveFormants(), 110, null),
         ["pitch-envelope"] = (ReferencePatches.Find("simple-2op")!.Patch with
         {
             Pitch = new PitchModel(new OperatorEnvelope([new EnvelopePoint(0, 30), new EnvelopePoint(0.05, 0)], null, 2)),
@@ -85,6 +87,7 @@ public sealed class ControlStreamTests
             Assert.Equal(filters.Q, stream.FilterQ);
             Assert.Equal(filters.FormantRatios, stream.FormantRatios);
             Assert.Equal(filters.FormantLevels, stream.FormantLevels);
+            Assert.Equal(filters.FormantFields, stream.FormantFields);
             Assert.Equal(filters.GainsDb, stream.FilterGainsDb);
         }
 
@@ -132,6 +135,31 @@ public sealed class ControlStreamTests
             .WithOutputLevel(0, 0.8)
             .WithEdge(new ModulationEdge(1, 0, true, 2.5, OperatorEnvelope.Adsr(0.02, 0.15, 0.4, 0.2)))
             .WithEdge(new ModulationEdge(0, 0, true, 0.4));
+
+    [Fact]
+    public void FormantFields_AreTheExtraInputsOfTheUGen_InSinglePrecision()
+    {
+        // Per operator [q2, ratio3, level3, q3, ratio4, level4, q4, ratio5, level5, q5]; the defaults for no filter
+        // and for filters that use none of them.
+        var stream = new ControlStream(FiveFormants(), new VoiceRequest(110, null, 0.7, SampleRate), BlockSize);
+        Assert.Equal(OperatorFilterKernel.FormantFieldCount * stream.OperatorCount, stream.FormantFields.Length);
+        Assert.Equal(
+            [12.8f, 3.625f, 0.025f, 0f, 4.875f, 0.1f, 30f, 6.1875f, 0.003f, 35.4f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f],
+            stream.FormantFields);
+        Assert.Equal(stream.FormantFields, PatchCompiler.Compile(FiveFormants(), RenderRequest.Create(110, 0.2, 0.1)).Filters!.FormantFields);
+    }
+
+    private static OperatorMatrixPatch FiveFormants() =>
+        OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.005, 0.5, 0.8, 0.3)).WithWaveform(OperatorWaveform.Saw) with
+            {
+                Filter = OperatorFilter.Formants(800, 41, new FormantPeak(1.4375, 0.5, 12.8), new FormantPeak(3.625, 0.025, 0), new FormantPeak(4.875, 0.1, 30), new FormantPeak(6.1875, 0.003, 35.4)),
+            })
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2), OperatorEnvelope.Adsr(0.005, 0.3, 0.5, 0.3)) with { Filter = OperatorFilter.LowPass(3) })
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(3), OperatorEnvelope.Adsr(0.005, 0.2, 0.4, 0.3)))
+            .WithOutputLevel(0, 0.6)
+            .WithOutputLevel(1, 0.3)
+            .WithEdge(new ModulationEdge(2, 0, true, 1.1));
 
     private static OperatorMatrixPatch FilterSweep() =>
         OperatorMatrixPatch.Silent(6)

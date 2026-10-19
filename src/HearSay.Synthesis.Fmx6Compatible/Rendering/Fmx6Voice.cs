@@ -37,8 +37,8 @@ internal sealed class Fmx6Voice : ControlBlockVoice
     private int[] _harmonicLimit = [];
     private float[] _filterOct = [];
     private float[] _filterOctInc = [];
-    private SvfState[] _filterA = [];
-    private SvfState[] _filterB = [];
+    private SvfState[] _filterStates = [];
+    private FormantPeak[] _formantPeaks = [];
 
     /// <summary>Creates a voice whose control source is created at its first render.</summary>
     /// <param name="sampleRate">Sample rate in hertz.</param>
@@ -82,8 +82,8 @@ internal sealed class Fmx6Voice : ControlBlockVoice
         _harmonicLimit = new int[n];
         _filterOct = [.. controls.FilterOctaves];
         _filterOctInc = new float[n];
-        _filterA = new SvfState[n];
-        _filterB = new SvfState[n];
+        _filterStates = new SvfState[n * OperatorFilterKernel.StateCount];
+        _formantPeaks = new FormantPeak[n * OperatorFilterKernel.HigherFormantCount];
 
         for (int k = 0; k < n; k++)
         {
@@ -93,6 +93,14 @@ internal sealed class Fmx6Voice : ControlBlockVoice
             // The generator is seeded by the operator slot in the UGen, which is the index in the patch.
             _rng[k] = 0x9E3779B9u ^ unchecked(0x85EBCA6Bu * (uint)(controls.OperatorIndices[k] + 1));
             _sampleHold[k] = RandBipolar(ref _rng[k]);
+
+            // The formant inputs do not change during a note; the UGen reads them as single-precision inputs.
+            int fields = OperatorFilterKernel.FormantFieldCount;
+            OperatorFilterKernel.Peaks(
+                controls.FormantRatios[k],
+                controls.FormantLevels[k],
+                controls.FormantFields.AsSpan(k * fields, fields),
+                _formantPeaks.AsSpan(k * OperatorFilterKernel.HigherFormantCount, OperatorFilterKernel.HigherFormantCount));
         }
     }
 
@@ -122,8 +130,8 @@ internal sealed class Fmx6Voice : ControlBlockVoice
         int[] harmonicLimit = _harmonicLimit;
         float[] filterOct = _filterOct;
         float[] filterOctInc = _filterOctInc;
-        SvfState[] filterA = _filterA;
-        SvfState[] filterB = _filterB;
+        SvfState[] filterStates = _filterStates;
+        FormantPeak[] formantPeaks = _formantPeaks;
         float[] frequencies = controls.Frequencies;
         float[] amplitudes = controls.Amplitudes;
         float[] amounts = controls.EdgeAmounts;
@@ -136,8 +144,6 @@ internal sealed class Fmx6Voice : ControlBlockVoice
         int[] filterTypes = controls.FilterTypes;
         float[] filterBaseHz = controls.FilterBaseHz;
         float[] filterQ = controls.FilterQ;
-        float[] formantRatios = controls.FormantRatios;
-        float[] formantLevels = controls.FormantLevels;
         float[] filterGainsDb = controls.FilterGainsDb;
         float[] octaves = controls.FilterOctaves;
 
@@ -193,12 +199,10 @@ internal sealed class Fmx6Voice : ControlBlockVoice
                         filterBaseHz[k],
                         filterOct[k],
                         filterQ[k],
-                        formantRatios[k],
-                        formantLevels[k],
                         filterGainsDb[k],
+                        formantPeaks.AsSpan(k * OperatorFilterKernel.HigherFormantCount, OperatorFilterKernel.HigherFormantCount),
                         sampleRate,
-                        ref filterA[k],
-                        ref filterB[k]);
+                        filterStates.AsSpan(k * OperatorFilterKernel.StateCount, OperatorFilterKernel.StateCount));
                 float y = amp[k] * shaped;
                 mix += y * gain[k];
                 if (wave[k] == 5 && wrapped)

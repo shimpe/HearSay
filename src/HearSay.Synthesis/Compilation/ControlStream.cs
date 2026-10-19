@@ -129,6 +129,7 @@ public sealed class ControlStream : IControlSource
         FilterQ = new float[n];
         FormantRatios = new float[n];
         FormantLevels = new float[n];
+        FormantFields = new float[n * OperatorFilterKernel.FormantFieldCount];
         FilterGainsDb = new float[n];
         FilterOctavesVary = new bool[n];
         var filterSignals = new List<Signal>();
@@ -138,6 +139,7 @@ public sealed class ControlStream : IControlSource
             OperatorPatch op = patch.Operators[indices[k]];
             OperatorFilter? filter = op.Filter;
             FilterTypes[k] = OperatorFilterKernel.Code(filter);
+            OperatorFilterKernel.FormantFields(filter, FormantFields.AsSpan(k * OperatorFilterKernel.FormantFieldCount, OperatorFilterKernel.FormantFieldCount));
             if (filter is null)
             {
                 FilterQ[k] = 1f;
@@ -310,6 +312,9 @@ public sealed class ControlStream : IControlSource
 
     /// <summary>Level of F2 per audible operator.</summary>
     public float[] FormantLevels { get; }
+
+    /// <inheritdoc />
+    public float[] FormantFields { get; }
 
     /// <summary>Peak filter gain in decibels per audible operator.</summary>
     public float[] FilterGainsDb { get; }
