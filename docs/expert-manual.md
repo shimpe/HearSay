@@ -153,8 +153,9 @@ Where filters come from:
 - **Mutations.** Screened like the other structural steps: add a low-pass, high-pass, band-pass, peak or formant
   filter with starting values from the target; remove a filter; switch 2 and 4 poles or low-pass and band-pass; add
   the sweep read from the target's brightness.
-- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 2 for FMX6
-  only, so it is rebuilt once after upgrading; the FM7 and Nome6 libraries are kept.
+- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 4 for FMX6
+  only (half of its formant filters have a third formant), so it is rebuilt once after upgrading; the FM7 and Nome6
+  libraries are kept.
 
 A filter adds 0.05 to the complexity and its envelope another 0.03, so between two patches that sound alike the one
 without a filter wins. A patch without filters exports exactly as before and runs on FMX6 builds without operator
@@ -346,11 +347,26 @@ follows every edit at once, the code a moment later, with the line *Edited in He
 - **Formant filters.** A formant filter shows F1 (in Hz) and Q1, then F2 and F3 (ratio, level and Q each), and folds
   F4 and F5 under *more formants*, closed at first; it stays open or closed as left while the Studio runs. Ratios go up
   to 32 and every Q up to 50. A formant without a Q of its own shows the Q it plays at, Q1; typing or dragging its Q
-  gives it one. Under the filter type, *preset* chooses a voice (soprano, alto, countertenor, tenor or bass; the voice
-  used last, at first soprano), and the buttons *a e i o u* set all five formants to that vowel from the Csound formant
-  table: F1 in Hz, Q1 = F1 / its bandwidth, and for F2..F5 the ratio to F1, the level 10^(dB/20) relative to F1 and
-  the Q = frequency / bandwidth. A preset is one step to undo and keeps the filter's sweep and the rest of the
-  operator. The search never sets F4 and F5 (section 4, *Operator filters*); the presets do.
+  gives it one. Under the filter type, *preset* chooses a set of vowels, *speaker* a voice or group of speakers of
+  that set, and a button per vowel, labelled with its word (its IPA symbol in the tooltip), sets all five formants to
+  that vowel. A preset is one step to undo and keeps the filter's sweep and the rest of the operator. Each inspector
+  applies the set and speaker its own menus show; a newly shown one starts at the set used last and that set's speaker
+  used last (at first Sung, soprano). The search never sets F4 and F5 (section 4, *Operator filters*); the presets do.
+  Each preset sets F1 in Hz, Q1 = F1 / B1, and for F2..F5 the ratio Fn / F1, a level relative to F1 and Q = Fn / Bn.
+  The sets:
+
+  | Set | Speakers | Vowels | Source |
+  | --- | --- | --- | --- |
+  | Sung | soprano, alto, countertenor, tenor, bass | a e i o u | The formant table of the Csound manual (TABLE III): F1..F5, their levels in dB and their bandwidths, all from the table. |
+  | English | men, women, children | heed hid hayed head had hod hawed hoed hood who'd hud heard | Hillenbrand, Getty, Clark & Wheeler (1995), "Acoustic characteristics of American English vowels", JASA 97: the means of F1..F3 of 45 men, 48 women and 46 children (American English). |
+  | Dutch | men, women | poet paat poot pat peut piet puut peet put pet pot pit | Pols, Tromp & Plomp (1973), JASA 53 (50 men) and Van Nierop, Pols & Plomp (1973), Acta Psychologica 37 (25 women): the means of F1..F3 and their levels. The speakers are Northern (Netherlands) Standard Dutch. |
+
+  The speech sets measured F1..F3 only (Dutch also their levels); the rest is filled in by rule: bandwidths
+  B1..B5 = 80, 100, 150, 250 and 300 Hz; F4 and F5 at 3500 and 4500 Hz for men, 4100 and 5000 Hz for women, 4600 and
+  5600 Hz for children, each raised where needed to at least 300 Hz above the formant below; the levels that were not
+  measured (English F2..F5, Dutch F4 and F5) from a cascade model of the vocal tract, five two-pole resonances on a
+  source falling 6 dB per octave, the Dutch F4 and F5 relative to the measured F3; every level at most F1's. The means
+  were computed from the per-speaker data that Praat distributes.
 - **Numbers.** Type a number and press Enter (or leave the box). Or drag sideways, on the box or its name in the
   inspector, or on the dashed-underlined numbers of the diagram itself (frequency ratio or fixed frequency, connection
   amounts, output levels) while a note plays: 200 pixels cross the whole range, along its scale (a ratio in equal
@@ -365,8 +381,8 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   The pitch envelope has no exponential curves: they cannot go below zero, and its cents go either way of the note.
 - **Undo and Redo** (the arrows right of the tabs, Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to the sound
   as it was. One step is one drag from press to release, one typed number, one menu choice, one part added or removed,
-  one envelope point dragged, one vowel preset. While a box holds typed text, Ctrl+Z undoes the typing; during a drag the keys do
-  nothing.
+  one envelope point dragged, one vowel preset. While a box holds typed text, Ctrl+Z undoes the typing; during a drag
+  the keys do nothing.
 - **Original ⇄ Edited.** Once a sound is edited, a switch beside the arrows shows the original or the edit: the
   diagram, the code and the keys follow, to compare by ear. The original can be inspected but not changed; an edit,
   undo or redo returns to the edit. Copy, Save…, Show in Search, Find in library and ☆ act on the version shown; while
@@ -620,7 +636,8 @@ Per operator: `Enabled`, `Mode`, `Waveform`, `Frequency` (`AtRatio(r)` or `AtFix
 `Adsr`, `TwoStageDecay` and `Constant` build common ones), `VelocitySensitivity`, `KeyScaling` (level dB per octave,
 rate per octave, reference note), for FMX6 `Shape` (pulse duty), `HarmonicLimit` and `Filter` (`OperatorFilter.LowPass`,
 `HighPass`, `BandPass`, `Notch`, `PeakAt`, `FormantAt` and `Formants`, up to five formants, build one;
-`FormantPresets.Filter` gives a vowel of the formant table; null for none), and for Nome6 `Shape`
+`FormantPresets.Filter(set, speaker, vowelKey, keepSweepFrom)` gives a vowel preset of one of
+`FormantPresets.Sets`; null for none), and for Nome6 `Shape`
 (elliptic m), `Morph`, `NoisePhase` and `NoiseM`. Per patch: `OutputLevels`, `ModulationMatrix` (edges
 `SourceOperator`, `DestinationOperator`, `Enabled`, `Amount` in radians, optional `AmountEnvelope`), `Pitch`
 (envelope and vibrato) and, for Nome6, `Noise` (colour and cutoff of the shared noise).

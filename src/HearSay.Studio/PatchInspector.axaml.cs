@@ -16,7 +16,7 @@ namespace HearSay.Studio;
 /// The values of the part of the sound selected in the block diagram, to edit: an operator, a connection, the shared
 /// noise or the pitch. Numbers are typed (committed on Enter or when the box is left) or dragged sideways on their name
 /// or box (Shift finer, Ctrl to the musical ratios); waveform, frequency mode and filter type are menus, and a formant
-/// filter has vowel presets (a voice menu and a button per vowel) and folds F4 and F5 away; what a part may
+/// filter has vowel presets (set and speaker menus and a button per vowel) and folds F4 and F5 away; what a part may
 /// have or not (a sweep, a connection envelope, roughness, a pitch envelope, vibrato) is a toggle; envelopes are graphs
 /// with their breakpoints as numbers. Its data context is the tab's <see cref="PatchEditorViewModel"/>. While the
 /// original is shown it shows the original's values and cannot be changed. Refusals go to the status line.
@@ -24,10 +24,15 @@ namespace HearSay.Studio;
 public sealed partial class PatchInspector : UserControl
 {
     /// <summary>
-    /// The voice chosen last while the Studio runs: the one a newly built voice menu starts at. The vowel buttons apply
-    /// the voice their own menu shows.
+    /// The speakers chosen last per preset set while the Studio runs: the ones a newly built speaker menu starts at.
     /// </summary>
-    private static FormantVoice _lastVoice = FormantVoice.Soprano;
+    private static readonly Dictionary<string, string> _lastSpeakers = [];
+
+    /// <summary>
+    /// The preset set chosen last while the Studio runs: the one a newly built set menu starts at. The vowel buttons
+    /// apply the set and speaker their own menus show.
+    /// </summary>
+    private static string _lastSet = "Sung";
 
     /// <summary>True when "more formants" (F4 and F5) was left open, while the Studio runs.</summary>
     private static bool _moreFormantsExpanded;
@@ -358,55 +363,81 @@ public sealed partial class PatchInspector : UserControl
     }
 
     /// <summary>
-    /// The vowel presets of a formant filter: a voice menu (the voice used last, at first soprano) and a button per
-    /// vowel, which sets all five formants of that voice and vowel as one step and keeps the sweep.
+    /// The vowel presets of a formant filter: a menu of preset sets (sung, English, Dutch; the one used last, at first
+    /// sung), a menu of the set's speakers (the one used last for that set, at first its first) and a button per vowel of
+    /// the set, labelled with its word, which sets all five formants of that speaker and vowel as one step and keeps the
+    /// sweep. A button applies what this inspector's own menus show: another inspector (the other tab) may have chosen
+    /// another set or speaker since.
     /// </summary>
     private void FormantPresetRows(int op)
     {
-        var voices = new ComboBox { Name = "FormantVoice" };
-        ToolTip.SetTip(voices, "The voice of the vowel buttons, from the Csound formant table");
-        foreach (FormantVoice voice in Enum.GetValues<FormantVoice>())
+        var sets = new ComboBox { Name = "FormantSet" };
+        ToolTip.SetTip(sets, "The vowel data: sung vowels (Csound), American English (Hillenbrand et al. 1995) or Dutch (Pols et al. 1973)");
+        foreach (FormantPresetSet set in FormantPresets.Sets)
         {
-            var item = new ComboBoxItem { Content = FormantPresets.Name(voice), Tag = voice };
-            voices.Items.Add(item);
-            if (voice == _lastVoice)
+            var item = new ComboBoxItem { Content = set.Name, Tag = set };
+            ToolTip.SetTip(item, set.Source);
+            sets.Items.Add(item);
+        }
+
+        var speakers = new ComboBox { Name = "FormantSpeaker" };
+        ToolTip.SetTip(speakers, "The voice or group of speakers of the vowel buttons");
+        var vowels = new WrapPanel { Name = "FormantVowels", Orientation = Orientation.Horizontal, ItemSpacing = 3, LineSpacing = 3, Margin = new Thickness(0, 0, 0, 2) };
+
+        FormantPresetSet? Shown() => sets.SelectedItem is ComboBoxItem { Tag: FormantPresetSet set } ? set : null;
+
+        // The speakers and vowels of the set the menu shows.
+        void Fill(FormantPresetSet set)
+        {
+            speakers.Items.Clear();
+            string speaker = _lastSpeakers.GetValueOrDefault(set.Name) is { } last && set.Speakers.Contains(last) ? last : set.Speakers[0];
+            foreach (string name in set.Speakers)
             {
-                voices.SelectedItem = item;
+                var item = new ComboBoxItem { Content = name, Tag = name };
+                speakers.Items.Add(item);
+                if (name == speaker)
+                {
+                    speakers.SelectedItem = item;
+                }
+            }
+
+            vowels.Children.Clear();
+            foreach (FormantPresetVowel vowel in set.Vowels)
+            {
+                var button = new Button { Name = "Vowel:" + vowel.Word, Content = vowel.Word, MinWidth = 30, Padding = new Thickness(6, 3), HorizontalContentAlignment = HorizontalAlignment.Center };
+                ToolTip.SetTip(button, set.Name == "Sung" ? $"{vowel.Ipa}: set the five formants to this sung vowel" : $"{vowel.Ipa} as in \"{vowel.Word}\": set the five formants to this vowel");
+                button.Click += (_, _) =>
+                {
+                    if (Shown() is { } shown && speakers.SelectedItem is ComboBoxItem { Tag: string who })
+                    {
+                        _editor!.Apply(PatchEdits.SetFormantPreset(op, shown, who, vowel.Key));
+                    }
+                };
+                vowels.Children.Add(button);
             }
         }
 
-        voices.SelectionChanged += (_, _) =>
+        sets.SelectedItem = sets.Items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag is FormantPresetSet { Name: var name } && name == _lastSet) ?? sets.Items[0];
+        Fill(Shown()!);
+        sets.SelectionChanged += (_, _) =>
         {
-            if (voices.SelectedItem is ComboBoxItem { Tag: FormantVoice voice })
+            if (Shown() is { } set)
             {
-                _lastVoice = voice;
+                _lastSet = set.Name;
+                Fill(set);
             }
         };
-        AddRow(new TextBlock { Text = "preset", Classes = { "row" } }, voices, string.Empty);
-
-        // The five buttons in one line, over the box and unit columns.
-        FormantVowel[] all = Enum.GetValues<FormantVowel>();
-        var vowels = new Grid { ColumnDefinitions = new ColumnDefinitions(string.Join(",", all.Select(static _ => "*"))), ColumnSpacing = 3 };
-        foreach (FormantVowel vowel in all)
+        speakers.SelectionChanged += (_, _) =>
         {
-            string name = FormantPresets.Name(vowel);
-            var button = new Button
+            if (Shown() is { } set && speakers.SelectedItem is ComboBoxItem { Tag: string speaker })
             {
-                Name = "Vowel:" + name,
-                Content = name,
-                Padding = new Thickness(0, 3),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
-            };
-            ToolTip.SetTip(button, $"Set the five formants to the vowel \"{name}\" of the chosen voice");
-            // The voice this inspector's menu shows: another inspector (the other tab) may have chosen another one since.
-            button.Click += (_, _) => _editor!.Apply(PatchEdits.SetFormantPreset(op, voices.SelectedItem is ComboBoxItem { Tag: FormantVoice shown } ? shown : _lastVoice, vowel));
-            Grid.SetColumn(button, (int)vowel);
-            vowels.Children.Add(button);
-        }
+                _lastSpeakers[set.Name] = speaker;
+            }
+        };
 
-        AddRow(new TextBlock { Text = "vowel", Classes = { "row" } }, vowels, string.Empty);
-        Grid.SetColumnSpan(vowels, 2);
+        AddRow(new TextBlock { Text = "preset", Classes = { "row" } }, sets, string.Empty);
+        AddRow(new TextBlock { Text = "speaker", Classes = { "row" } }, speakers, string.Empty);
+        Body.Children.Add(vowels);
     }
 
     /// <summary>

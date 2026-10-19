@@ -289,15 +289,17 @@ public static class PatchEdits
     };
 
     /// <summary>
-    /// Sets an operator's filter to a vowel of the formant table (<see cref="FormantPresets"/>): all five formants, with
-    /// their levels and own Qs. The sweep of the filter it replaces stays; an operator without a filter, or with another
-    /// type, gets a formant filter. Refused on a profile without filters.
+    /// Sets an operator's filter to a vowel preset (<see cref="FormantPresets"/>): all five formants, with their levels
+    /// and own Qs. The sweep of the filter it replaces stays; an operator without a filter, or with another type, gets a
+    /// formant filter. Refused on a profile without filters, and for a speaker or vowel the set does not have.
     /// </summary>
     /// <param name="op">The operator.</param>
-    /// <param name="voice">The voice.</param>
-    /// <param name="vowel">The vowel.</param>
-    public static PatchEdit SetFormantPreset(int op, FormantVoice voice, FormantVowel vowel) => (patch, c) =>
+    /// <param name="set">One of <see cref="FormantPresets.Sets"/>.</param>
+    /// <param name="speaker">One of the set's speakers, such as "soprano" or "women".</param>
+    /// <param name="vowelKey">The key of one of the set's vowels, such as "a" or "ie".</param>
+    public static PatchEdit SetFormantPreset(int op, FormantPresetSet set, string speaker, string vowelKey) => (patch, c) =>
     {
+        ArgumentNullException.ThrowIfNull(set);
         if (Missing(patch, op) is { } missing)
         {
             return EditOutcome.Refused(patch, missing);
@@ -308,7 +310,12 @@ public static class PatchEdits
             return EditOutcome.Refused(patch, noFilters);
         }
 
-        OperatorFilter filter = FormantPresets.Filter(voice, vowel, patch.Operators[op].Filter);
+        if (FormantPresets.Problem(set, speaker, vowelKey) is { } problem)
+        {
+            return EditOutcome.Refused(patch, problem);
+        }
+
+        OperatorFilter filter = FormantPresets.Filter(set, speaker, vowelKey, patch.Operators[op].Filter);
         return EditOutcome.Done(patch.WithOperator(op, patch.Operators[op] with { Filter = filter }));
     };
 
