@@ -31,6 +31,7 @@ internal static class Program
     [
         ("docs/studio-manual.md", "HearSay-Studio-Manual.pdf", "HearSay Studio manual"),
         ("docs/expert-manual.md", "HearSay-Expert-Manual.pdf", "HearSay expert manual"),
+        ("docs/patch-matching.md", "HearSay-Patch-Matching.pdf", "HearSay patch matching"),
     ];
 
     public static int Main(string[] args)

@@ -19,11 +19,13 @@ best OperatorMatrixPatch
 ```
 
 HearSay is an *audio-to-operator-matrix solver*. The SuperCollider `FM7` UGen is its first synthesis and export
-profile, not its identity: nothing outside the FM7 profile, the FM7-compatible renderer, the FM7 exporter and the
-sine phase-modulation prior provider knows about sine waves or about FM7.
+profile, not its identity: what FM7 can play is known only to its profile, its renderer and its exporter (FMX6 and
+Nome6 have theirs), and the sideband arithmetic of sine FM only to the sine phase-modulation prior provider and the
+`FmSpectrumModel` it uses.
 
 This document is the design and the evidence. For day-to-day use (preparing targets, budget and seeds, reading
-results, Studio, the CLI, the API, hand-editing, troubleshooting) see the [expert manual](expert-manual.md).
+results, the CLI, the API, hand-editing, troubleshooting) see the [expert manual](expert-manual.md); for the desktop
+app, its keyboard, block diagram, editor and library, see the [Studio manual](studio-manual.md).
 
 - [Quick start](#quick-start)
 - [Assemblies and what was reused](#assemblies-and-what-was-reused)
@@ -45,10 +47,11 @@ results, Studio, the CLI, the API, hand-editing, troubleshooting) see the [exper
 ## Quick start
 
 Desktop app (Avalonia, Windows/macOS/Linux): `dotnet run -c Release --project src/HearSay.Studio`. Load WAV files, set budget
-and seeds, run, play the result on a piano keyboard at any pitch (OpenAL Soft, one voice, velocity from where the key is
-hit), then copy the SuperCollider patch, look at its block diagram in the second tab of the patch card, or save the
-result folder. The Target selector picks FM7, FMX6, Nome6 or All (the three one after the other); the last result of
-each target is kept, so switching the selector compares them. Command line:
+and seeds, run, and play the result on the screen keyboard or a MIDI controller at any pitch (OpenAL Soft, up to 16
+voices, velocity from where the key is hit or from the controller). Copy or save the SuperCollider code, look at the
+patch as a block diagram and edit it there, keep it as a favourite, or save the result folder. The Target selector
+picks FM7, FMX6, Nome6 or All (the three one after the other); the last result of each target is kept, so switching
+the selector compares them. The [Studio manual](studio-manual.md) describes the app. Command line:
 
 ```bash
 dotnet run -c Release --project src/HearSay.Cli -- match target.wav \
@@ -61,8 +64,10 @@ dotnet run -c Release --project src/HearSay.Cli -- profiles             # list s
 `--note <midi>` or `--f0 <hz>` supply the pitch when it is known; otherwise it is estimated. `--seeds <n>` runs n seeds
 and keeps the best, which is the simplest remedy against an unlucky run; the finalists of every seed are kept as
 alternatives, one per structure, each marked with its seed. `--library <n>` sets the size of the
-[structure library](#structure-library) (0 turns it off). `--sample-rate` should be
-the rate the exported patch will run at, because the aliasing of the backend is part of its sound.
+[structure library](#structure-library) (300 000 by default, 0 turns it off). `--sample-rate` should be
+the rate the exported patch will run at, because the aliasing of the backend is part of its sound. `hearsay reference
+[name]` renders a built-in reference patch to WAV files to use as test targets; `hearsay` with no arguments lists every
+option (`--seed`, `--max-seconds`, `--parallel`, `--quiet` and the rest).
 
 ```text
 result/
@@ -71,11 +76,13 @@ result/
     patch.scd             SuperCollider SynthDef (needs sc3-plugins for FM7, nothing of HearSay)
     analysis.json         what was measured on the target
     comparison.json       full HearSay diagnosis of preview against target
-    search-summary.json   stages, basins, budget, seed
+    search-summary.json   stages, basins, budget, seed, the course of the search (improvements, trace), candidates
     alternatives/
         01-patch.json  01-preview.wav  01-patch.scd
         02-…
 ```
+
+A target set also gets a preview, an analysis and a comparison per note (`preview-note2-262Hz.wav`, …).
 
 API:
 
@@ -108,7 +115,7 @@ src/
       Audio, Dsp, Preprocessing, Spectral, Harmonics, Envelope, Features, Comparison, Models   (existing)
       Partials/                  inharmonic partial detection, tracking, partial-set distance   (new)
       Pitch/                     pitch trajectory, vibrato, drift, beat detection               (new)
-      Spectral/                  + spectral trajectories, band-energy trajectories, LTAS        (new)
+      Spectral/                  + spectral trajectories, band-energy trajectories, LTAS, noise profile   (new)
       Envelope/                  + multi-stage decay                                            (new)
       Analysis/                  AudioTarget, TargetAnalysis, TargetAnalyzer                    (new)
       Objective/                 composite audio loss with evaluation levels                    (new)
@@ -117,20 +124,24 @@ src/
   HearSay.Synthesis/             how is a canonical patch rendered?
       Patches/                   OperatorMatrixPatch, OperatorPatch, PhaseModulationMatrix, envelopes, pitch model
       Profiles/                  SynthesisCapabilities, SynthesisProfile(s), PatchCompatibilityValidator
-      Rendering/                 IOperatorMatrixRenderer, RenderRequest, ExtendedOperatorMatrixRenderer
-      Compilation/ Envelopes/ Oscillators/ Export/
+      Rendering/                 IOperatorMatrixRenderer, RenderRequest, voices (IVoiceRenderer, ControlBlockVoice), ExtendedOperatorMatrixRenderer
+      Compilation/ Envelopes/ Filters/ Oscillators/ Export/
   HearSay.Synthesis.Fm7Compatible/   reference renderer with FM7 semantics
-  HearSay.Synthesis.Fmx6Compatible/  reference renderer with FMX6 semantics (band-limited waveforms, noise)
+  HearSay.Synthesis.Fmx6Compatible/  reference renderer with FMX6 semantics (band-limited waveforms, noise, operator filters)
   HearSay.Synthesis.Nome6Compatible/ reference renderer with Nome6 semantics (Jacobi elliptic operators, shared noise)
   HearSay.SuperCollider/         FM7, FMX6 and Nome6 exporters, SuperCollider NRT renderer, backend-equivalence validation
   HearSay.OperatorMatrix/        which synthesis structure and parameters should be explored?
       Parameters/                schema, hierarchy, conditional activity, transforms, ties, active sets
       Canonicalization/          regime keys, canonical operator order, complexity
-      Priors/                    ISynthesisPriorProvider, sine-PM provider, temporal priors
+      Priors/                    ISynthesisPriorProvider, sine-PM provider and FM spectrum model, partial-track,
+                                 waveform, noise, formant and subtractive providers, temporal priors, structure library
       Optimization/              CMA-ES
       Basins/ Search/            basins, topology mutation, evaluator, coordinator, local refiner
-  HearSay/                       facade: OperatorMatrixPatchMatcher, SynthesisBackends, result writer
+  HearSay/                       facade: OperatorMatrixPatchMatcher, SynthesisBackends, result writer, favourites
+      Playing/                   PlaybackLevel, Sound, VoiceMixer, NoteSession, MIDI
+      Editing/                   PatchEditor, EditSessions, PatchEdits, EditableValues, EnvelopeEdits, EditMarks, FormantPresets
   HearSay.Cli/                   command line
+  HearSay.Studio/                desktop app (Avalonia)
 ```
 
 The original `HearSay` assembly was split into `HearSay.Audio` and `HearSay.Modeling`. Namespaces on the audio side
@@ -148,8 +159,8 @@ by the matcher:
 
 ## The canonical patch model
 
-`OperatorMatrixPatch` is the single source of truth. The optimizer, the reference renderer, the JSON format and every
-exporter read the same record; there is no second representation.
+`OperatorMatrixPatch` is the single source of truth. The optimizer, the reference renderers, the editor, the JSON
+format and every exporter read the same record; there is no second representation.
 
 ```csharp
 public sealed record OperatorMatrixPatch(
@@ -161,7 +172,7 @@ public sealed record OperatorMatrixPatch(
 public sealed record OperatorPatch(
     bool Enabled,
     OperatorMode Mode,                  // PhaseModulation; ring modulation, wavefolder, filter… are reserved
-    OperatorWaveform Waveform,          // Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise, FilteredNoise, Additive, Wavetable
+    OperatorWaveform Waveform,          // Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise, FilteredNoise, Elliptic, Additive, Wavetable
     OperatorFrequency Frequency,        // Ratio or Fixed
     double FineTuneCents,
     double DetuneHz,
@@ -170,6 +181,13 @@ public sealed record OperatorPatch(
     double VelocitySensitivity,
     KeyScaling KeyScaling);
 ```
+
+Besides these, an operator has init properties that only some backends use: `Shape` (pulse duty cycle, filtered-noise
+response or elliptic m), `Morph` (elliptic sn-to-sd), `HarmonicLimit` (1..128 harmonics of a band-limited waveform),
+`NoisePhase` and `NoiseM` (roughening by the shared noise), and `Filter`, an optional
+[operator filter](#operator-filters). The patch has `Noise`, the colour and cutoff of the noise all operators share.
+`Filter` is left out of the JSON when an operator has none, so a patch without filters keeps the serialized form and
+the hash it had before filters existed.
 
 - **Frequency.** Ratio operators run at `note × ratio × 2^(fineTune/1200) + detuneHz`, multiplied by the pitch model.
   Fixed operators run at `fixedHz + detuneHz` and ignore both the note and the pitch model. Fine tune transposes;
@@ -183,12 +201,17 @@ public sealed record OperatorPatch(
   receive modulation and feed the mix at the same time. "Carrier" and "modulator" are descriptions of what the matrix
   and the output levels say.
 - **Envelopes** are breakpoint lists with linear, exponential or step segments, a sustain point and a release section.
-  The same type serves operator amplitudes, modulation-edge amounts (`M[i,j](t)`, control rate) and pitch. They are
-  not limited to four rates and four levels.
+  The same type serves operator amplitudes, modulation-edge amounts (`M[i,j](t)`, control rate), filter sweeps and
+  pitch. They are not limited to four rates and four levels.
 - **Pitch model.** A pitch envelope in cents (initial offset, pitch decay, drift) and a sine vibrato with rate, depth,
   delay and fade-in.
 - The amplitude envelope of an operator scales everything it sends, its modulation as well as its contribution to the
   mix. That is how FM7 works, and it is what makes a decaying modulator a decaying modulation index.
+- **Operator filters.** An operator may have a `Filter` between its waveform and its amplitude: low-pass or high-pass
+  with 2 or 4 poles, band-pass or notch, all following the note; a peak at a fixed frequency; or a formant filter with
+  up to five peaks. Everything the operator sends, to the mix and as modulation, is the filtered signal. Only profiles
+  with `SupportsOperatorFilters` (FMX6) may use it; see [Operator filters](#operator-filters) in the FMX6 section. The
+  reserved `OperatorMode.Filter` above is something else: a filter as an operator of its own.
 
 `patch.ToJson()`, `OperatorMatrixPatch.FromJson`, `patch.Validate()` and the deterministic content hash
 `patch.ComputeHash()` (the cache key of the search) complete the model.
@@ -211,16 +234,17 @@ public sealed record SynthesisCapabilities(
     bool SupportsFixedFrequency,
     bool SupportsIndependentOperatorOutputs,
     double MaxModulationRadiansPerDestination = 24.0,
-    bool SupportsSharedNoise = false);
+    bool SupportsSharedNoise = false,
+    bool SupportsOperatorFilters = false);
 ```
 
 | Profile | Operators | Modes | Waveforms | Status |
 | --- | --- | --- | --- | --- |
 | `SynthesisProfiles.SuperColliderFm7` (`supercollider-fm7`) | exactly 6 | PhaseModulation | Sine | searchable, exportable; full matrix, self and circular feedback, ratio and fixed, independent outputs, dynamic matrix, backend-exact rendering |
-| `SynthesisProfiles.SuperColliderFmx6` (`supercollider-fmx6`) | exactly 6 | PhaseModulation | Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise, FilteredNoise | searchable, exportable; everything FM7 has, plus band-limited waveforms with a harmonic limit, a pulse duty cycle (`Shape`) and three noise sources, one of them filtered (`Shape` then selects low-, band- or high-pass); needs the [FMX6 plugin](https://github.com/shimpe/fmx6) |
+| `SynthesisProfiles.SuperColliderFmx6` (`supercollider-fmx6`) | exactly 6 | PhaseModulation | Sine, Triangle, Saw, Square, Pulse, Noise, SampleHoldNoise, FilteredNoise | searchable, exportable; everything FM7 has, plus band-limited waveforms with a harmonic limit (1..128), a pulse duty cycle (`Shape`), three noise sources, one of them filtered (`Shape` then selects low-, band- or high-pass), and a filter per operator (`SupportsOperatorFilters`: low-pass, high-pass, band-pass, notch, peak, or formant with up to five formants); needs the [FMX6 plugin](https://github.com/shimpe/fmx6), with operator filters for patches that use them, and with five formants for a formant filter with more than F1 and F2 or with an own Q on one of them |
 | `SynthesisProfiles.SuperColliderNome6` (`supercollider-nome6`) | exactly 6 | PhaseModulation | Sine, Elliptic, Noise | searchable, exportable; the FM7 matrix with Jacobi elliptic operators (`Shape` is the elliptic parameter m, `Morph` the sn-to-sd crossfade), rendered at twice the sample rate, and one shared noise source (`SupportsSharedNoise`): noise operators play it, and it roughens the phase (`NoisePhase`) or the m (`NoiseM`) of the others, with one colour per patch (`OperatorMatrixPatch.Noise`); needs the Nome6 plugin with noise |
-| `SynthesisProfiles.ExperimentalSineTriangle` | 6 | PhaseModulation | Sine, Triangle | searchable with the extended renderer; no export backend, because that renderer is not backend-exact (FMX6 could play its patches, but not with the same anti-aliasing); exists to prove the architecture |
-| `SynthesisProfiles.HearSayExtended` | 6 | PhaseModulation | all | reserved for a future engine; no renderer yet, so the matcher refuses it |
+| `SynthesisProfiles.ExperimentalSineTriangle` (`experimental-sine-triangle`) | 6 | PhaseModulation | Sine, Triangle | searchable with the extended renderer; no export backend, because that renderer is not backend-exact (FMX6 could play its patches, but not with the same anti-aliasing); exists to prove the architecture |
+| `SynthesisProfiles.HearSayExtended` (`hearsay-extended`) | 6 | PhaseModulation | all | reserved for a future engine; no renderer yet, so the matcher refuses it |
 
 Three mechanisms keep a search inside its profile:
 
@@ -229,10 +253,15 @@ Three mechanisms keep a search inside its profile:
 3. The parameter schema offers structural choices from the profile only. For FM7 the waveform parameter of an operator
    has exactly one choice; cells of the matrix the backend lacks do not exist in the schema.
 
+Hand edits obey the same limits: every edit of `HearSay.Editing.PatchEdits` receives the capabilities of the sound's
+profile and refuses, with a reason, what the backend cannot play, and `PatchEditor` validates every result, so an
+edited patch is always playable by its profile. The ranges of the editable numbers (`EditableValues`) are those of the
+parameter schema, widened to the value a patch already has.
+
 `IPatchCompatibilityValidator` answers whether a backend can play a patch, with machine-readable issues
-(`unsupported-waveform`, `self-feedback`, `modulation-range`, …). Renderers and exporters refuse incompatible patches
-with a `PatchNotSupportedException`; nothing is approximated silently. A renderer that can do less than a profile asks
-for is rejected before the search starts.
+(`unsupported-waveform`, `self-feedback`, `operator-filter`, `shared-noise`, `modulation-range`, …). Renderers and
+exporters refuse incompatible patches with a `PatchNotSupportedException`; nothing is approximated silently. A
+renderer that can do less than a profile asks for is rejected before the search starts.
 
 ## The FM7-compatible renderer
 
@@ -264,20 +293,30 @@ without an audio device. Its semantics were taken from the FM7 source code and t
   and keeps that detail to itself.
 
 Patches are compiled before the sample loop (`PatchCompiler` → `CompiledOperatorMatrixPatch`): only audible
-operators and live edges remain, all control signals are evaluated per block, and the loop itself is free of
-allocations, LINQ, dictionaries and virtual calls.
+operators and live edges remain, all control signals are evaluated per block, and the sample loop itself is free of
+allocations, LINQ, dictionaries and virtual calls; control values change once per block.
+
+The kernel is also a voice (`IVoiceRenderer.StartVoice`, `ControlBlockVoice`) that renders one control block at a time
+and reads its gate once per block, so a note can be held for as long as a key is down. Offline rendering compiles the
+whole note by running the same `ControlStream` to its end, and a voice held for a duration and then released plays
+exactly the samples of the offline render of that note (`VoiceEquivalenceTests`, for FM7, FMX6 and Nome6). The Studio
+plays its keyboard and MIDI notes this way.
 
 ## SuperCollider export
 
-Two exporters share one base, `SuperColliderOperatorMatrixExporter`: `SuperColliderFm7Exporter` for the `FM7` UGen of
-the sc3-plugins and `SuperColliderFmx6Exporter` for the [FMX6 UGen](https://github.com/shimpe/fmx6). Both are
-`IPatchExporter`s and `ISynthDefExporter`s; the profile of a search decides which one `SynthesisBackends.ExporterFor`
-hands out. The SynthDefs differ in one statement only: FMX6 takes three extra arrays, `waves:` (0 sine, 1 triangle,
-2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise, 7 filtered noise), `shapes:` (pulse duty cycle or
-filter response) and
-`harmonicLimits:`, one entry per operator. FMX6 plays every FM7 patch; FM7 refuses a patch with any other waveform.
-A third, `SuperColliderNome6Exporter`, extends every operator row to the nine fields of the
-[Nome6](#a-second-custom-ugen-nome6) UGen and passes the colour of the shared noise.
+Three exporters share one base, `SuperColliderOperatorMatrixExporter`: `SuperColliderFm7Exporter` for the `FM7` UGen
+of the sc3-plugins, `SuperColliderFmx6Exporter` for the [FMX6 UGen](https://github.com/shimpe/fmx6) and
+`SuperColliderNome6Exporter` for [Nome6](#a-second-custom-ugen-nome6). All are `IPatchExporter`s and
+`ISynthDefExporter`s; the profile of a search decides which one `SynthesisBackends.ExporterFor` hands out. The
+SynthDefs differ only in the statement that calls the UGen. FMX6 takes three extra arrays, one entry per operator:
+`waves:` (0 sine, 1 triangle, 2 saw, 3 square, 4 pulse, 5 sample-and-hold noise, 6 white noise, 7 filtered noise),
+`shapes:` (pulse duty cycle or filtered-noise response) and `harmonicLimits:`. When an audible operator has a filter
+it takes a fourth, `filters:`, one row per operator: `[type, freq, octaves, q, formantRatio, formantLevel, gainDb]`
+(type 1 LP2, 2 LP4, 3 HP2, 4 HP4, 5 band-pass, 6 notch, 7 peak, 8 formant), with ten more fields (the Q of F2, and
+ratio, level and Q of F3 to F5) only when an audible formant filter needs them. A patch without filters therefore runs
+on FMX6 builds without operator filters, and one whose formant filters have only F1 and F2 at one Q runs on builds
+without five formants. FMX6 plays every FM7 patch; FM7 refuses a patch with any other waveform or with a filter.
+Nome6 extends every operator row to the nine fields of its UGen and passes the colour of the shared noise.
 
 `SuperColliderFm7Exporter` writes a self-contained SynthDef. It uses the full matrix interface
 `FM7.ar(ctlMatrix, modMatrix)`, never `FM7.arAlgo`. What was verified on the installed UGen before writing it:
@@ -363,13 +402,17 @@ The SynthDef is an instrument, not a recording: `freq` transposes ratio operator
 
 The code of a result folder, of the Studio (code view, Copy, Save…) and of a favourite carries HearSay's level, so
 that it sounds as loud in SuperCollider as in the Studio: the output is multiplied by the gain HearSay plays the sound
-at, `PlaybackLevel.GainFor` the peak of its reference note at full velocity (`Out.ar(out, (signal * amp * 3.2109) ! 2)`,
-after a `// Level: x 3.2109, …` comment). `amp` (default 0.2) scales on top of it. `PatchExportOptions.Gain` sets it;
-without it, and always in `ExportSynthDef`, which the non-realtime validation renders, the output is the raw sound.
+at (`Out.ar(out, (signal * amp * 3.2109) ! 2)`, after a `// Level: x 3.2109, …` comment). For a result, each of its
+alternatives and a library sound that is `PlaybackLevel.GainFor` the peak of its reference note at full velocity, the
+gain that brings that peak to 0.5; a favourite keeps the gain it was kept with, and an edit plays and exports at the
+gain of its original until *Match loudness* gives it its own. `amp` (default 0.2) scales on top of it.
+`PatchExportOptions.Gain` sets it; without it, and always in `ExportSynthDef`, which the non-realtime validation
+renders, the output is the raw sound.
 
 ### Native versus SuperCollider
 
-`SuperColliderFm7Renderer` renders patches with a real scsynth in non-realtime mode, and
+`SuperColliderFm7Renderer` renders patches with a real scsynth in non-realtime mode, by default through the FM7
+exporter and, given another exporter, through FMX6 or Nome6 (see their sections), and
 `BackendEquivalenceValidator` compares that with the reference renderer using HearSay itself
 (`BackendExportValidation`: overall, spectral, envelope and partial distance, largest sample difference). This measures
 reference renderer against backend, never target against candidate.
@@ -379,8 +422,8 @@ Measured with SuperCollider 3.14.1 and sc3-plugins 3.14.0 (`tests/HearSay.SuperC
 | Test set | Patches | Equivalent | Sample-exact (< 0.1 % of peak) | Worst overall distance |
 | --- | --- | --- | --- | --- |
 | Random patches in six families: sparse, dense, self-feedback, circular, fixed and detuned, moving (edge envelopes, pitch envelope, vibrato); five notes each at different pitches, velocities and note lengths that do not fall on a block boundary | 30 | 30 | 29 | 0.00003 |
-| The twelve reference patches | 12 | 12 | 12 | 0.00000 |
-| Best patch of every round trip below (`--supercollider`) | 12 | 12 | — | 0.00000 |
+| The thirteen reference patches | 13 | 13 | 13 | 0.00000 |
+| Best patch of every round trip below (`samples/HearSay.MatchDemo --supercollider`) | 13 | 13 | — | 0.00000 |
 | Instrument check: another pitch, another velocity, early note-off, fixed-frequency operator | 2 notes | 2 | 2 (difference 0) | — |
 
 Typical largest sample difference is 1e-5 (-100 dB): the reference renderer holds the -100 dB floor of an exponential
@@ -409,6 +452,9 @@ The tests are skipped on machines without SuperCollider (`HEARSAY_SCLANG` overri
 | slow amplitude beating | `BeatAnalysis` | detuned-pair hypotheses |
 | long-term average spectrum in third-octave bands | `LongTermAverageSpectrum` | coarse screening; robust to oscillator, beat and vibrato phase |
 | noise: the share of the energy between the partials (running median across frequency) and its centroid | `NoiseProfile` | noise priors and mutations |
+
+Formants, the roll-off of the harmonics and brightness sweeps for operator filters are read from these measurements
+by `FilterPriors`, in the prior providers and the filter mutations; they are not stored in the analysis.
 
 A stereo file is mixed down to mono, but a channel that is a delayed copy of the first (cross-correlation of at least
 0.9 within 2 ms) is aligned before averaging; averaging it as it was would comb-filter the note.
@@ -462,13 +508,18 @@ Two questions, two tools:
   totalLoss = audioLoss + complexityWeight · patchComplexity
   ```
 
+  The default weights are 0.25 (STFT), 0.15 (Mel), 0.20 (partial set), 0.15 (trajectories), 0.15 (envelope), 0.05
+  (pitch), 0.05 (LTAS) and 0.3 (body partials). The audio loss is the weighted mean of the terms a level computes: it
+  divides by the sum of their weights. At `Coarse` the Mel and partial weights go to the LTAS.
+
   `PartialSet` compares the partials of the average spectrum of the whole note, which weighs short-lived attack
   partials as much as those that ring on. `BodyPartial` (weight 0.3) compares the partials of the body only: the
   average spectrum from 0.1 s after the peak, or 15 % of the note if later, to the note-off, in the same window for
   target and candidate; notes whose body would be shorter than 0.2 s have none. On an FM cymbal, 26 sideband peaks of
   the attack otherwise outweighed the 7 bell partials the ear follows.
 
-  The complexity term (operators, edges, tiny edges and outputs, extra envelope points, extreme detuning) is a
+  The complexity term (operators, edges, tiny edges and outputs, extra envelope points, extreme detuning, operator
+  filters and their sweeps) is a
   tie-breaker with a default weight of 0.02; the audio loss dominates.
 - **How does this patch differ?** The existing HearSay feature vector and `ToneComparisonResult`. Local refinement
   proposes steps from the Jacobian of that vector and lets the audio objective decide whether to accept them. A
@@ -478,8 +529,8 @@ Two questions, two tools:
 
 Evaluation is progressive: `Coarse` (long-term spectrum, rough spectrum and envelope) sorts out hypotheses, `Normal`
 (everything except pitch, unless the target pitch moves) drives the optimization, `Detailed` adds the pitch trajectory
-for finalists. Comparison is timbre-normalized by default; `ObjectiveOptions.TimbreNormalized = false` makes the
-absolute level part of the loss.
+for finalists of notes that have a pitch (inharmonicity below 0.15). Comparison is timbre-normalized by default;
+`ObjectiveOptions.TimbreNormalized = false` makes the absolute level part of the loss.
 
 ## Parameters: structural and continuous
 
@@ -490,15 +541,25 @@ range, a position in the hierarchy and an activity rule.
 Patch
 ├─ Operator 1
 │  ├─ op1.enabled · op1.mode · op1.waveform                       structural
+│  ├─ Waveform: op1.shape · op1.filter · op1.elliptic · op1.morph · op1.noisePhase · op1.noiseM   (where the profile has them)
+│  ├─ Filter: op1.operatorFilter.cutoff · .fixedHz · .q · .formantRatio · .formantLevel · .formantQ2
+│  │          .formant3Ratio · .formant3Level · .formant3Q · .peakGain · .octaves · .env.*      (FMX6)
 │  ├─ Frequency: op1.frequency.mode · op1.frequency.ratio          structural
 │  │             op1.frequency.fixedHz · op1.fineTune · op1.detune · op1.phase
 │  ├─ Amplitude Envelope: op1.env.p1.time … op1.env.p4.level, op1.env.breakPosition
+│  ├─ op1.velocity · op1.keyScaling.level · op1.keyScaling.rate   (searched only on target sets with several velocities or pitches)
 │  └─ Output: op1.output.enabled (structural) · op1.output.level
 ├─ Operator 2 … 6
 ├─ Modulation Matrix
 │  └─ OP2 -> OP1: edge.2>1.enabled (structural) · edge.2>1.amount · optional amount envelope
+├─ Shared Noise: noise.color · noise.cutoff                       (Nome6)
 └─ Pitch Model: pitch.env.* · pitch.vibrato.rate/depth/delay/fadeIn
 ```
+
+A waveform parameter is active only for the waveform that uses it (`.shape` for a pulse, `.filter`, the response, for
+filtered noise, `.elliptic` and `.morph` for an elliptic operator). Filter type and slope, the harmonic limit and
+whether a filter has a sweep are structural and change by mutation only; a filter's numbers enter the schema once a
+prior or a mutation has given the operator a filter (see [Operator filters](#operator-filters)).
 
 | `ParameterSearchKind` | Examples | Who moves it |
 | --- | --- | --- |
@@ -523,9 +584,14 @@ Patch
 - Envelope times are bounded by the note that is being matched, and the two segments between attack and sustain share
   a derived *break position* axis. Both remove regions where a parameter does nothing.
 - **Regimes.** `OperatorMatrixRegimeKey` captures audible operators with mode, waveform, frequency mode and coarse
-  frequency, active edges and output topology. `PatchCanonicalizer` brings relabelled twins into one operator order.
-  Local models are stored per regime (`RegimeModelStore`): a Jacobian learned with a sine in OP3 is never used once
-  OP3 is a triangle, and one learned with an edge present is not used once the edge is gone.
+  frequency (fixed frequencies to the semitone), filter type and slope and whether the filter sweeps, active edges and
+  whether they have an amount envelope, output topology, and whether the pitch moves. `PatchCanonicalizer` brings
+  relabelled twins into one operator order. Local models are stored per regime (`RegimeModelStore`): a Jacobian
+  learned with a sine in OP3 is never used once OP3 is a triangle, and one learned with an edge present is not used
+  once the edge is gone.
+- **Hand editing** uses the same ids, and the same ranges and scales where the schema has the value
+  (`HearSay.Editing.EditableValues`), widened to the value a patch already has, so a number typed or dragged in the
+  Studio moves on the axis the search moves on.
 
 ## The search
 
@@ -534,9 +600,9 @@ Patch
 | Stage | What happens | Level | Budget (default 20000) |
 | --- | --- | --- | --- |
 | A. Target analysis | everything in the table above; render request from fundamental, note-off and tail | — | 0 |
-| B. Structural hypotheses | prior providers propose structures; at least 128 are kept, more when the screening share of the budget can afford three modulation scales for them (all of them from about 8000 evaluations on), taking each provider's best in turn since prior scores compare only within a provider; each is screened at three modulation scales | Coarse | 5 % |
-| Survivors | 32 get a short continuous optimization, half of them the best of every provider group in turn and the rest by rank, so that one group whose untuned hypotheses screen well (noise carriers, say) cannot take every slot; duplicates by canonical regime, frequency structure and loss terms are dropped; 6 distinct basins remain, the best of every structural family first, because early losses are deceptive: an additive structure sounds roughly right at once, a deep stack only after its amounts have been found | Normal | 15 % |
-| C–E. Deep optimization | three rounds of successive halving (6 → 4 → 3 basins). Per basin: CMA-ES over everything smooth at once for small patches, otherwise one connected operator group at a time. A basin keeps its run between rounds, so the adapted covariance is never thrown away; only a stagnated run is replaced, by one with twice the population that starts alternately from the best patch and from where the basin began. A basin that stagnates also tries three topology mutations; a better child replaces its parent | Normal | 35 % |
+| B. Structural hypotheses | prior providers propose structures; at least 128 are kept, more when the screening share of the budget can afford three modulation scales for them (all of them from about 8000 evaluations on), taking each provider's best in turn since prior scores compare only within a provider; each is screened at three modulation scales when the screening share affords it (from about 7700 evaluations on), otherwise at one | Coarse | 5 % |
+| Survivors | 32 get a short continuous optimization (plus up to four neighbours from the [structure library](#structure-library)), half of them the best of every provider group in turn and the rest by rank, so that one group whose untuned hypotheses screen well (noise carriers, say) cannot take every slot; duplicates by canonical regime, frequency structure and loss terms are dropped; 6 distinct basins remain, plus up to two library neighbours (`LibraryBasinMode.Extra`), the best of every structural family first (heard and shaping operators, feedback, waveforms, filtered or not), as long as it is within 1.6 times the best loss, because early losses are deceptive: an additive structure sounds roughly right at once, a deep stack only after its amounts have been found | Normal | 15 % |
+| C–E. Deep optimization | three rounds of successive halving (6 → 4 → 3 basins, or 8 → 6 → 3 with two library basins). Per basin: CMA-ES over everything smooth at once for small patches, otherwise one connected operator group at a time. A basin keeps its run between rounds, so the adapted covariance is never thrown away; only a stagnated run is replaced, by one with twice the population that starts alternately from the best patch and from where the basin began. A basin that stagnates also tries three topology mutations; a better child replaces its parent | Normal | 35 % |
 | Finalists | one long run each, the best finalist getting the longest; then a round of structural variants per finalist: every possible new edge and new modulator is screened at a few amounts (at most 160 renders and at most a quarter of the finalist's share, so a small budget still leaves local refinement its part), the most promising variants are optimized, and a variant that beats its parent takes its place | Normal | 75 % of the rest |
 | F. Local refinement | probe each smooth parameter, regime-specific Jacobian of the HearSay feature vector, trust-region guidance steps accepted only when the objective agrees; then a narrow final polish | Detailed | the rest |
 
@@ -549,20 +615,31 @@ Patch
   synthesis. The other providers: `PartialTrackPriorProvider` (operators exactly on the stable partial tracks, each
   with the decay of its own partial, for sounds that sideband arithmetic does not explain), `WaveformVariantPriorProvider`
   and `ModulatorWaveformPriorProvider` (the best sine structures with an output or a modulator in another waveform, for
-  profiles with a choice), `HarmonicWaveformPriorProvider` and `NoisePriorProvider` (see [FMX6](#how-a-custom-ugen-plugs-in-fmx6)),
-  and `NearestStructurePriorProvider`, which does not read the target but looks it up (see
+  profiles with a choice), `HarmonicWaveformPriorProvider` and `NoisePriorProvider` (see [FMX6](#how-a-custom-ugen-plugs-in-fmx6));
+  on profiles with operator filters `FormantPriorProvider` (a saw or a pulse through a formant filter on the formants
+  of the target) and `SubtractivePriorProvider` (a saw or square through a low-pass read from the harmonics, with the
+  target's brightness sweep); and `NearestStructurePriorProvider`, which does not read the target but looks it up (see
   [Structure library](#structure-library)).
 - **Structure is never searched by gradients.** Structures come from hypotheses and from `TopologyMutator`, whose new
   elements start almost silent so that a variant begins as good as its parent (add or
   remove an edge, add an operator as modulator or into the mix, remove an operator, move a coarse ratio to its
-  neighbour, toggle an output, change waveform or mode where the profile has a choice, ratio to fixed for very low
-  operators). Every structure is its own basin with its own continuous optimization.
+  neighbour, toggle an output, change waveform, mode, harmonic limit or elliptic m where the profile has a choice,
+  roughen an operator with the shared noise, give an edge an amount envelope, add a wash of noise, add, change or
+  remove an operator filter or its sweep, ratio to fixed for very low operators or, on a target set, for partials that
+  do not transpose). An operator with a formant filter stays a rich source through every step (see
+  [Operator filters](#operator-filters)). Every structure is its own basin with its own continuous optimization.
 - **CMA-ES** (`CmaEs`, ask and tell, box-constrained by reflection) only ever sees smooth parameters.
 - **Stagnation**: a run ends after 25 generations without 1 % progress *of that run*; the basin then restarts or
   mutates, or its budget goes to other basins. Restart counts and the fate of every basin are in the summary.
-- **Budget, caching, reproducibility**: every render counts, at any level. Evaluations are cached by patch hash and
-  level. Batches are evaluated in parallel with the budget assigned in input order, and all randomness derives from
-  the seed, so a search is reproducible and independent of the degree of parallelism.
+- **The course of the search** is in the summary too: `Improvements`, every new best loss with the evaluation that
+  found it, and `Trace`, every screened hypothesis and every improvement of every basin with its stage and level.
+  Progress reports carry the trace while the search runs, and the Studio draws it as a chart. Losses compare only
+  within a level, and within a stage: screening, and on a target set the survivor round too, judge the reference note
+  alone.
+- **Budget, caching, reproducibility**: every evaluation counts, at any level; one evaluation renders every note of a
+  target set, and a cache hit costs nothing. Evaluations are cached by patch hash and level. Batches are evaluated in
+  parallel with the budget assigned in input order, and all randomness derives from the seed, so a search is
+  reproducible and independent of the degree of parallelism.
 - **Identifiability**: many patches sound alike. The search optimizes audio similarity plus a small simplicity bias,
   never parameter equality, and canonicalization keeps relabelled twins from taking two basin slots.
 
@@ -627,11 +704,13 @@ foreach (NoteMatch note in result.Notes) { /* per-note preview and diagnosis */ 
 `file.wav@60` gives the MIDI note, `@261.6` a frequency (any value above 127 is hertz), `:v0.4` the velocity. A
 ready-made three-octave set is in `samples/targets/electric-piano-keyed`, and `hearsay reference <patch> --notes 48,60,72`
 renders any reference patch at any notes. In
-the desktop app, add several files and type pitch and velocity per row.
+the desktop app, add several files and type pitch and velocity per row
+([Studio manual, section 3](studio-manual.md#3-matching-a-sound)).
 
 What changes inside the search:
 
-- Every candidate is rendered at every note and the losses are averaged (`TargetNote.Weight` sets the shares).
+- Every candidate is rendered at every note and the losses are averaged, every note with the same weight
+  (`TargetNote.Weight` sets other shares for code that builds a `PatchEvaluator` itself; the matcher does not).
   The budget counts candidate evaluations; `RendersUsed` in the summary tells how many renders that took.
 - Structural stages (hypothesis screening, survivor optimization) judge on the *reference note* alone, the one in
   the middle of the pitch range: which structures deserve optimization is decided as well by one note as by all,
@@ -642,54 +721,67 @@ What changes inside the search:
   screening round tries them, as well as pinning each ratio operator to its current frequency.
 - Key scaling (level and rate per octave) joins the continuous search when the set has several pitches, velocity
   sensitivity when it has several velocities. On a single note they are left neutral, because nothing could tell them apart.
-- The result carries a preview and a full diagnosis per note (`PatchMatchResult.Notes`; `preview-note2-440Hz.wav`,
-  `comparison-note2-440Hz.json`, … in the result folder), and the SynthDef is one instrument for all of them.
+- The result carries a preview and a full diagnosis per note (`PatchMatchResult.Notes`, in the order the targets were
+  given; in the result folder `preview-note2-440Hz.wav`, `analysis-note2-440Hz.json` and `comparison-note2-440Hz.json`
+  per note, besides the plain files of the reference note), and the SynthDef is one instrument for all of them.
 
-Measured (`tests/HearSay.IntegrationTests/MultiNoteTests.cs`): the electric-piano reference patch with a fixed 60 Hz
-operator and key scaling on the tine (-6 dB and half the envelope time per octave), rendered at MIDI 48, 60 and 72.
-Matching the set with 20000 evaluations brings the set loss from 0.231 to 0.072, similarity 0.82 to 0.88 on all three
-notes, and the patch judged on an unseen note (MIDI 55) scores 0.078 against 0.092 for the patch matched to the
-middle note alone with the same budget. The hidden patch itself scores 0.0007 on the set: three notes are still far
-from fully exploited, and the same variance across seeds applies as for single notes.
+Measured (`tests/HearSay.IntegrationTests/MultiNoteTests.cs`, with the structure library off, because its patches have
+no key scaling and it is looked up from one note): the `electric-piano-keyed` reference patch, the electric piano with
+a fixed 60 Hz operator and key scaling on the tine (-6 dB and half the envelope time per octave), rendered at MIDI
+48, 60 and 72. Matching the set with 20000 evaluations (49 000 renders, 224 s) brings the set loss from 0.218 to
+0.107, with a similarity of 0.72 to 0.76 on the three notes. Judged on an unseen note (MIDI 55), the set patch scores
+0.102 and the patch matched to the middle note alone with the same budget 0.097: in this run the single-note patch
+does slightly better, and the test only requires the set patch to be within 10 % of it. The set search found neither
+the tine's 1:14 stack nor the fixed operator; its best patch is a 1:1 stack with both operators heard. The same
+variance across seeds applies as for single notes.
 
 ## Results
 
 ### Round trips
 
-`samples/HearSay.MatchDemo` renders each of the twelve reference patches to a target, hides the patch and lets the
-matcher search with the default budget of 20000 renders and seed 1234. Nothing asks for the original parameters back:
-many patches sound alike, so the measure is how much of the audio loss disappears. *Initial* is the best untouched
-hypothesis at the normal level, *final* the best patch; both are audio losses without the complexity term. *Similarity*
-is the HearSay similarity of the full diagnosis (1 is identical). *SC distance* is the HearSay distance between the
-offline preview and the same patch played by the real FM7 UGen.
+`samples/HearSay.MatchDemo` renders each of the thirteen reference patches to a target, gives the matcher the true
+fundamental, hides the patch and lets the matcher search under FM7 with the default options: a budget of 20000
+evaluations, seed 1234 and the [structure library](#structure-library) on. `electric-piano-keyed` is matched here as a
+single note; it is measured as a target set under [Target sets](#target-sets-several-notes-one-patch). Every target
+folder is a result folder, so its `patch.scd` carries the gain HearSay plays the sound at. Nothing asks for the
+original parameters back: many patches sound alike, so the measure is how much of the audio loss disappears.
+*Initial* is the best untouched hypothesis at the normal level, *final* the best patch; both are audio losses without
+the complexity term. *Similarity* is the HearSay similarity of the full diagnosis (1 is identical). *SC distance* is
+the HearSay distance between the offline preview and the same patch played by the real FM7 UGen (`--supercollider`;
+without it the column is empty).
 
 | Target | Hidden structure | Initial | Final | Gain | Similarity | Renders | Seconds | SC distance | Found structure (ratios; `a>b` = OPa modulates OPb) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `pure-sine` | one operator | 0.0101 | 0.0000 | 224× | 0.994 | 19116 | 27.7 | 0.00000 | 1 → out |
-| `simple-2op` | 1 ← 2 | 0.1336 | 0.0051 | 26× | 0.907 | 19179 | 28.5 | 0.00000 | 1 → out; 2>1 **(same)** |
-| `bright-fm` | 1 ← 1 ← 3 | 0.2165 | 0.0348 | 6.2× | 0.755 | 18864 | 35.2 | 0.00000 | 1 → out; 2(r1)>1, 3(r3)>2 **(same)** |
-| `bell` | 1 ← 3.5 and 2.76 ← 5.4 | 0.2680 | 0.0835 | 3.2× | 0.605 | 18984 | 41.3 | 0.00000 | 1 → out; 2(r3.5)>1, 2>2 |
-| `metallic-inharmonic` | 1 ← 1.41 and 1 ← 2.73 | 0.3120 | 0.1569 | 2.0× | 0.637 | 19165 | 31.9 | 0.00000 | 1 → out; 2(r1.41)>1, 3(r2.82)>1 |
-| `electric-piano` | 1 ← 1 and 1 ← 14 | 0.1800 | 0.0090 | 20× | 0.823 | 18714 | 43.3 | 0.00000 | two outputs at 1; 3(r1)>1, 4(r14)>2 **(same)** |
-| `bass` | 1 ← 1 with modulator feedback | 0.1641 | 0.0060 | 27× | 0.894 | 19178 | 42.3 | 0.00000 | 1 → out; 2(r1)>1, 2>2 **(same)** |
-| `brass-like` | 1 ← 1 | 0.0790 | 0.0074 | 11× | 0.874 | 19135 | 34.2 | 0.00000 | 1 → out; 2(r1)>1 **(same)** |
-| `multi-output` | 1 ← 2, the modulator also heard; 3 → out | 0.1061 | 0.0101 | 11× | 0.838 | 18495 | 31.8 | 0.00000 | six outputs at 1, 2, 3, 5, 7, 9; 2>6 (additive) |
-| `detuned` | two 1 ← 2 stacks, 2.4 Hz apart | 0.1052 | 0.0623 | 1.7× | 0.716 | 18718 | 43.2 | 0.00000 | two outputs at 1, two modulators at 2, cross-routed |
-| `feedback-heavy` | 1 ← 2, both with self-feedback | 0.4401 | 0.0372 | 12× | 0.828 | 18847 | 35.6 | 0.00000 | 1 → out with 1>1; 2(r2)>1, 3(r4)>1 |
-| `circular-routing` | 1 ← 2 ← 3 and 1 → 3 | 0.1264 | 0.0395 | 3.2× | 0.792 | 19201 | 37.3 | 0.00000 | 1 → out; 2(r1)>1, 3(r2)>1, 2>2 |
+| `pure-sine` | one operator | 0.0077 | 0.0000 | 222× | 0.945 | 19001 | 67.1 | 0.00000 | 1 → out **(same)** |
+| `simple-2op` | 1 ← 2 | 0.0788 | 0.0038 | 21× | 0.925 | 19203 | 84.8 | 0.00000 | 1 → out; 2>1 **(same)** |
+| `bright-fm` | 1 ← 1 ← 3 | 0.1485 | 0.0131 | 11× | 0.828 | 19244 | 91.3 | 0.00000 | 1 → out; 2(r1)>1, 3(r3)>2 **(same)** |
+| `bell` | 1 ← 3.5 and 2.76 ← 5.4 | 0.1802 | 0.0427 | 4.2× | 0.766 | 19039 | 117.2 | 0.00000 | outputs at 1 and 2.76; 3(r3.5)>1, 4(r5.4)>2 **(same)** |
+| `metallic-inharmonic` | 1 ← 1.41 and 1 ← 2.73 | 0.2830 | 0.1572 | 1.8× | 0.530 | 19135 | 102.9 | 0.00000 | 1 → out; 2(r1.41)>1, 3(r4.14)>1 |
+| `electric-piano` | 1 ← 1 and 1 ← 14 | 0.1840 | 0.0436 | 4.2× | 0.782 | 19199 | 110.6 | 0.00000 | two outputs at 1; 3(r1)>1, 4(r14)>2 **(same)** |
+| `electric-piano-keyed` | as `electric-piano`, with key scaling and a fixed 60 Hz operator | 0.2201 | 0.0873 | 2.5× | 0.781 | 19227 | 73.6 | 0.00000 | two outputs at 1; 3(r1)>1, 4(r1.25)>1, 5(r14)>2 |
+| `bass` | 1 ← 1 with modulator feedback | 0.1256 | 0.0052 | 24× | 0.895 | 19135 | 86.4 | 0.00000 | 1 → out; 2(r1)>1, 2>2 **(same)** |
+| `brass-like` | 1 ← 1 | 0.0565 | 0.0071 | 8.0× | 0.916 | 19207 | 80.1 | 0.00000 | 1 → out; 2(r1)>1, 3(r1)>2 |
+| `multi-output` | 1 ← 2, the modulator also heard; 3 → out | 0.0503 | 0.0116 | 4.4× | 0.831 | 18691 | 77.2 | 0.00000 | six outputs at 1, 2, 3, 5, 7, 9; 2>6 (additive) |
+| `detuned` | two 1 ← 2 stacks, 2.4 Hz apart | 0.1192 | 0.0679 | 1.8× | 0.670 | 19170 | 115.0 | 0.00000 | 1 (r1.002) → out; 2(r2.003)>1, 2>2 |
+| `feedback-heavy` | 1 ← 2, both with self-feedback | 0.1494 | 0.0474 | 3.2× | 0.750 | 19217 | 88.3 | 0.00000 | 1 → out with 1>1; 2(r1)>1, 3(r2)>1 with 3>3, 4(r3)>2 |
+| `circular-routing` | 1 ← 2 ← 3 and 1 → 3 | 0.0741 | 0.0445 | 1.7× | 0.832 | 19216 | 89.7 | 0.00000 | 1 → out with 1>1; 2(r2)>1, 3(r2)>2 with 3>3 |
 
-Machine: Intel Core i7-13700KF, 24 logical cores, .NET 10. Median gain 11×; about 35 seconds per target.
-
+Machine: Intel Core i7-13700KF, 24 logical cores, .NET 10; measured on 2026-10-20 on an otherwise idle machine. Median
+gain 4.2×; 67 to 117 seconds per target. Against the first measurement of September 2026 (twelve targets, no
+structure library, an earlier objective: the initial losses differ too, so the numbers do not compare one to one),
+`bell` and `bright-fm` came out clearly better (0.0427 against 0.0835, 0.0131 against 0.0348), `electric-piano`
+clearly worse (0.0436 against 0.0090), and a search takes two to three times as long (it was 28 to 43 seconds).
 How to read this:
 
-- **Exact parameter recovery is not required and not claimed.** Six of the twelve hidden structures come back as they
-  were (marked *same*), among them the three-operator stack of `bright-fm` and both stacks of `electric-piano`
-  including its modulator at ratio 14. Elsewhere another structure explains the sound: six sine operators straight
-  into the mix for `multi-output`, a feedback operator with two modulators for `feedback-heavy`. A different routing
+- **Exact parameter recovery is not required and not claimed.** Six of the thirteen hidden structures come back as
+  they were (marked *same*), among them the three-operator stack of `bright-fm`, both stacks of `bell` and both stacks
+  of `electric-piano` including its modulator at ratio 14. Elsewhere another structure explains the sound: six sine operators straight
+  into the mix for `multi-output`, a feedback carrier with three modulators for `feedback-heavy`. A different routing
   with the same partials is a correct answer, and the simplicity bias prefers the smaller one.
-- The loss that the hidden patch itself gets, rendered with the *estimated* note length, is between 0.000 and 0.03 for
-  all twelve targets. That is the floor of the measurement; what remains above it is search.
-- Simple stacks, basses, brass-like, electric-piano-like and feedback sounds are matched closely. Dense inharmonic
+- The loss that the hidden patch itself gets, rendered with the *estimated* note length, was between 0.000 and 0.03 for
+  the twelve targets of September 2026. That is the floor of the measurement; what remains above it is search.
+- Simple stacks, basses and brass-like sounds are matched closely; electric-piano and feedback sounds less so in this
+  run (the structure is often right, the values are not). Dense inharmonic
   spectra (`metallic-inharmonic`, `bell`) and beating pairs (`detuned`) are harder: the right family of structures is
   usually among the finalists, but the continuous landscape inside such a structure has many optima and the budget
   does not always find the good one.
@@ -698,26 +790,44 @@ How to read this:
   these five runs find the hidden structure. Every run is reproducible, so running several seeds and keeping the best
   is cheap to organise: `--seeds 4` on the command line, `MatchBestOf` in the API. The result is that of the winning
   seed, and its alternatives are the finalists of all seeds merged, the best patch of every structure, best first.
+- **A higher budget usually helps too.** On 26 sounds (the FM7 demo sounds and FMX6 sung vowels, seed 1), three to
+  four times the budget lowered the audio loss in 24: by a median of 23 % from 3000 to 12 000 evaluations, and of
+  12 % from 20 000 to 60 000. Neither a loss still falling at the end nor a plateau predicted which searches gained:
+  at 20 000 the searches that had stood still for half the run gained 9 to 59 %, the others 3 to 15 %. A larger
+  budget gives every stage more, so it also screens more hypotheses and keeps more structures. See the
+  [expert manual, section 5](expert-manual.md#5-budget-seeds-and-time).
 - Every one of these patches sounds the same in SuperCollider as in the preview (SC distance).
 
 Example console output (`hearsay match electric-piano/target.wav --f0 262 --seed 2`):
 
 ```text
-[   186/20000] hypothesis screening             best loss 0.1187
-[  3363/20000] deep optimization round 1        best loss 0.0920
+[   240/20000] hypothesis screening             best loss 0.1187
+[   357/20000] survivor optimization            best loss 0.1609
+[  3237/20000] deep optimization round 1        best loss 0.0645
 …
-target      target.wav: f0 262.00 Hz, 2.10 s, 9 partials, inharmonicity 0.01
-search      18776 renders in 44.2 s, profile supercollider-fm7, seed 2
-audio loss  0.1803 (best untouched hypothesis) -> 0.0205
-similarity  0.910 (HearSay overall distance 0.0314)
-structure   op1:…/Sine/r1/out;op2:…/Sine/r1/out;op3:…/Sine/r1;op4:…/Sine/r14;|3>1;4>2;
+[ 17869/20000] local refinement                 best loss 0.0335
+target      f0 262.00 Hz, velocity 1.00, 2.10 s, 9 partials, inharmonicity 0.01, similarity 0.837
+search      19222 evaluations, 19222 renders in 54.3 s, profile supercollider-fm7, seed 2
+audio loss  0.1843 (best untouched hypothesis) -> 0.0260
+similarity  0.837 (HearSay overall distance 0.0595)
+structure   op1:PhaseModulation/Sine/r1/out;op2:PhaseModulation/Sine/r1/out;op3:PhaseModulation/Sine/r1;op4:PhaseModulation/Sine/r14;|3>1;4>2;
 origin      2 stacks 1:1 + 1:14
+
+OP1  Sine     ratio 1          fine    0.0 ct  detune  0.00 Hz  output 0.582
+OP2  Sine     ratio 1          fine    0.0 ct  detune  0.00 Hz  output 0.262
+OP3  Sine     ratio 1          fine    0.0 ct  detune  0.00 Hz  output 0.000
+OP4  Sine     ratio 14         fine    0.0 ct  detune  0.00 Hz  output 0.000
 
 modulation matrix (rows: destination, columns: source, radians)
          OP1    OP2    OP3    OP4    OP5    OP6
-  OP1      .      .    1.88     .      .      .          hidden patch: 1.60
-  OP2      .      .      .    1.09     .      .          hidden patch: 1.20
+  OP1      .      .    1.52     .      .      .
+  OP2      .      .      .    1.41     .      .
+  …
+12 files written to …\result
 ```
+
+The search, with the structure library on, finds both stacks of the hidden patch, which has 1.60 and 1.20 on these
+two edges. A profile's first search prints the build of its structure library before the search lines.
 
 `patch.json` of the two-operator round trip, abridged (the complete SynthDef of the same patch is shown under
 [SuperCollider export](#supercollider-export)):
@@ -739,7 +849,8 @@ modulation matrix (rows: destination, columns: source, radians)
         ],
         "sustainPoint": 3, "releasePoint": 4
       },
-      "velocitySensitivity": 0, "keyScaling": { "levelDbPerOctave": 0, "ratePerOctave": 0, "referenceMidiNote": 60 }
+      "velocitySensitivity": 0, "keyScaling": { "levelDbPerOctave": 0, "ratePerOctave": 0, "referenceMidiNote": 60 },
+      "shape": 0.5, "morph": 0, "noisePhase": 0, "noiseM": 0, "harmonicLimit": 32   // waveform fields a sine ignores
     },
     { "…": "OP2: ratio 2, its own envelope" }, { "enabled": false, "…": "OP3 to OP6" }
   ],
@@ -748,20 +859,30 @@ modulation matrix (rows: destination, columns: source, radians)
     "edges": [ { "sourceOperator": 1, "destinationOperator": 0, "enabled": true, "amount": 4.276, "amountEnvelope": null } ]
   },
   "outputLevels": [ 0.597, 0, 0, 0, 0, 0 ],
-  "pitch": { "pitchEnvelope": null, "vibrato": null }
+  "pitch": { "pitchEnvelope": null, "vibrato": null },
+  "noise": { "color": 0, "cutoffHz": 8000 }
 }
 ```
 
-`preview.wav` is the offline render of that patch with the note of the target (f0, note-off and tail as analysed),
-peak-normalized to -3 dBFS; `alternatives/` holds the other finalists in the same three formats.
+`filter` appears only on an operator that has one. `preview.wav` is the offline render of that patch with the note of
+the target (f0, note-off and tail as analysed), peak-normalized to 0.7 (-3 dBFS). `patch.scd` plays at the level
+HearSay plays the sound at: its output is multiplied by the gain that brings the reference note at full velocity to a
+peak of 0.5, with `amp` on top. `alternatives/` holds the other finalists in the same three formats, each with its own
+gain. `search-summary.json` also records the course of the search (`improvements` and `trace`, see
+[The search](#the-search)), which the Studio draws as a chart.
 
 ### Round-trip tests
 
-`tests/HearSay.IntegrationTests` run smaller searches (budget 9000) and assert a strong reduction of the audio loss,
-never parameter equality: `simple-2op` 0.134 → 0.005, `brass-like` 0.079 → 0.007, `bell` 0.268 → 0.101. The same
-project checks that a search is identical for the same seed whatever the degree of parallelism, that it differs for
-another seed, that the budget is respected and accounted per stage, that a profile without feedback yields patches
-without feedback even for a target that was made with it, and that unusable targets and reserved profiles are refused.
+`tests/HearSay.IntegrationTests` run smaller searches (budget 9000, structure library off, so that the gain is that of
+the search from the read hypotheses) and assert a strong reduction of the audio loss, never parameter equality: at
+least 5 times for `simple-2op`, 4 times for `brass-like` and 2 times for `bell` (in September 2026, before the
+library, they went 0.134 → 0.005, 0.079 → 0.007 and 0.268 → 0.101). The same project checks that a search is
+identical for the same seed whatever the degree of parallelism, that it differs for another seed, that the budget is
+respected and accounted per stage, that a profile without feedback yields patches without feedback even for a target
+that was made with it, that unusable targets and reserved profiles are refused, that the structure library finds one
+of its own patches back and that its build reports progress, that FMX6 and Nome6 find the waveforms FM7 cannot play,
+that `MatchBestOf` merges the finalists of every seed, and that the result folder and the gain in its code are as
+documented. The patch editor and the Studio's playing logic have their tests there too.
 
 ### Future-waveform proof
 
@@ -774,7 +895,8 @@ all reject that patch. Under the FM7 profile the same target is searched with si
 ### FMX6 versus FM7 on waveform targets
 
 Synthetic targets rendered by the FMX6-compatible renderer at 196 Hz, each searched under both profiles with the
-same budget (4000 evaluations) and seed. Audio loss of the best patch, lower is better:
+same budget (4000 evaluations) and seed, measured in September 2026, before the structure library and the operator
+filters. Audio loss of the best patch, lower is better:
 
 | Target | FM7 | FMX6 | FMX6 structure found |
 | --- | --- | --- | --- |
@@ -822,7 +944,8 @@ screened at all, trying new modulators at the spacings between strong partials, 
 scales, 16 survivors instead of 32, six or ten mutation rounds instead of three. Worse: two basins and one finalist
 (+0.019), no mutations (+0.034), and making the short deep-stage cycles effective (a group of 20 parameters gets two
 CMA-ES generations there and does not move; the low-dimensional stages do move it, but then the basins no longer
-stagnate and fewer mutations are tried: +0.010). Five times the budget takes the losses down only a little. Dense
+stagnate and fewer mutations are tried: +0.010). Five times the budget takes the losses of these dense patches down
+only a little (on other sounds a higher budget helps more, see [Round trips](#round-trips)). Dense
 patches need a structure search that judges a variant after tuning it, not a retuning of this one, or starting points
 that come with fitting amounts, which is what the structure library below provides.
 
@@ -840,15 +963,23 @@ are closest to the target, each as it is and with the envelopes of the target, i
   loops through several operators, no fixed operators, modulation up to 2 radians, in three densities (two or three,
   three or four, four to six operators). Only the seeds are stored; a patch is regenerated from its seed when needed.
   A profile with noise (FMX6, Nome6) has as many noise-free patches again, from seeds of their own: no noise waveform
-  and no roughening (see *Noise-free sounds* below).
+  and no roughening (see *Noise-free sounds* below). Under FMX6 every enabled operator gets a filter with probability
+  0.3, from a generator of its own, so that the rest of the patch is the one its seed gives without filters; an
+  operator with a formant filter is a rich source (see [Operator filters](#operator-filters)). Every patch is rendered
+  and fingerprinted at 220 Hz, held 1 s and released 0.3 s. Only profiles with a backend-exact renderer get a library.
 - **Building.** `PatchMatchOptions.StructureLibrarySize` (300 000 by default, 0 turns it off) regular patches are
-  rendered once per profile and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` (86 MB per 300 000 patches):
+  rendered once per profile and kept in `%LOCALAPPDATA%\HearSay\structure-libraries` (88 MB per 300 000 patches, so
+  175 MB for FMX6 and Nome6 with their noise-free sounds, plus a family file of a few MB once the Library tab has
+  grouped them):
   under a minute for FM7; for FMX6 about 8 minutes for the 300 000 regular patches and 12 for the 300 000 noise-free
-  ones, whose band-limited waveforms cost more to render than noise; for Nome6 5 and 6 minutes (24 threads). The CLI
+  ones, whose band-limited waveforms cost more to render than noise (measured on library version 3); for Nome6 5 and 6 minutes (24 threads). The CLI
   and the Studio opt out of the Windows efficiency mode (`ProcessSpeed`), which otherwise runs a process that is not in
   the foreground on the efficiency cores: the noise-free FMX6 patches took 36 minutes there.
-  When the file of the previous library version (FMX6 v2, Nome6 v1) is on disk, its patches are read and only the
-  noise-free ones are rendered. The first search of a profile reports the build as its first progress stages, with
+  The version of a profile's library (`SynthesisProfile.StructureLibraryVersion`: FM7 1, FMX6 8, Nome6 2) is part of
+  the file name, so a change of the random patches rebuilds that library once. A profile whose regular sounds are
+  those of an older version names it (`StructureLibraryReusedVersion`): Nome6 v2 reads the sounds of v1 when that file
+  is on disk and renders only the noise-free ones. FMX6 v8 reuses nothing, because its formant sounds differ from
+  those of every earlier version. The first search of a profile reports the build as its first progress stages, with
   the share done and the time left (`RemainingTime`, from the pace since the first report); the Library tab does the
   same in its graph.
 
@@ -903,7 +1034,8 @@ against the 300 000 regular sounds (Δ mean loss ± one standard error, better /
 
 The targets are held-out random FMX6 patches, tonal and noisy, and the reference patches. Fewer noisy sounds help the
 tonal targets and lose the noisy ones; a library's own noise operators fit a noisy target better than measured noise
-added afterwards. Adding noise-free sounds keeps both, so FMX6 (library v3) and Nome6 (v2, not measured) have them.
+added afterwards. Adding noise-free sounds keeps both, so the FMX6 and Nome6 libraries have them (measured on FMX6
+library version 3; Nome6 not measured; the FMX6 library is at version 8 now, whose formant sounds are rich sources).
 Part of the gain may be the larger library alone, but a 300 000-sound library with fewer noisy sounds gains as much
 on the tonal targets. The noisy targets come from the generator of the regular sounds, the favourable case for them.
 
@@ -934,18 +1066,27 @@ sample loop allocates nothing. A one-second note renders about 800 times faster 
 | one thread | 114 ms | 140 |
 | all cores | 17.6 ms | 910 |
 
-A complete search with the default budget of 20000 renders takes 25 to 45 seconds on this machine, depending on the
-length of the target (see the table above), which is 430 to 690 evaluations per second end to end.
+A complete search with the default budget of 20000 evaluations takes 67 to 117 seconds on this machine, depending on
+the target (see the table above), which is 165 to 285 evaluations per second end to end; in September 2026, before the
+structure library and the later search stages, it took 25 to 45 seconds.
+
+These numbers are for the FM7-compatible renderer (September 2026). The FMX6 renderer adds Fourier series and
+filters, and Nome6 renders at twice the rate, so both are slower per render; their library builds
+([Structure library](#structure-library)) show by how much. A target set costs one render per note: three notes took
+224 s for 20 000 evaluations ([Target sets](#target-sets-several-notes-one-patch)).
 
 ## Limitations of this version
 
-The first version does **not** search:
+This version does **not** search:
 
-- more than six operators (both SuperCollider profiles have exactly six);
-- non-sine waveforms under the FM7 profile (the FMX6 profile has band-limited triangle, saw, square, pulse and noise);
-- wavefolders, ring-modulation operators, filter operators, filter FM;
-- audio-rate changes of the routing, or processing between modulation edges;
-- backend-specific effects such as chorus, reverb or filters after the mix.
+- more than six operators (all three SuperCollider profiles have exactly six);
+- non-sine waveforms under the FM7 profile (FMX6 has band-limited triangle, saw, square and pulse, white,
+  sample-and-hold and filtered noise; Nome6 has Jacobi elliptic operators and a shared noise);
+- wavefolders, ring-modulation operators, filter operators (a filter as an operator of its own) and filter FM (a
+  filter frequency moved at audio rate);
+- audio-rate changes of the routing, or processing between modulation edges other than the FMX6 operator filters;
+- backend-specific effects such as chorus, reverb or filters after the mix. Under FMX6 every operator may have a
+  filter of its own, which the search proposes and tunes (see [Operator filters](#operator-filters)).
 
 These are constraints of the synthesis profile, not of the architecture. Further limits worth knowing:
 
@@ -963,6 +1104,13 @@ These are constraints of the synthesis profile, not of the architecture. Further
 - Noise is matched by spectrum and envelope, never by waveform: the objective is sensitive to the noise sequence, so
   even the correct noise structure keeps a loss floor (about 0.08 on a white-noise burst). Within that floor the
   search does find the noise operator (see the FMX6 results above).
+- Filters (FMX6): the search uses F1 to F3 of a formant filter; F4 and F5 come only from the editor. Type and slope
+  change only by a structural step, and a sweep is a control-rate envelope, not audio-rate modulation. An export with
+  filters needs the FMX6 plugin with operator filters, and one with more than two formants or an own Q on one of them
+  needs the five-formant build (the header of the export says so).
+- The structure library is looked up from the reference note alone, and its patches have no fixed operators, no loops
+  through several operators and no key scaling. For a target set it proposes the sound of one note; key scaling,
+  velocity and fixed operators come from the search.
 
 ## How a custom UGen plugs in: FMX6
 
@@ -973,7 +1121,8 @@ sample-and-hold noise from a deterministic xorshift generator seeded by operator
 noise through a TPT state-variable filter whose cutoff is the operator frequency). It plugged in as described
 below: a profile (`supercollider-fmx6`), the `Fmx6CompatibleOperatorMatrixRenderer` (a port of the UGen's inner loop,
 without FM7's warm-up sample), the `SuperColliderFmx6Exporter`, and a `.shape` parameter in the schema that is active
-for pulse operators (and a `.filter` parameter for filtered noise); both are tuned by the optimizer like any other
+for pulse operators (and a `.filter` parameter, the response of a filtered-noise operator, not to be confused with the
+`.operatorFilter.*` parameters of the operator filters); both are tuned by the optimizer like any other
 spectral parameter. Several prior providers seed the waveforms: the waveform-variant provider re-colours the output
 operators of the sine hypotheses (never into noise, which would turn every structure into the same noise);
 `ModulatorWaveformPriorProvider` gives one modulator at a time of the best sine structures another waveform, since a
@@ -981,33 +1130,98 @@ modulator with harmonics puts its sidebands on the same grid as a sine at the sa
 `HarmonicWaveformPriorProvider` reads the partial cloud (all harmonics falling as 1/n: saw; odd ones only: square or
 triangle; the notches of a duty cycle: pulse) and proposes the matching waveform alone at the fundamental with several
 harmonic limits, then with a light sine modulator, plus noise hypotheses (a noise modulator and a parallel noise burst,
-at several burst lengths and levels). For targets with at least 10 % noise, `NoisePriorProvider` adds to the best sine
-structures one filtered-noise operator at the measured colour (band-pass at the centroid, plus high-pass below a high
-one or low-pass above a low one), or white noise, at up to three times the loudest operator. The topology mutator
-swaps waveforms, halves or doubles the harmonic limit of a band-limited operator and can add a noise wash in one step
-during the search. The random-patch equivalence test runs against the real UGen: patches
-without feedback loops are sample-exact; looped ones part ways a little sooner than with sine operators, because a
-one-ulp difference in a control signal can change the harmonic count of a sample, but stay the same sound. Search it
-from the CLI with `--profile supercollider-fmx6` or pick **FMX6** as the target in HearSay Studio.
+at several burst lengths and levels). For targets with at least 10 % noise, `NoisePriorProvider` adds to the twelve
+best sine structures, and to the twelve best partial-track structures, one filtered-noise operator at the measured
+colour (band-pass at the centroid, plus high-pass below a high one or low-pass above a low one), or white noise, at up
+to three times the loudest operator. The topology mutator swaps waveforms, halves or doubles the harmonic limit of a
+band-limited operator and can add a noise wash in one step during the search. The random-patch equivalence test
+(`Fmx6Tests`) and the filter test (`Fmx6FilterTests`) run against the real UGen: patches without feedback loops are
+sample-exact; looped ones part ways a little sooner than with sine operators, because a one-ulp difference in a
+control signal can change the harmonic count of a sample, but stay the same sound. Search it from the CLI with
+`--profile supercollider-fmx6` or pick **FMX6** as the target in HearSay Studio. FMX6 also has a filter per operator,
+which plugged in the same way (see [Operator filters](#operator-filters) below).
 
 A backend with other waveforms, its own anti-aliasing or new operator modes needs:
 
-1. **A profile**: a `SynthesisProfile` whose capabilities list its waveforms and modes.
-2. **A renderer** implementing `IOperatorMatrixRenderer` for those capabilities. The generic equation
+1. **A profile**: a `SynthesisProfile` in `SynthesisProfiles.All` whose capabilities list its waveforms and modes
+   (and a capability flag for anything that is neither, as `SupportsSharedNoise` and `SupportsOperatorFilters` are),
+   with a `StructureLibraryVersion` of its own.
+2. **A renderer** implementing `IOperatorMatrixRenderer` for those capabilities, and `IVoiceRenderer` if it is to be
+   played live from the Studio's keyboard. The generic equation
    `output_i[n] = amplitude_i[n] · waveform_i(phase_i[n] + Σ_j M[i,j] · output_j[n−1])` and the control-rate compiler
-   are already shared; `WaveformKernel` is where waveforms are added. Oversampling and band-limiting stay inside the
-   renderer.
+   are shared. A backend-exact renderer ports the UGen's inner loop (as `Fmx6Voice` and `Nome6Voice` do), while the
+   experimental renderer adds waveforms in `WaveformKernel`. Oversampling and band-limiting stay inside the renderer.
 3. **An exporter** implementing `IPatchExporter` that writes the same `OperatorMatrixPatch` for the new UGen.
 4. **Priors** for what is new: `ISynthesisPriorProvider` implementations such as a harmonic-waveform provider
    ("all harmonics falling evenly suggests a saw-like operator, odd harmonics only a square-like one"). The partial
    cloud, the tracks and the trajectories they need are already in `TargetAnalysis`.
-5. One line in `SynthesisBackends` to connect the four.
+5. A branch in `SynthesisBackends.RendererFor` and `ExporterFor`, and in `ReadingProvidersFor` for its priors, to
+   connect the four; and an entry in the Studio's lists of synthesis targets (Search, Library, live playing) and in the
+   usage text of the CLI.
 
-What does **not** change: target analysis, objective, parameter schema, regime keys, basins, the coordinator, CMA-ES,
-history and local modelling, the result model, the writer and the CLI. This is not a promise but a tested property:
+What does **not** change: target analysis, objective, regime keys, basins, the coordinator, CMA-ES, history and local
+modelling, the result model, the writer and the command-line parsing; the parameter schema only gains the parameters
+of what is new, guarded by its capability. This is not a promise but a tested property:
 the experimental sine-and-triangle profile runs through the unchanged coordinator, its basins separate by waveform,
 its best patch for a triangle target contains a triangle operator, and the FM7 validator, renderer and exporter all
 reject that patch (`FutureWaveformProof_…` in the integration tests).
+
+### Operator filters
+
+Every FMX6 operator may have a filter between its waveform and its amplitude (`OperatorPatch.Filter`, an
+`OperatorFilter`), a TPT state-variable filter in double precision as in the UGen. What the operator sends, to the mix
+and to the operators it modulates, is the filtered signal: a low-pass on a saw modulator softens the modulation, a
+filter on a carrier shapes the heard sound. The [expert manual](expert-manual.md#operator-filters-fmx6) describes them
+for use, with the vowel presets of the editor; this section is the design.
+
+| Type (code in `filters:`) | Frequency | Other values |
+| --- | --- | --- |
+| low-pass, high-pass, 2 or 4 poles (1 to 4) | `CutoffRatio` × the note, 0.25..64 | `Q` 0.5..20 |
+| band-pass, notch (5, 6) | `CutoffRatio` × the note, 0.25..64 | `Q` 0.5..20 |
+| peak (7) | `FixedHz`, in hertz | `Q` 0.5..20, `PeakGainDb` −24..24 |
+| formant (8) | F1 = `FixedHz`; F2 to F5 = F1 × their ratio, 1..32 | `Q` 0.5..50 for F1 and every formant without a Q of its own; per formant a level relative to F1 (0..1) and its own Q (0.5..50, 0 for the filter's `Q`) |
+
+A formant filter has up to five band-pass peaks of unity gain. F3 to F5 at level 0 are off, and their fields (and the
+own Q of F2) are left out of the JSON at their defaults, so a two-peak filter keeps the serialized form it had before
+there were five. An optional `Envelope` moves the frequency, `frequency × 2^(EnvelopeOctaves × env)` with
+`EnvelopeOctaves` −4..4, at control rate. Key-tracked frequencies follow the note; peak and formant frequencies stay
+fixed in hertz, as formants and body resonances do.
+
+The filters plugged in like a waveform: a capability (`SupportsOperatorFilters`, refused elsewhere with the
+`operator-filter` issue), `OperatorFilterKernel` in the renderer, `filters:` in the export only when an audible
+operator has a filter (rows of 7 fields, or 17 when a formant filter has an own Q on F2 or F3 to F5 on), the
+`.operatorFilter.*` parameters in the schema, the filter type, slope and sweep in the regime key, and whether a filter
+is heard in the structural family of a basin. A filter adds 0.05 to the complexity and its envelope another 0.03, so between two
+patches that sound alike the one without wins.
+
+How the search gets filters:
+
+- **Proposed.** `FilterPriors` reads the spectral envelope from the harmonic levels. `FormantPriorProvider` takes its
+  lowest three maxima (at most 36 dB below the strongest) as F1 to F3, each with a resonance fitted through its
+  harmonic and the two next to it, and puts a saw and a 20 % pulse, both with 64 harmonics, through formant filters on
+  F1 to F3, on the two strongest, on the strongest alone and on F1 and F3. `SubtractivePriorProvider` puts a saw or a
+  square through a low-pass at the roll-off of the harmonics, with 4 poles when they fall 18 dB per octave or faster,
+  and with a sweep when the brightness moves during the note.
+- **Mutated.** Structural steps, screened like the others: add a low-pass, high-pass, band-pass, peak or formant
+  filter with starting values from the target, remove a filter, switch 2 and 4 poles or low-pass and band-pass, move a
+  formant filter's F3 to the target's third formant, add the sweep read from the brightness. Type and slope change in
+  no other way.
+- **Tuned.** The `.operatorFilter.*` parameters are active only on an audible operator with a filter, and only those
+  its type uses: cutoff ratio, F1 or the peak frequency (80..8000 Hz, widened to a value the patch already has), `Q`,
+  the peak gain, the sweep depth and the sweep envelope, and on a formant filter F2 (ratio up to 8 × F1, level, own Q)
+  and F3 (ratio up to 16 × F1, level from 0.001, own Q), widened up to 32 for a patch that has more. The own Qs are
+  searched relative to `Q`, 1/8 to 8 times it, so that moving `Q` alone moves a formant without a Q of its own with it.
+  A formant filter with F3 off starts from a default F3 (3 × F1, or 1.4 × F2 when that is higher, at level 0.001) that
+  is switched on only once the search moves it. The search never sets F4 or F5; they come from the editor.
+
+A formant filter only shapes the harmonics it is given: through a sine or a triangle a vowel is hardly audible. In the
+library and in every structural step of the search (`VoiceSource.AsRichSource`) an operator with a formant filter is
+therefore a *rich source*: a saw, or a pulse at its own width, keeps its waveform with at least 64 harmonics; a sine,
+triangle, square or elliptic operator becomes the voice source; noise stays noise, a whisper. The voice source
+(`VoiceSource.AsVoiceSource`) is a pulse 1 % wide with at least 64 harmonics and no m noise, whose harmonics are all
+about as strong. The search does not use it for a saw or a pulse because a benchmark of eleven vowel targets matched
+32 % worse when every formant operator was the 1 % pulse; the editor gives it, as the vowel presets' formant levels
+assume a flat source. Filters are sample-exact against the UGen (`Fmx6FilterTests`).
 
 ## A second custom UGen: Nome6
 
@@ -1069,7 +1283,7 @@ with a sine modulator at 0.028). Dense tonal patches of four to six operators ar
 - The random generator makes many of them chaotic (feedback loops through two operators at several radians, fixed
   operators at 35 Hz or 4 kHz, carriers at half the note). Both profiles end between 0.25 and 0.37 there, and five
   times the budget only takes four of them from about 0.35 to 0.30: the search settles on another structure, it does
-  not run out of evaluations.
+  not run out of evaluations (on other sounds a higher budget helps more, see [Round trips](#round-trips)).
 - On 20 dense patches as a musician would make them (four to six operators, sine and elliptic, no loops, no fixed
   operators, every heard operator at or above the note, a carrier on it, modulation up to 2 radians) Nome6 ends at
   0.202 and FM7 at 0.195; paired per target the difference is +0.007 ± 0.006, so the two are level. Searching these

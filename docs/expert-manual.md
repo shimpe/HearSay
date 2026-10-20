@@ -37,8 +37,10 @@ spectrum; two patches that differ in phase or in the exact noise sequence can sc
 made by phase modulation, the search regularly recovers the structure; for acoustic or sampled sounds it finds the
 closest thing six operators can do, which is often good and rarely identical.
 
-It does not: model reverb or chorus, handle polyphony or chords, search filters or wavefolders, or use more than six
-operators. Those are limits of the profiles, not of the architecture (see the last section of patch-matching.md).
+It does not: model reverb or chorus, handle polyphony or chords, search wavefolders or filters after the mix (it does
+search the operator filters of FMX6, section 4), or use more than six operators. Those are limits of
+the profiles, not of the architecture (see
+[Limitations of this version](patch-matching.md#limitations-of-this-version) in patch-matching.md).
 
 ## 2. Preparing a target
 
@@ -85,8 +87,9 @@ What becomes searchable with a set:
 - **Fixed-frequency operators**: a partial that does not move with pitch across the set is proposed as a fixed
   operator, both in the hypotheses and as a topology mutation.
 
-The cost: one evaluation renders every note, so a set of four notes costs four renders per evaluation. The coarse
-screening of hypotheses uses the reference note only (the first target), everything after that uses the whole set.
+The cost: one evaluation renders every note, so a set of four notes costs four renders per evaluation. The screening
+of hypotheses and the survivor optimization use the reference note only, the note in the middle of the pitch range;
+from deep optimization on, everything uses the whole set.
 The reference note also drives the preview and the comparison shown in Studio and in the result folder.
 
 Rules of thumb: three pitches spanning two octaves and one softer velocity cover a keyboard instrument well; the
@@ -190,7 +193,8 @@ Where filters come from:
   filter with starting values from the target; remove a filter; switch 2 and 4 poles or low-pass and band-pass; move
   a formant filter's F3 to the target's third formant (when that lies above the filter's F2); add the sweep read from
   the target's brightness. An operator that gets a formant filter becomes a rich source; noise stays noise.
-- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 8 for FMX6
+- **Structure library.** Every enabled operator of an FMX6 library patch gets a filter with probability 0.3, so most
+  patches of three or more operators have at least one. The library is version 8 for FMX6
   only (every one of its formant filters has a third formant, and every operator with a formant filter is a rich
   source, a saw or pulse with at least 64 harmonics, so that the upper formants have harmonics to shape), so it is
   rebuilt once after upgrading (every FMX6 sound without a formant filter is the same patch as before); the FM7 and
