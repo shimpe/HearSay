@@ -32,11 +32,13 @@ Contents
 
 ## 1. Installing and starting
 
-The release builds of HearSay Studio are self-contained: unpack and start, nothing else to install.
+The release builds of HearSay Studio are self-contained: unpack and start, nothing else to install. This manual and
+the expert manual come with them as PDF files, `HearSay-Studio-Manual.pdf` and `HearSay-Expert-Manual.pdf`.
 
 - **Windows:** unzip and start `HearSay.Studio.exe`. SmartScreen may warn about an unknown publisher: *More info*,
   *Run anyway*.
-- **macOS:** unzip and move `HearSay Studio.app` to Applications. The app is not notarized: the first time, right-click
+- **macOS:** unzip; the folder `HearSay Studio` holds the app and the manuals. Move `HearSay Studio.app` to
+  Applications. The app is not notarized: the first time, right-click
   it and choose *Open*, or run `xattr -dr com.apple.quarantine "/Applications/HearSay Studio.app"`. `osx-arm64` is
   for Apple Silicon, `osx-x64` for Intel Macs.
 - **Linux:** unpack and start `./HearSay.Studio`. Sound needs a working OpenAL output (PulseAudio or PipeWire).
@@ -46,8 +48,8 @@ everything else works. To play the exported patches you need SuperCollider with 
 sc3-plugins for FM7, the FMX6 plugin for FMX6, the Nome6 plugin for Nome6 (expert manual,
 [section 8](expert-manual.md#8-playing-the-export-in-supercollider)).
 
-**The first search of a synthesis target** builds its structure library once: a few minutes for FM7, about 20 minutes
-for FMX6 and Nome6 on a fast machine, and 86 to 175 MB in the local application data. The status line says so. The
+**The first search of a synthesis target** builds its structure library once: under a minute for FM7, about 11
+minutes for Nome6 and 20 for FMX6 on a fast machine (24 threads), and 86 to 175 MB in the local application data. The status line says so. The
 library makes searches better and is what the Library tab shows; turn it off for a search with the *Library* check
 box (section 3).
 
@@ -128,7 +130,8 @@ plays it at. Its header says whether it is the best patch or an alternative.
 - **Save result folder…** writes the whole result: `patch.json`, `patch.scd`, `preview.wav`, the alternatives and a
   `search-summary.json` (expert manual, [section 7](expert-manual.md#7-the-result-folder)).
 - **Find in library** opens the Library tab on the library of the result's synthesis target and places the shown
-  finalist among the library sounds like it (section 11).
+  finalist among the library sounds like it (section 11). It joins the *Imported* list there as *search best* or
+  *search #2*, so several finalists can be compared in the library.
 - **☆** keeps the shown sound as a favourite (section 10).
 
 ## 5. Playing like a synth
@@ -248,7 +251,8 @@ step).
 
 ### Undo, Redo, Original and Edited
 
-- **Undo** and **Redo** (the arrows above the patch card; Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to
+- **Undo** and **Redo** (the arrows right of the tabs of the patch card, or above them where the card is narrow;
+  Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z) go back step by step to
   the sound as it was. One step is one drag from press to release, one typed number, one menu choice, one part added
   or removed, one envelope point, one vowel preset.
 - **Original ⇄ Edited.** Once a sound is edited, this switch shows the original or the edit: the diagram, the code and
@@ -265,8 +269,10 @@ step).
 
 An edit plays at the loudness of the original: its gain is not normalised again after each edit, so turning an output
 level down really makes it softer. An edit that changes the sound a lot can therefore be much quieter or louder than
-the original. **Match loudness** computes the gain the edit would get as a new sound and plays the edit at that gain
-from then on; click it again after later edits. ☆ keeps the matched gain in the favourite.
+the original, and an output level cannot go above 1.5 to make up for it. **Match loudness** computes the gain the
+edit would get as a new sound and plays the edit at that gain from then on; click it again after later edits. ☆ keeps
+the matched gain in the favourite. (The `preview.wav` of *Save edited sound…* is normalised on its own, to a peak of
+0.7, which is why it can sound louder than an edit whose loudness was not matched.)
 
 ### Limits
 
@@ -315,7 +321,8 @@ While a tab shows no sound (the Search tab before a search, the Library tab befo
 block diagram has a **Start from scratch** button. It shows *New sound*: OP1 a sine at ratio 1 with a plain envelope,
 the other operators off, on the synthesis target of the Target selector (Search tab) or of the library shown (Library
 tab). From there it is edited like any other sound: add modulators, filters and the rest, play it, copy or save its
-code, and keep it with ☆.
+code, and keep it with ☆. In the Search tab the next search replaces it. Its edits are kept like those of any other
+sound: starting from scratch again on the same synthesis target, while the Studio runs, brings them back.
 
 ![Replace your new sound?](images/studio/replace-dialog.png)
 
@@ -328,7 +335,8 @@ goes on, **Cancel** leaves everything as it was, and ☆ then keeps it.
 ## 10. Keeping sounds
 
 - **☆ Favourites.** ☆ keeps the shown sound under a nickname you type; a favourite shows a filled ★. Favourites are
-  kept between sessions and listed under *Favourites* in the Library tab (section 11). ☆ on an edit keeps it as a new
+  kept between sessions and listed under *Favourites* in the Library tab (section 11). Clicking the filled ★ again
+  renames the favourite or removes it. ☆ on an edit keeps it as a new
   favourite whose origin reads *edited from* the original; ☆ on an edit of a favourite also offers *Update "name"*,
   which overwrites that favourite with the edit.
 - **Save…** writes the shown sound as a folder that HearSay can import again: `patch.json`, `patch.scd` and

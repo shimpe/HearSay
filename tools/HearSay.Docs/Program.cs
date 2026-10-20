@@ -11,17 +11,20 @@ namespace HearSay.Docs;
 
 /// <summary>
 /// Turns the manuals into PDF files: each Markdown file becomes one self-contained HTML page (its images embedded, links
-/// to the other manual pointing at that manual's PDF, links to other files of the repository at GitHub), which a
-/// headless Chrome (or Edge, or Chromium) prints to PDF with page numbers.
+/// to the other manual and to other files of the repository at GitHub, as of --ref), which a headless Chrome (or Edge,
+/// or Chromium) prints to PDF with page numbers. A link from one PDF to the other cannot work: a package may hold only
+/// one of them, and a relative link is printed as the absolute path of the folder it was built in.
 ///
-/// <code>dotnet run -c Release --project tools/HearSay.Docs -- [--out folder] [--version 0.4.0] [--html]</code>
+/// <code>dotnet run -c Release --project tools/HearSay.Docs -- [--out folder] [--version 0.4.0] [--ref commit] [--html]</code>
 ///
-/// It writes to artifacts/manuals by default; --html keeps the HTML pages next to the PDF files. The browser is found on
-/// the usual places, or given in HEARSAY_CHROME.
+/// It writes to artifacts/manuals by default; --ref is the commit, tag or branch the links point at (main by default);
+/// --html keeps the HTML pages next to the PDF files. The browser is found on the usual places, or given in
+/// HEARSAY_CHROME.
 /// </summary>
 internal static class Program
 {
-    private const string Repository = "https://github.com/shimpe/HearSay/blob/main/";
+    /// <summary>Where links to files of the repository point: GitHub, at the commit, tag or branch of --ref.</summary>
+    private static string _repository = "https://github.com/shimpe/HearSay/blob/main/";
 
     /// <summary>The manuals: Markdown source under the repository, PDF name, title in the page header.</summary>
     private static readonly (string Source, string Pdf, string Title)[] Manuals =
@@ -48,11 +51,14 @@ internal static class Program
                     case "--version" when i + 1 < args.Length:
                         version = args[++i];
                         break;
+                    case "--ref" when i + 1 < args.Length:
+                        _repository = $"https://github.com/shimpe/HearSay/blob/{Uri.EscapeDataString(args[++i])}/";
+                        break;
                     case "--html":
                         keepHtml = true;
                         break;
                     default:
-                        throw new ArgumentException($"Unknown argument '{args[i]}'. Use --out folder, --version x.y.z, --html.");
+                        throw new ArgumentException($"Unknown argument '{args[i]}'. Use --out folder, --version x.y.z, --ref commit, --html.");
                 }
             }
 
@@ -157,8 +163,8 @@ internal static class Program
     }
 
     /// <summary>
-    /// A link as the PDF needs it: an image embedded, another manual as its PDF, any other file of the repository at
-    /// GitHub; web links and anchors as they are.
+    /// A link as the PDF needs it: an image embedded, any other file of the repository (the other manual too) at GitHub;
+    /// web links and anchors as they are.
     /// </summary>
     private static string? Rewrite(string repository, string folder, string? url, bool image)
     {
@@ -190,15 +196,7 @@ internal static class Program
         }
 
         string relative = Path.GetRelativePath(repository, full).Replace(Path.DirectorySeparatorChar, '/');
-        foreach ((string source, string pdf, _) in Manuals)
-        {
-            if (string.Equals(relative, source, StringComparison.OrdinalIgnoreCase))
-            {
-                return pdf + fragment;
-            }
-        }
-
-        return Repository + relative + fragment;
+        return _repository + relative + fragment;
     }
 
     /// <summary>The text of a heading's inlines, without their markup.</summary>
@@ -254,11 +252,21 @@ internal static class Program
             return null;
         }
 
-        // The size is in the IHDR chunk: width and height, big-endian, at bytes 16 and 20.
-        byte[] head = new byte[24];
-        using (FileStream stream = File.OpenRead(Path.GetFullPath(Path.Combine(folder, Uri.UnescapeDataString(url)))))
+        // A missing image is reported where it is embedded. The size is in the IHDR chunk, the first after the
+        // signature: width and height, big-endian, at bytes 16 and 20.
+        string path = Path.GetFullPath(Path.Combine(folder, Uri.UnescapeDataString(url)));
+        if (!File.Exists(path))
         {
-            stream.ReadExactly(head);
+            return null;
+        }
+
+        byte[] head = new byte[24];
+        using (FileStream stream = File.OpenRead(path))
+        {
+            if (stream.Read(head) < head.Length || head[1] != (byte)'P' || head[2] != (byte)'N' || head[3] != (byte)'G')
+            {
+                throw new InvalidDataException($"'{url}' is not a PNG image.");
+            }
         }
 
         double pixelsWide = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(head.AsSpan(16));

@@ -325,7 +325,8 @@ browse the library as sound families, keep favourites. It has a manual of its ow
 Everything the Studio does is available in the API. The editing is `PatchEditor` with the edits of `PatchEdits`,
 `EditableValues`, `EnvelopeEdits` and `FormantPresets` (section 14); `EditMarks` tells which parts an edit changed;
 `EditSessions` keeps the edits of several sounds. The Library tab is `LibraryAtlas` over a structure library
-(section 11), the favourites are `FavouriteSounds`, and live playing is `LivePlayer`.
+(section 11), the favourites are `FavouriteSounds`, and live playing is `NoteSession` over a `VoiceMixer`
+(`HearSay.Playing`).
 
 ## 10. The command line
 
@@ -536,15 +537,8 @@ edit the envelopes' sustain points.
 **Noisy targets under FMX6 score around 0.08 at best.** That is the realization floor: the noise operator is found,
 its sequence never matches. Judge by ear and by `Similarity`.
 
-**Notes from the MIDI controller stutter or drop out.** A search or a library build is running (it keeps its full
-speed), or the status line warns that the audio device mixes in large blocks: OpenAL Soft did not read the
-`alsoft.ini` shipped next to the program.
-
-**The MIDI device is not in the list.** Open the list again (it is read every time it opens); check that no other
-program holds the device: on Windows most MIDI drivers let only one program open an input at a time.
-
-**Studio's keyboard is silent.** No audio device could be opened (OpenAL Soft). The note under the keyboard says so.
-Everything else works; save the folder and play `preview.wav`.
+**HearSay Studio: a silent keyboard, MIDI that stutters or a missing MIDI device.** See the troubleshooting of the
+[Studio manual](studio-manual.md#13-troubleshooting).
 
 **Git or file operations fail while a search runs.** Unrelated to HearSay; a virus scanner holding files is the
 usual cause on Windows.

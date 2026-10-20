@@ -59,7 +59,11 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - name: Build
-        run: dotnet build HearSay.sln -c Release
+        run: |
+          dotnet build HearSay.sln -c Release
+          # The tools outside the solution: a broken one would otherwise show only when the manuals are built.
+          dotnet build tools/HearSay.Docs -c Release
+          dotnet build tools/HearSay.Studio.Screenshots -c Release
       - name: Test
         run: |
           for project in HearSay.Synthesis.Tests HearSay.Audio.Tests HearSay.Modeling.Tests HearSay.OperatorMatrix.Tests; do
@@ -83,7 +87,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fonts-dejavu-core
       - name: Build the manuals
-        run: dotnet run -c Release --project tools/HearSay.Docs -- --out manuals --version "$VERSION"
+        run: dotnet run -c Release --project tools/HearSay.Docs -- --out manuals --version "$VERSION" --ref "$GITHUB_SHA"
       - uses: actions/upload-artifact@v7
         with:
           name: manuals
@@ -208,7 +212,8 @@ jobs:
           else to install. To play the exported patches you need SuperCollider with the plugin of the synthesis target:
           sc3-plugins for FM7, the FMX6 plugin for FMX6, the Nome6 plugin for Nome6.
 
-          The first search for a synthesis target builds its structure library once (a few minutes, about 86 MB in the
+          The first search for a synthesis target builds its structure library once (FM7 under a minute, Nome6 and FMX6 10 to
+          20 minutes; 86 to 175 MB in the
           local application data); turn it off with the Library check box or `--library 0`.
 
           The manuals come as PDF files with the programs: `HearSay-Studio-Manual.pdf` for the desktop app and
