@@ -316,10 +316,13 @@ public sealed class FilterPriorTests
     private static OperatorMatrixPatch Pulse(OperatorFilter? filter, double width, int harmonics) =>
         Saw(filter).WithOperator(0, Saw(filter).Operators[0] with { Waveform = OperatorWaveform.Pulse, Shape = width, HarmonicLimit = harmonics });
 
-    /// <summary>Every tonal operator with a formant filter is a pulse with at least 64 harmonics; noise is left alone.</summary>
-    private static bool FormantOperatorsAreVoiceSources(OperatorMatrixPatch patch) =>
+    /// <summary>
+    /// Every tonal operator with a formant filter is a rich source, a saw or a pulse with at least 64 harmonics; noise is
+    /// left alone.
+    /// </summary>
+    private static bool FormantOperatorsAreRichSources(OperatorMatrixPatch patch) =>
         patch.Operators.All(static o => o.Filter?.Type != OperatorFilterType.Formant || o.Waveform.IsNoise()
-            || (o.Waveform == OperatorWaveform.Pulse && o.HarmonicLimit >= RandomPatchGenerator.FormantHarmonics && o.NoiseM == 0.0));
+            || (o.Waveform is OperatorWaveform.Saw or OperatorWaveform.Pulse && o.HarmonicLimit >= RandomPatchGenerator.FormantHarmonics));
 
     private static readonly OperatorFilter Vowel600 = OperatorFilter.FormantAt(600, 1.7, 0.6, 8);
 
@@ -349,20 +352,23 @@ public sealed class FilterPriorTests
     }
 
     [Fact]
-    public void FormantMutation_MakesTheOperatorAVoiceSource()
+    public void FormantMutation_MakesTheOperatorARichSource()
     {
         TargetAnalysis analysis = TwoFormants();
 
-        // A saw given a formant filter becomes the voice source, a 1 % pulse with 64 harmonics; given a low-pass it
-        // stays a saw.
+        // A saw given a formant filter stays a saw, with 64 harmonics.
         List<TopologyMutation> variants = TopologyMutator.FilterVariants(DullSaw(null, 16), analysis, [0]);
         OperatorPatch formant = Assert.Single(variants, static m => m.Description == "OP1 filter formant").Patch.Operators[0];
-        Assert.Equal((OperatorWaveform.Pulse, VoiceSource.Width, 64, OperatorFilterType.Formant), (formant.Waveform, formant.Shape, formant.HarmonicLimit, formant.Filter!.Type));
-        Assert.Equal(OperatorWaveform.Saw, Assert.Single(variants, static m => m.Description == "OP1 filter low-pass").Patch.Operators[0].Waveform);
+        Assert.Equal((OperatorWaveform.Saw, 64, OperatorFilterType.Formant), (formant.Waveform, formant.HarmonicLimit, formant.Filter!.Type));
 
-        // A pulse of another width starts at the voice source's width when it gets the filter.
+        // A pulse keeps its width and gets 64 harmonics.
         OperatorPatch wide = Assert.Single(TopologyMutator.FilterVariants(Pulse(null, 0.4, 32), analysis, [0]), static m => m.Description == "OP1 filter formant").Patch.Operators[0];
-        Assert.Equal((OperatorWaveform.Pulse, VoiceSource.Width, 64), (wide.Waveform, wide.Shape, wide.HarmonicLimit));
+        Assert.Equal((OperatorWaveform.Pulse, 0.4, 64), (wide.Waveform, wide.Shape, wide.HarmonicLimit));
+
+        // A sine, which leaves a formant filter nothing to shape, becomes the 1 % voice source.
+        OperatorMatrixPatch sine = Saw(null).WithOperator(0, Saw(null).Operators[0] with { Waveform = OperatorWaveform.Sine });
+        OperatorPatch source = Assert.Single(TopologyMutator.FilterVariants(sine, analysis, [0]), static m => m.Description == "OP1 filter formant").Patch.Operators[0];
+        Assert.Equal((OperatorWaveform.Pulse, VoiceSource.Width, 128), (source.Waveform, source.Shape, source.HarmonicLimit));
 
         // Noise with a formant filter stays noise: a whisper.
         OperatorMatrixPatch noise = Saw(null).WithOperator(0, Saw(null).Operators[0] with { Waveform = OperatorWaveform.FilteredNoise, Shape = 0.7 });
@@ -376,57 +382,70 @@ public sealed class FilterPriorTests
         TargetAnalysis analysis = TwoFormants();
         var mutator = new TopologyMutator(Fmx6);
 
-        // A voice source at 64 is never halved, and one with fewer (an older sound) comes out with at least 64.
-        foreach (OperatorMatrixPatch start in new[] { Pulse(Vowel600, VoiceSource.Width, 64), Pulse(Vowel600, VoiceSource.Width, 16) })
+        // A rich source at 64 is never halved, and one with fewer (an older sound) comes out with at least 64.
+        foreach (OperatorMatrixPatch start in new[] { DullSaw(Vowel600, 64), Pulse(Vowel600, 0.2, 64), DullSaw(Vowel600, 16) })
         {
             for (int seed = 0; seed < 30; seed++)
             {
                 IReadOnlyList<TopologyMutation> proposals = mutator.Propose(start, analysis, new Random(seed), 12);
-                Assert.All(proposals, static p => Assert.True(FormantOperatorsAreVoiceSources(p.Patch), p.Description));
+                Assert.All(proposals, static p => Assert.True(FormantOperatorsAreRichSources(p.Patch), p.Description));
                 Assert.DoesNotContain(proposals, static p => p.Description == "OP1 harmonics 64 -> 32");
             }
         }
 
         // Screened proposals too, waveform changes of a formant operator included: an older sine with a formant filter
-        // comes out as the voice source.
+        // comes out as a rich source.
         OperatorMatrixPatch sine = DullSaw(Vowel600, 16).WithOperator(0, DullSaw(Vowel600, 16).Operators[0] with { Waveform = OperatorWaveform.Sine });
         (PreparedObjectiveTarget prepared, PatchEvaluator evaluator) = Screening();
         IReadOnlyList<TopologyMutation> screened = mutator.ProposeScreened(sine, prepared.Analysis, evaluator, new Random(1), 12);
         Assert.NotEmpty(screened);
-        Assert.All(screened, static p => Assert.True(FormantOperatorsAreVoiceSources(p.Patch), p.Description));
-        Assert.All(screened, static p => Assert.True(p.Patch.Operators[0].Shape == VoiceSource.Width || p.Patch.Operators[0].Waveform.IsNoise(), p.Description));
+        Assert.All(screened, static p => Assert.True(FormantOperatorsAreRichSources(p.Patch), p.Description));
     }
 
     [Fact]
-    public void WaveformMutation_OfAFormantOperator_OnlyToNoise()
+    public void WaveformMutation_OfAFormantOperator_ToSawPulseOrNoise()
     {
-        // A voice source with a formant filter: a change to another tonal waveform would come back to the voice source,
-        // which is the patch itself, and is dropped; a change to noise (a whisper) is kept.
+        // A 1 % pulse with a formant filter: a change to a saw or to noise (a whisper) is kept; a change to a sine,
+        // triangle or square would come back as the 1 % pulse, which is the patch itself, and is dropped.
         TargetAnalysis analysis = TwoFormants();
         var mutator = new TopologyMutator(Fmx6);
         OperatorMatrixPatch start = Pulse(Vowel600, VoiceSource.Width, 64);
+        static bool IsWaveformChange(TopologyMutation p) => p.Description.StartsWith("OP1 waveform", StringComparison.Ordinal) && !p.Description.Contains("harmonics", StringComparison.Ordinal);
         var waveforms = new List<TopologyMutation>();
         for (int seed = 0; seed < 60; seed++)
         {
-            waveforms.AddRange(mutator.Propose(start, analysis, new Random(seed), 12).Where(static p => p.Description.StartsWith("OP1 waveform", StringComparison.Ordinal)));
+            waveforms.AddRange(mutator.Propose(start, analysis, new Random(seed), 12).Where(IsWaveformChange));
         }
 
-        Assert.NotEmpty(waveforms);
-        Assert.All(waveforms, static p => Assert.True(p.Patch.Operators[0].Waveform.IsNoise(), $"{p.Description}: {p.Patch.Operators[0].Waveform}"));
+        Assert.All(waveforms, static p => Assert.True(p.Patch.Operators[0].Waveform == OperatorWaveform.Saw || p.Patch.Operators[0].Waveform.IsNoise(), $"{p.Description}: {p.Patch.Operators[0].Waveform}"));
         Assert.Contains(waveforms, static p => p.Description == "OP1 waveform Noise");
+        Assert.Contains(waveforms, static p => p.Description == "OP1 waveform Saw" && p.Patch.Operators[0].HarmonicLimit == 64);
 
-        // Screened: the tonal waveform candidates all come back to the patch itself.
+        // From a saw: a pulse is kept at the width it gets, a sine comes back as the 1 % pulse.
+        OperatorMatrixPatch saw = DullSaw(Vowel600, 64);
+        var fromSaw = new List<TopologyMutation>();
+        for (int seed = 0; seed < 60; seed++)
+        {
+            fromSaw.AddRange(mutator.Propose(saw, analysis, new Random(seed), 12).Where(IsWaveformChange));
+        }
+
+        Assert.Contains(fromSaw, static p => p.Description == "OP1 waveform Pulse" && p.Patch.Operators[0].Waveform == OperatorWaveform.Pulse && p.Patch.Operators[0].Shape == 0.5);
+        Assert.Contains(fromSaw, static p => p.Description == "OP1 waveform Sine");
+        Assert.All(fromSaw.Where(static p => p.Description is "OP1 waveform Sine" or "OP1 waveform Triangle" or "OP1 waveform Square"), static p =>
+            Assert.Equal((OperatorWaveform.Pulse, VoiceSource.Width, 64), (p.Patch.Operators[0].Waveform, p.Patch.Operators[0].Shape, p.Patch.Operators[0].HarmonicLimit)));
+
+        // Screened from the 1 % pulse: the sine, triangle and square candidates come back to the patch itself.
         (PreparedObjectiveTarget prepared, PatchEvaluator evaluator) = Screening();
         IReadOnlyList<TopologyMutation> screened = mutator.ProposeScreened(start, prepared.Analysis, evaluator, new Random(1), 12);
         Assert.NotEmpty(screened);
         Assert.All(screened, p => Assert.NotEqual(start.ComputeHash(), p.Patch.ComputeHash()));
-        Assert.All(screened.Where(static p => p.Description.StartsWith("OP1 waveform", StringComparison.Ordinal) && !p.Description.Contains("harmonics", StringComparison.Ordinal)), static p => Assert.True(p.Patch.Operators[0].Waveform.IsNoise(), p.Description));
+        Assert.All(screened.Where(IsWaveformChange), static p => Assert.True(p.Patch.Operators[0].Waveform == OperatorWaveform.Saw || p.Patch.Operators[0].Waveform.IsNoise(), p.Description));
     }
 
     [Fact]
     public void TunedPulseWidth_OfAFormantOperator_IsKept()
     {
-        // The search may tune the width of a voice source: no structural step puts it back to 1 %.
+        // The search may tune the width of a formant pulse: no step but a change to another waveform moves it.
         TargetAnalysis analysis = TwoFormants();
         var mutator = new TopologyMutator(Fmx6);
         OperatorMatrixPatch start = Pulse(Vowel600, 0.3, 64);
@@ -439,7 +458,7 @@ public sealed class FilterPriorTests
         proposals.AddRange(TopologyMutator.FilterVariants(start, analysis, [0]));
         Assert.Contains(proposals, static p => p.Description == "OP1 harmonics 64 -> 128");
         Assert.Contains(proposals, static p => p.Description == "OP1 filter third formant");
-        Assert.All(proposals.Where(static p => p.Patch.Operators[0].Filter?.Type == OperatorFilterType.Formant && !p.Patch.Operators[0].Waveform.IsNoise()), static p =>
+        Assert.All(proposals.Where(static p => !p.Description.StartsWith("OP1 waveform", StringComparison.Ordinal)), static p =>
             Assert.Equal((OperatorWaveform.Pulse, 0.3), (p.Patch.Operators[0].Waveform, p.Patch.Operators[0].Shape)));
 
         // An older tuned pulse with fewer harmonics keeps its width and gets 64; without the filter it is left alone.
@@ -451,25 +470,30 @@ public sealed class FilterPriorTests
     }
 
     [Fact]
-    public void FormantHypotheses_AreVoiceSources()
+    public void FormantHypotheses_AreASawAndAPulse()
     {
-        // The formant prior's carriers are the voice source, a 1 % pulse with 64 harmonics, one per filter.
+        // The formant prior proposes two carriers per filter, a saw and a 20 % pulse, both with 64 harmonics.
         TargetAnalysis analysis = TwoFormants();
         IReadOnlyList<PatchHypothesis> hypotheses = new FormantPriorProvider().Generate(analysis, Fmx6);
         Assert.NotEmpty(hypotheses);
-        Assert.All(hypotheses, static h =>
+        Assert.Equal(2 * hypotheses.Select(static h => h.Patch.Operators[0].Filter).Distinct().Count(), hypotheses.Count);
+        for (int i = 0; i < hypotheses.Count; i += 2)
         {
-            OperatorPatch carrier = h.Patch.Operators[0];
-            Assert.Equal((OperatorWaveform.Pulse, VoiceSource.Width, 64, 0.0, OperatorFilterType.Formant), (carrier.Waveform, carrier.Shape, carrier.HarmonicLimit, carrier.NoiseM, carrier.Filter!.Type));
-            Assert.StartsWith("voice source with ", h.Origin, StringComparison.Ordinal);
-        });
-        Assert.Equal(hypotheses.Count, hypotheses.Select(static h => h.Patch.Operators[0].Filter).Distinct().Count());
+            OperatorPatch saw = hypotheses[i].Patch.Operators[0];
+            OperatorPatch pulse = hypotheses[i + 1].Patch.Operators[0];
+            Assert.Equal((OperatorWaveform.Saw, 0.5, 64), (saw.Waveform, saw.Shape, saw.HarmonicLimit));
+            Assert.Equal((OperatorWaveform.Pulse, 0.2, 64), (pulse.Waveform, pulse.Shape, pulse.HarmonicLimit));
+            Assert.Equal(saw.Filter, pulse.Filter);
+            Assert.Equal(OperatorFilterType.Formant, saw.Filter!.Type);
+            Assert.StartsWith("saw with ", hypotheses[i].Origin, StringComparison.Ordinal);
+            Assert.StartsWith("pulse with ", hypotheses[i + 1].Origin, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
     public void ScreenedProposals_AreEachADifferentPatch()
     {
-        // An older sine with a formant filter: its triangle, saw and square candidates all become the same voice source.
+        // An older sine with a formant filter: its triangle and square candidates both become the same 1 % voice source.
         // That patch is screened and proposed once, not once per description.
         OperatorMatrixPatch sine = DullSaw(Vowel600, 16).WithOperator(0, DullSaw(Vowel600, 16).Operators[0] with { Waveform = OperatorWaveform.Sine });
         (PreparedObjectiveTarget prepared, PatchEvaluator evaluator) = Screening();

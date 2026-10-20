@@ -5,12 +5,11 @@ using HearSay.Synthesis.Profiles;
 namespace HearSay.OperatorMatrix.Priors;
 
 /// <summary>
-/// Hypotheses for voice-like targets on profiles with operator filters: the voice source (<see cref="VoiceSource"/>, a
-/// 1 % pulse with 64 harmonics) through a formant filter whose peaks are the target's formants
-/// (<see cref="FilterPriors.FormantPeaks"/>): with three peaks (F1 to F3) when there are three, with the two strongest,
-/// with the strongest alone, and with the first and the third when there are three. Every one of these filters has F3,
-/// as the search tunes F1 to F3 on every formant filter: the heard third peak in the first, the search's default (at
-/// the level floor) in the others.
+/// Hypotheses for voice-like targets on profiles with operator filters: a rich carrier (saw, or a pulse) through a
+/// formant filter whose peaks are the target's formants (<see cref="FilterPriors.FormantPeaks"/>): with three peaks (F1
+/// to F3) when there are three, with the two strongest, with the strongest alone, and with the first and the third when
+/// there are three. Every one of these filters has F3, as the search tunes F1 to F3 on every formant filter: the heard
+/// third peak in the first, the search's default (at the level floor) in the others.
 /// </summary>
 public sealed class FormantPriorProvider : ISynthesisPriorProvider
 {
@@ -56,18 +55,21 @@ public sealed class FormantPriorProvider : ISynthesisPriorProvider
             filters.Add((FilterPriors.Formant([byFrequency[0], byFrequency[2]])!, "formants F1 + F3"));
         }
 
-        if (!capabilities.SupportedWaveforms.Contains(OperatorWaveform.Pulse))
-        {
-            return hypotheses;
-        }
-
         OperatorEnvelope output = TemporalPriors.OutputEnvelope(analysis);
         int rank = 0;
         foreach ((OperatorFilter filter, string name) in filters)
         {
-            OperatorPatch carrier = VoiceSource.AsVoiceSource(OperatorPatch.Sine(OperatorFrequency.AtRatio(1), output) with { Filter = filter }, keepPulseWidth: false);
-            OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(capabilities.OperatorCount).WithOperator(0, carrier).WithOutputLevel(0, 0.8);
-            hypotheses.Add(new PatchHypothesis(patch, 0.55 - (0.01 * rank++), $"voice source with {name}"));
+            foreach ((OperatorWaveform waveform, double shape) in new[] { (OperatorWaveform.Saw, 0.5), (OperatorWaveform.Pulse, 0.2) })
+            {
+                if (!capabilities.SupportedWaveforms.Contains(waveform))
+                {
+                    continue;
+                }
+
+                OperatorPatch carrier = OperatorPatch.Sine(OperatorFrequency.AtRatio(1), output) with { Waveform = waveform, Shape = shape, HarmonicLimit = 64, Filter = filter };
+                OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(capabilities.OperatorCount).WithOperator(0, carrier).WithOutputLevel(0, 0.8);
+                hypotheses.Add(new PatchHypothesis(patch, 0.55 - (0.01 * rank++), $"{waveform.ToString().ToLowerInvariant()} with {name}"));
+            }
         }
 
         return hypotheses;

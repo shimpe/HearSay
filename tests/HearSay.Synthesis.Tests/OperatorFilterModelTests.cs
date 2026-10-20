@@ -183,7 +183,7 @@ public sealed class OperatorFilterModelTests
         Assert.True(fmx6.SupportsOperatorFilters);
         Assert.False(fmx6.IsSubsetOf(fmx6 with { SupportsOperatorFilters = false }));
         Assert.True((fmx6 with { SupportsOperatorFilters = false }).IsSubsetOf(fmx6));
-        Assert.Equal(7, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
+        Assert.Equal(8, SynthesisProfiles.SuperColliderFmx6.StructureLibraryVersion);
         Assert.Equal(1, SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion);
         Assert.Equal(2, SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion);
     }
@@ -203,12 +203,12 @@ public sealed class OperatorFilterModelTests
             Assert.True(PatchCompatibilityValidator.Instance.Validate(b, fmx6).IsCompatible);
             withFilter += b.Operators.Count(static o => o.Filter is not null);
 
-            // A formant filter makes a tonal operator the voice source (waveform, shape, harmonics and NoiseM); everything
-            // else is what the seed gave.
+            // A formant filter makes an operator a rich source (waveform, shape, harmonics and NoiseM); everything else is
+            // what the seed gave.
             for (int i = 0; i < b.OperatorCount; i++)
             {
                 OperatorPatch expected = b.Operators[i].Filter?.Type == OperatorFilterType.Formant
-                    ? VoiceSource.AsVoiceSource(a.Operators[i], keepPulseWidth: false)
+                    ? VoiceSource.AsRichSource(a.Operators[i])
                     : a.Operators[i];
                 OperatorPatch got = b.Operators[i];
                 Assert.Equal((expected.Waveform, expected.Shape, expected.HarmonicLimit, expected.NoiseM), (got.Waveform, got.Shape, got.HarmonicLimit, got.NoiseM));
@@ -264,11 +264,11 @@ public sealed class OperatorFilterModelTests
     }
 
     [Fact]
-    public void Generator_EveryTonalFormantOperator_IsAVoiceSource()
+    public void Generator_EveryFormantOperator_IsARichSource()
     {
-        // A formant filter shapes the harmonics it is given: every tonal operator with one is the voice source, a 1 %
-        // pulse with at least 64 harmonics; a noise operator with one stays noise (a whisper). Other operators are left
-        // as drawn.
+        // A formant filter shapes the harmonics it is given: every tonal operator with one is a saw, or a pulse at its
+        // drawn width, with at least 64 harmonics, and a sine, triangle or square becomes the 1 % voice source; a noise
+        // operator with one stays noise (a whisper). Other operators are left as drawn.
         SynthesisCapabilities fmx6 = SynthesisProfiles.SuperColliderFmx6.Capabilities;
         var generator = new RandomPatchGenerator(fmx6, new RandomPatchOptions { FilterProbability = 1.0 });
         var tonal = new List<OperatorPatch>();
@@ -283,9 +283,12 @@ public sealed class OperatorFilterModelTests
         }
 
         Assert.True(tonal.Count > 60, $"{tonal.Count} tonal formant operators");
-        Assert.All(tonal, static o => Assert.Equal((OperatorWaveform.Pulse, VoiceSource.Width, 0.0), (o.Waveform, o.Shape, o.NoiseM)));
+        Assert.All(tonal, static o => Assert.True(o.Waveform is OperatorWaveform.Saw or OperatorWaveform.Pulse, $"{o.Waveform}"));
         Assert.All(tonal, static o => Assert.True(o.HarmonicLimit >= 64, $"{o.HarmonicLimit} harmonics"));
         Assert.Contains(tonal, static o => o.HarmonicLimit == 128);
+        Assert.Contains(tonal, static o => o.Waveform == OperatorWaveform.Saw);
+        Assert.Contains(tonal, static o => o.Waveform == OperatorWaveform.Pulse && o.Shape == VoiceSource.Width);
+        Assert.Contains(tonal, static o => o.Waveform == OperatorWaveform.Pulse && o.Shape > 0.05);
         Assert.True(noise.Count > 20, $"{noise.Count} noise formant operators");
         Assert.Contains(noise, static o => o.Waveform == OperatorWaveform.FilteredNoise);
         Assert.Contains(noise, static o => o.Waveform == OperatorWaveform.Noise);
@@ -317,6 +320,37 @@ public sealed class OperatorFilterModelTests
         }
 
         Assert.Equal(64, VoiceSource.Harmonics);
+    }
+
+    [Fact]
+    public void AsRichSource_KeepsASawOrAPulse_AndMakesTheRestTheVoiceSource()
+    {
+        OperatorFilter vowel = OperatorFilter.FormantAt(700, 1.8, 0.5, 8);
+        OperatorPatch sine = OperatorPatch.Sine(OperatorFrequency.AtRatio(2)) with { HarmonicLimit = 8, Filter = vowel, NoisePhase = 0.2 };
+
+        // A saw stays a saw, a pulse keeps its width; both get 64 harmonics, and more stay.
+        OperatorPatch saw = sine.WithWaveform(OperatorWaveform.Saw);
+        Assert.Equal(saw with { HarmonicLimit = 64 }, VoiceSource.AsRichSource(saw));
+        Assert.Equal(saw with { HarmonicLimit = 128 }, VoiceSource.AsRichSource(saw with { HarmonicLimit = 128 }));
+        OperatorPatch pulse = sine.WithWaveform(OperatorWaveform.Pulse) with { Shape = 0.2 };
+        Assert.Equal(pulse with { HarmonicLimit = 64 }, VoiceSource.AsRichSource(pulse));
+        Assert.Equal(pulse with { Shape = 0.6, HarmonicLimit = 96 }, VoiceSource.AsRichSource(pulse with { Shape = 0.6, HarmonicLimit = 96 }));
+
+        // A sine, triangle, square or elliptic operator, which leaves a formant filter little to shape, becomes the
+        // 1 % voice source.
+        foreach (OperatorWaveform waveform in new[] { OperatorWaveform.Sine, OperatorWaveform.Triangle, OperatorWaveform.Square, OperatorWaveform.Elliptic })
+        {
+            OperatorPatch op = sine.WithWaveform(waveform) with { NoiseM = 0.1 };
+            Assert.Equal(VoiceSource.AsVoiceSource(op, keepPulseWidth: false), VoiceSource.AsRichSource(op));
+            Assert.Equal((OperatorWaveform.Pulse, 0.01, 64, 0.0), (VoiceSource.AsRichSource(op).Waveform, VoiceSource.AsRichSource(op).Shape, VoiceSource.AsRichSource(op).HarmonicLimit, VoiceSource.AsRichSource(op).NoiseM));
+        }
+
+        // Noise stays as it is.
+        foreach (OperatorWaveform waveform in new[] { OperatorWaveform.Noise, OperatorWaveform.SampleHoldNoise, OperatorWaveform.FilteredNoise })
+        {
+            OperatorPatch noise = sine with { Waveform = waveform, Shape = 0.7 };
+            Assert.Same(noise, VoiceSource.AsRichSource(noise));
+        }
     }
 
     [Fact]

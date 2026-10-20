@@ -207,13 +207,14 @@ public sealed class RandomPatchGenerator
                     OperatorFilter filter = RandomFilter(filterRandom);
                     operators[i] = operators[i] with { Filter = filter };
 
-                    // A formant filter shapes the harmonics it is given: a tonal operator with one is the voice source, a
-                    // 1 % pulse with at least 64 harmonics; noise stays noise (a whisper). No random draw, so every other
-                    // patch stays as its seed gave it. A profile without a pulse only gets the harmonics.
+                    // A formant filter shapes the harmonics it is given: an operator with one is a rich source, a saw or a
+                    // pulse with at least 64 harmonics, a sine, triangle or square the 1 % voice source; noise stays noise
+                    // (a whisper). No random draw, so every other patch stays as its seed gave it. A profile without a
+                    // pulse only gets the harmonics.
                     if (filter.Type == OperatorFilterType.Formant)
                     {
                         operators[i] = _capabilities.SupportedWaveforms.Contains(OperatorWaveform.Pulse)
-                            ? VoiceSource.AsVoiceSource(operators[i], keepPulseWidth: false)
+                            ? VoiceSource.AsRichSource(operators[i])
                             : operators[i] with { HarmonicLimit = Math.Max(operators[i].HarmonicLimit, FormantHarmonics) };
                     }
                 }

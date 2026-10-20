@@ -1,10 +1,11 @@
 namespace HearSay.Synthesis.Patches;
 
 /// <summary>
-/// The voice source: what an operator with a formant filter plays. A formant filter only shapes the harmonics it is
-/// given, so a vowel needs many of about the same strength: a narrow pulse (<see cref="Width"/>, 1 %) with at least
-/// <see cref="Harmonics"/> harmonics and no noise on the elliptic parameter. The library, the search and the editor
-/// share this rule; a noise operator with a formant filter stays noise (a whisper).
+/// The sources of an operator with a formant filter, which only shapes the harmonics it is given. The voice source, a
+/// narrow pulse (<see cref="Width"/>, 1 %) with at least <see cref="Harmonics"/> harmonics and no noise on the elliptic
+/// parameter, is the flat source the editor gives (the vowel presets assume one). The rich source is what the library
+/// and the search give: a saw or a pulse with many harmonics, which matches heard vowels better, and the voice source
+/// in place of a waveform with few harmonics. A noise operator with a formant filter stays noise (a whisper).
 /// </summary>
 public static class VoiceSource
 {
@@ -13,6 +14,24 @@ public static class VoiceSource
 
     /// <summary>The fewest harmonics of a voice source: enough for the formants of a vowel up to F5 on a low note.</summary>
     public const int Harmonics = RandomPatchGenerator.FormantHarmonics;
+
+    /// <summary>
+    /// The operator as a rich source, what the library and the search give an operator with a formant filter: noise
+    /// unchanged (a whisper); a saw, or a pulse at its own width, with <see cref="Harmonics"/> harmonics or the more
+    /// it has; any other tonal waveform (sine, triangle, square, elliptic), which leaves a formant filter little to
+    /// shape, the voice source (<see cref="AsVoiceSource"/>). Everything else stays.
+    /// </summary>
+    /// <param name="op">The operator.</param>
+    public static OperatorPatch AsRichSource(OperatorPatch op)
+    {
+        ArgumentNullException.ThrowIfNull(op);
+        return op.Waveform switch
+        {
+            _ when op.Waveform.IsNoise() => op,
+            OperatorWaveform.Saw or OperatorWaveform.Pulse => op.HarmonicLimit >= Harmonics ? op : op with { HarmonicLimit = Harmonics },
+            _ => AsVoiceSource(op, keepPulseWidth: false),
+        };
+    }
 
     /// <summary>
     /// The operator as a voice source: unchanged when it plays noise; otherwise a pulse, <see cref="Width"/> wide (or

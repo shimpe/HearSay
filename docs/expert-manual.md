@@ -131,15 +131,17 @@ sample-exactly like the UGen.
 The formant filter has up to five formants, each a band-pass peak of unity gain: F1 in hertz (`FixedHz`) with the
 filter's `Q`, and F2..F5 at a ratio to F1 (1..32 by hand; the search keeps F2 within 8 and F3 within 16, so that moving F1 moves the whole vowel), each with a level
 relative to F1 (0..1; F3, F4 and F5 at 0 are off) and its own Q (0.5..50; 0, the default, plays at the filter's `Q`).
-An operator with a formant filter is a voice source, in the library, in the search and in the editor: a formant
-filter only shapes the harmonics it is given, so the operator plays a pulse 1 % wide with at least 64 harmonics
-(`VoiceSource.AsVoiceSource`), which has many of about the same strength up to F3 and beyond; otherwise the vowel is
-hardly audible. A noise operator (white, sample-and-hold or filtered noise) with a formant filter stays noise: a
-whisper. The library's sounds (version 7) are made so; the search proposes formant filters on a voice source, makes
-an operator the voice source when it gives it a formant filter, never halves a formant operator's harmonics below 64
-and changes a formant operator's waveform only to noise. It may tune the width (`Shape`) from there: fine-tuning moves
-it as for any pulse, and its structural steps keep the width it found. In the editor, choosing *formant* or a vowel
-preset on an operator with another filter, or none, makes it the voice source in the same step (section 9).
+A formant filter only shapes the harmonics it is given: through a sine or a triangle a vowel is hardly audible. In the
+library and the search an operator with a formant filter is therefore a *rich source* (`VoiceSource.AsRichSource`): a
+saw, or a pulse at its own width, with at least 64 harmonics; a sine, triangle or square becomes the voice source, a
+pulse 1 % wide with at least 64 harmonics; a noise operator (white, sample-and-hold or filtered noise) stays noise, a
+whisper. The library's sounds (version 8) are made so; the search proposes a saw and a 20 % pulse through each formant
+filter it reads, keeps a formant operator a rich source in every structural step (a pulse keeps the width it found,
+which fine-tuning moves as for any pulse) and never halves its harmonics below 64. A saw or a pulse matches heard
+vowels better than the flat 1 % pulse, whose upper harmonics are as strong as its lowest: a benchmark of eleven vowel
+targets found the search's matches 32 % worse when every formant operator was the 1 % pulse. The editor gives the full
+voice source (`VoiceSource.AsVoiceSource`): choosing *formant* or a vowel preset on an operator with another filter, or
+none, makes it the 1 % pulse in the same step, as the presets' formant levels assume a flat source (section 9).
 The search uses F1–F3 on every formant filter: it gives F2 its own Q and F3 its ratio, level and own Q (both own Qs
 relative to `Q`, so that moving `Q` alone moves a formant without a Q of its own with it), and never sets F4 or F5. On
 a filter with F3 off it starts from a default F3 (3 x F1, or 1.4 x F2 when that is higher, at the level floor 0.001
@@ -160,7 +162,7 @@ Where filters come from:
   without smoothing them: the lowest three maxima (at most 36 dB below the strongest), F1, F2 and F3, each with a
   resonance fitted through its harmonic and the two next to it, which gives its centre between the harmonics and its
   own width (Q up to 50); the widths come out broad, though, as the harmonics hardly show how narrow a peak is, so
-  the search then narrows them. It proposes the voice source (a 1 % pulse with 64 harmonics) through a formant filter
+  the search then narrows them. It proposes a saw and a 20 % pulse, both with 64 harmonics, through a formant filter
   on them (and variants with the two strongest, with one peak and with F1 + F3); every one of these filters has F3, the heard one or the search's
   default. Formants less than about two harmonics apart merge into one peak, so at high notes (a soprano at 220 Hz
   and up) F1 and F2 of "a", "o" and "u" are read as one. The subtractive prior proposes a saw or square through a
@@ -169,10 +171,10 @@ Where filters come from:
 - **Mutations.** Screened like the other structural steps: add a low-pass, high-pass, band-pass, peak or formant
   filter with starting values from the target; remove a filter; switch 2 and 4 poles or low-pass and band-pass; move
   a formant filter's F3 to the target's third formant (when that lies above the filter's F2); add the sweep read from
-  the target's brightness. A tonal operator that gets a formant filter becomes the voice source; noise stays noise.
-- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 7 for FMX6
-  only (every one of its formant filters has a third formant, and every tonal operator with a formant filter is the
-  voice source, a 1 % pulse with at least 64 harmonics, so that the upper formants have harmonics to shape), so it is
+  the target's brightness. An operator that gets a formant filter becomes a rich source; noise stays noise.
+- **Structure library.** About 30 % of the FMX6 library patches have a filter. The library is version 8 for FMX6
+  only (every one of its formant filters has a third formant, and every operator with a formant filter is a rich
+  source, a saw or pulse with at least 64 harmonics, so that the upper formants have harmonics to shape), so it is
   rebuilt once after upgrading (every FMX6 sound without a formant filter is the same patch as before); the FM7 and
   Nome6 libraries are kept.
 
@@ -436,6 +438,8 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   Choosing *formant* as the filter type, or a vowel preset, on an operator with another filter or none makes it the
   voice source by itself, in the same undo step (a pulse 1 % wide with 64 harmonics, or the more it had); a noise
   operator stays noise, a whispered vowel. Its width can be changed afterwards (*pulse width*), as the search may do.
+  The library and the search use a richer rule (section 4, *Operator filters*): their formant operators keep a saw,
+  or a pulse at its width, with at least 64 harmonics, and only a sine, triangle or square becomes the 1 % pulse.
 - **Harmonics.** A triangle, saw, square or pulse operator (FMX6) has a *harmonics* row: the number of harmonics its
   waveform is built from, 1..128 (the FMX6 UGen's range), as in the export. It is a whole number: a typed value is
   rounded, and a drag moves in equal ratios. Sounds from the library may have only 8 or 16: few harmonics make a mellow
@@ -735,7 +739,8 @@ rate per octave, reference note), for FMX6 `Shape` (pulse duty), `HarmonicLimit`
 with many harmonics: the edit `PatchEdits.SetVoiceSource(op)` (applied through a `PatchEditor`, as the Studio does)
 makes an operator a 1 % pulse with 64 harmonics; `PatchEdits.SetFilter(op, OperatorFilterType.Formant)` and
 `PatchEdits.SetFormantPreset` do so too for an operator whose filter was not a formant filter, through
-`VoiceSource.AsVoiceSource(op, keepPulseWidth)`, the rule the library and the search use (noise is left as it is).
+`VoiceSource.AsVoiceSource(op, keepPulseWidth)` (noise is left as it is); the library and the search use
+`VoiceSource.AsRichSource(op)`, which keeps a saw or a pulse (with at least 64 harmonics).
 
 Validation refuses what no backend can play (amounts beyond the profile's radians per destination, shapes outside
 0.01..0.99, harmonic limits outside 1..128); the exporter of a profile refuses what that UGen lacks (a saw operator
