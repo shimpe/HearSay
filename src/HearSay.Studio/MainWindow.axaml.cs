@@ -195,6 +195,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OnChartFinalistClicked(object? sender, int index) => ViewModel.SelectTraceFinalist(index);
+
     private async void OnSave(object? sender, RoutedEventArgs e)
     {
         IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions

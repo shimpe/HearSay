@@ -140,6 +140,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly object _keyboard = new();
     private string _playingText = string.Empty;
     private AlternativeItem? _selectedAlternative;
+    private IReadOnlyList<SearchTracePoint>? _searchTrace;
+    private int _searchTraceBudget;
+    private IReadOnlyList<SearchChartFinalist>? _searchTraceFinalists;
+    private string _searchTraceTitle = string.Empty;
     private PatchCandidateResult? _candidate;
     private bool _statsShowEdit;
     private PatchCandidateResult? _statsCandidate;
@@ -258,6 +262,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ShownPatchSharesNoise));
         ShowDetails();
         OnPropertyChanged(nameof(HasPatch));
+        OnPropertyChanged(nameof(ShowsEmptyResultHint));
         SelectedTab = 0;
         Status = IsFromScratch(patch)
             ? "New sound made from scratch; edit it in the block diagram, and ☆ to keep it. The next search replaces it."
@@ -748,6 +753,65 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 ShowCandidate(_result, value.Candidate);
             }
+
+            OnPropertyChanged(nameof(SelectedTraceFinalist));
+        }
+    }
+
+    /// <summary>The course of the search shown: the one that runs, or the one of the shown result; null for none.</summary>
+    public IReadOnlyList<SearchTracePoint>? SearchTrace
+    {
+        get => _searchTrace;
+        private set
+        {
+            if (Set(ref _searchTrace, value))
+            {
+                OnPropertyChanged(nameof(HasSearchTrace));
+                OnPropertyChanged(nameof(ShowsEmptyResultHint));
+            }
+        }
+    }
+
+    /// <summary>The evaluation budget of <see cref="SearchTrace"/>: the width of its chart.</summary>
+    public int SearchTraceBudget
+    {
+        get => _searchTraceBudget;
+        private set => Set(ref _searchTraceBudget, value);
+    }
+
+    /// <summary>
+    /// The finalists in the order of <see cref="Alternatives"/>, each with its basin in <see cref="SearchTrace"/> (-1 for
+    /// a finalist of another seed, which has no line there); null while the search runs.
+    /// </summary>
+    public IReadOnlyList<SearchChartFinalist>? SearchTraceFinalists
+    {
+        get => _searchTraceFinalists;
+        private set => Set(ref _searchTraceFinalists, value);
+    }
+
+    /// <summary>What the chart of <see cref="SearchTrace"/> shows, above it.</summary>
+    public string SearchTraceTitle
+    {
+        get => _searchTraceTitle;
+        private set => Set(ref _searchTraceTitle, value);
+    }
+
+    /// <summary>True when there is a course of a search to draw.</summary>
+    public bool HasSearchTrace => _searchTrace is { Count: > 0 };
+
+    /// <summary>True when the result card has nothing to show yet: no patch, and no search under way or done.</summary>
+    public bool ShowsEmptyResultHint => !HasPatch && !HasSearchTrace;
+
+    /// <summary>Index of the selected finalist in <see cref="SearchTraceFinalists"/>; -1 for none.</summary>
+    public int SelectedTraceFinalist => _selectedAlternative is { } selected ? Alternatives.IndexOf(selected) : -1;
+
+    /// <summary>Selects a finalist by its index in the list, as a click on its line in the chart does.</summary>
+    /// <param name="index">Index in <see cref="Alternatives"/>.</param>
+    public void SelectTraceFinalist(int index)
+    {
+        if ((uint)index < (uint)Alternatives.Count)
+        {
+            SelectedAlternative = Alternatives[index];
         }
     }
 
@@ -890,6 +954,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     Progress = (index + (p.Preparation ?? p.Fraction)) / profiles.Count;
                     string run = p.RunCount > 1 ? FormattableString.Invariant($"seed {p.Run} of {p.RunCount} (seed {Seed + p.Run - 1}) · ") : string.Empty;
                     string previous = double.IsNaN(p.BestLossOfPreviousRuns) ? string.Empty : FormattableString.Invariant($" · best of earlier seeds {p.BestLossOfPreviousRuns:F4}");
+                    if (p.Trace.Count > 0)
+                    {
+                        ShowLiveTrace(p, prefix);
+                    }
+
                     // Before the search proper (building a structure library) there is no loss yet.
                     Status = double.IsNaN(p.BestLoss)
                         ? prefix + run + p.Stage
@@ -1146,6 +1215,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             SelectedAlternative = Alternatives[0];
         }
 
+        ShowTrace(result);
+
         OnPropertyChanged(nameof(HasAlternatives));
         TargetNotes.Clear();
         if (result is not null)
@@ -1159,6 +1230,47 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         PlayingText = string.Empty;
         OnPropertyChanged(nameof(HasResult));
         OnPropertyChanged(nameof(HasPatch));
+        OnPropertyChanged(nameof(ShowsEmptyResultHint));
+    }
+
+    /// <summary>
+    /// The course of a result's search, with its finalists: each finalist is the basin of the same origin and structure
+    /// (a finalist of another seed has none in this course). None without a result.
+    /// </summary>
+    private void ShowTrace(PatchMatchResult? result)
+    {
+        if (result is null)
+        {
+            SearchTraceFinalists = null;
+            SearchTrace = null;
+            SearchTraceTitle = string.Empty;
+            return;
+        }
+
+        SearchSummary summary = result.SearchSummary;
+        var finalists = new List<SearchChartFinalist>(Alternatives.Count);
+        for (int i = 0; i < Alternatives.Count; i++)
+        {
+            PatchCandidateResult candidate = Alternatives[i].Candidate;
+            int basin = summary.Basins.FirstOrDefault(b => b.Origin == candidate.Origin && b.Regime == candidate.Regime.Value)?.Id ?? -1;
+            finalists.Add(new SearchChartFinalist(basin, "#" + (i + 1).ToString(CultureInfo.InvariantCulture), candidate.Origin));
+        }
+
+        SearchTraceBudget = summary.EvaluationBudget;
+        SearchTraceFinalists = finalists;
+        SearchTrace = summary.Trace;
+        SearchTraceTitle = string.Create(CultureInfo.InvariantCulture, $"course of the search · seed {summary.RandomSeed} · {summary.EvaluationsUsed:N0} evaluations · click a coloured line to select its finalist");
+        OnPropertyChanged(nameof(SelectedTraceFinalist));
+    }
+
+    /// <summary>Shows the course of the search that runs, as it reports it.</summary>
+    private void ShowLiveTrace(SearchProgress progress, string prefix)
+    {
+        SearchTraceFinalists = null;
+        SearchTraceBudget = progress.EvaluationBudget;
+        SearchTrace = progress.Trace;
+        string seed = progress.RunCount > 1 ? string.Create(CultureInfo.InvariantCulture, $" · seed {Seed + progress.Run - 1}, {progress.Run} of {progress.RunCount}") : string.Empty;
+        SearchTraceTitle = prefix + "course of the search" + seed + " · the best structure so far is bright";
     }
 
     /// <summary>Shows one finalist (its edit, when it has one): its matrix, routing, code, and what the keyboard plays.</summary>

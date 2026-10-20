@@ -107,6 +107,14 @@ internal static class Program
         Capture(window, "search-targets.png");
 
         main.RunCommand.Execute(null);
+
+        // Halfway: the course of the search as it runs.
+        WaitUntil(() => main.Progress > 0.6 || !main.IsRunning, TimeSpan.FromMinutes(20), "the search to pass halfway");
+        if (main.IsRunning)
+        {
+            Capture(window, "search-running.png");
+        }
+
         WaitUntil(() => !main.IsRunning && main.HasPatch, TimeSpan.FromMinutes(20), "the search");
         Pump();
         TopOfLists(window);

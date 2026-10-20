@@ -203,7 +203,7 @@
                   <TextBlock Grid.Column="1" Text="{Binding ResultsKept}" Classes="muted" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip.Tip="Every target keeps its last result for this target set; switch the Target selector to compare them by ear" />
                 </Grid>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
 
                 <!-- Stat tiles -->
                 <ItemsControl Grid.Row="0" ItemsSource="{Binding Stats}">
@@ -241,8 +241,15 @@
                   </ItemsControl>
                 </StackPanel>
 
+                <!-- The course of the search, live while it runs; afterwards a click on a finalist's line selects it -->
+                <StackPanel Grid.Row="2" Spacing="4" IsVisible="{Binding HasSearchTrace}">
+                  <TextBlock Text="{Binding SearchTraceTitle}" Classes="muted" FontSize="10" />
+                  <local:SearchChart x:Name="Chart" Height="150" Trace="{Binding SearchTrace}" Budget="{Binding SearchTraceBudget}" Finalists="{Binding SearchTraceFinalists}" SelectedFinalist="{Binding SelectedTraceFinalist}" FinalistClicked="OnChartFinalistClicked"
+                                     ToolTip.Tip="The loss of every structure the search tried, against the evaluations used; a finalist's line has the colour of its place in the list" />
+                </StackPanel>
+
                 <!-- Finalists: the one selected is shown below and played by the keyboard -->
-                <StackPanel Grid.Row="2" Spacing="4" IsVisible="{Binding HasAlternatives}">
+                <StackPanel Grid.Row="3" Spacing="4" IsVisible="{Binding HasAlternatives}">
                   <TextBlock Text="finalists · select one to inspect, play and export it" Classes="muted" FontSize="10" />
                   <ListBox ItemsSource="{Binding Alternatives}" SelectedItem="{Binding SelectedAlternative}" MaxHeight="150" Background="{StaticResource EditorBackgroundBrush}" CornerRadius="6">
                     <ListBox.ItemTemplate>
@@ -260,7 +267,7 @@
                 </StackPanel>
 
                 <!-- Keyboard: plays the shown patch at any pitch; the target notes are marked -->
-                <StackPanel Grid.Row="3" Spacing="4" IsVisible="{Binding HasPatch}">
+                <StackPanel Grid.Row="4" Spacing="4" IsVisible="{Binding HasPatch}">
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="play the result" Classes="muted" FontSize="10" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="{Binding PlayingText}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
@@ -272,7 +279,7 @@
                   </ScrollViewer>
                   <TextBlock Text="No audio device; the keyboard is silent." Classes="muted" FontSize="10" Foreground="{StaticResource AmberBrush}" IsVisible="{Binding !CanPlay}" />
                 </StackPanel>
-                <Grid Grid.Row="4" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasPatch}">
+                <Grid Grid.Row="5" ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding HasPatch}">
                   <StackPanel Grid.Column="0" IsVisible="{Binding HasResult}">
                     <TextBlock Text="modulation matrix" Classes="muted" FontSize="10" Margin="0,0,0,4" />
                     <Grid ColumnDefinitions="30,Auto" RowDefinitions="Auto,Auto">
@@ -310,7 +317,7 @@
                   </StackPanel>
                   <TextBox Grid.Column="1" Classes="mono" Text="{Binding ResultSummary}" FontSize="11" MinHeight="260" />
                 </Grid>
-                <TextBlock Grid.Row="5" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding !HasPatch}" />
+                <TextBlock Grid.Row="6" Text="Run a search to see the result here." Classes="muted" IsVisible="{Binding ShowsEmptyResultHint}" />
                 </Grid>
                 </ScrollViewer>
               </Grid>
