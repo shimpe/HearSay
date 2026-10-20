@@ -69,8 +69,8 @@ The header holds what a search needs and the MIDI input:
 | **Run search**, **Stop** | Start the search; stop it and keep the best patch found so far. |
 
 Under the header are two tabs. **Search** matches target notes and shows the result; **Library** shows the structure
-library and your favourites. Both have a patch card with the SuperCollider code and the block diagram of the sound
-they show, and a keyboard to play it. The line at the bottom of the window is the status line: what the Studio is
+library and your favourites. Both have a patch card with the block diagram (open by default) and the SuperCollider code
+of the sound they show, and a keyboard to play it. The line at the bottom of the window is the status line: what the Studio is
 doing, and why an edit or an action was refused.
 
 ## 3. Matching a sound
@@ -140,8 +140,13 @@ The **Result** card shows the selected finalist:
   notes. The matrix has a row per destination and a column per source, in radians, the diagonal being
   self-feedback.
 
-The **Patch** card shows the **SuperCollider · patch.scd** tab: the code of the shown finalist, at the level the Studio
-plays it at. Its header says whether it is the best patch or an alternative.
+The **Patch** card opens on the **Block diagram** of the shown finalist (section 6). Its second tab, **SuperCollider ·
+patch.scd**, has the code, at the level the Studio plays it at; the header of the code says whether it is the best
+patch or an alternative.
+
+![The SuperCollider code of the best patch](images/studio/code.png)
+
+*The second tab of the patch card: the SuperCollider code of the shown finalist, ready to copy or save.*
 
 - **Copy** puts the code on the clipboard.
 - **Save result folder…** writes the whole result: `patch.json`, `patch.scd`, `preview.wav`, the alternatives and a
@@ -183,7 +188,7 @@ finalist (or the library sound shown there), in the Library tab the last sound c
 
 *The block diagram tab: OP1 is selected, and the inspector beside the diagram shows its values.*
 
-The **Block diagram** tab of the patch card draws the operators in use:
+The **Block diagram** tab, the first of the patch card and open by default, draws the operators in use:
 
 - **Carriers** on the bottom row, feeding OUT with their output levels; every modulator above what it modulates.
 - **Connections** with their amounts in radians: dashed amber when they feed back, a loop for self-feedback, and a

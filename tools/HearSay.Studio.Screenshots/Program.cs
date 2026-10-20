@@ -119,6 +119,12 @@ internal static class Program
         Pump();
         TopOfLists(window);
         Capture(window, "search-result.png");
+
+        // The code of the best patch, the second tab of the patch card.
+        PatchView view = Visible<PatchView>(window);
+        Click(view.GetVisualDescendants().OfType<TabItem>().First(t => (t.Header as string)?.StartsWith("SuperCollider", StringComparison.Ordinal) == true));
+        Capture(window, "code.png");
+        Click(view.GetVisualDescendants().OfType<TabItem>().First(t => (t.Header as string) == "Block diagram"));
     }
 
     /// <summary>The block diagram, a selected operator, and an edit with its marks.</summary>

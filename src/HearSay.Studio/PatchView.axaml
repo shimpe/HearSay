@@ -24,9 +24,6 @@
   </UserControl.Styles>
   <Grid RowDefinitions="Auto,*">
     <TabControl x:Name="Tabs" Grid.Row="1" Padding="0,6,0,0">
-      <TabItem Header="{Binding CodeHeader, ElementName=Root}" FontSize="13">
-        <TextBox Classes="mono" Text="{Binding Code, ElementName=Root}" Watermark="{Binding Watermark, ElementName=Root}" />
-      </TabItem>
       <TabItem Header="Block diagram" FontSize="13">
         <!-- Beside the diagram while a sound is shown: the inspector of the selected part, or a hint while nothing is
              selected, so that the diagram keeps its width when a part is selected or deselected -->
@@ -57,6 +54,9 @@
             </Border>
           </Panel>
         </Grid>
+      </TabItem>
+      <TabItem Header="{Binding CodeHeader, ElementName=Root}" FontSize="13">
+        <TextBox Classes="mono" Text="{Binding Code, ElementName=Root}" Watermark="{Binding Watermark, ElementName=Root}" />
       </TabItem>
     </TabControl>
     <!-- Editing: undo, redo, Match loudness, and once edited the switch to compare with the original. On the right of the
