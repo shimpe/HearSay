@@ -92,8 +92,9 @@ doing, and why an edit or an action was refused.
    [section 4](expert-manual.md#4-choosing-the-synthesis-target)).
 5. Set the **Budget** and the **Seeds**. 4000 is quick and often enough to find the structure; 20000 is a thorough
    search. Two seeds at a budget usually beat one seed at twice the budget.
-6. **Run search.** The progress bar shows the run within the seeds and the stage within the run. **Stop** ends the
-   search early with the best patch found so far.
+6. **Run search.** The progress bar shows the run within the seeds and the stage within the run, and the Result card
+   draws the course of the search as it goes (section 4). **Stop** ends the search early with the best patch found so
+   far.
 
 **Every target keeps its last result** for the current target notes. Search under FM7, switch the Target selector to
 FMX6, search again, and switch back and forth to compare the two by ear on the keyboard, in the block diagram and in
@@ -108,6 +109,11 @@ that was stopped early is always searched again.
 
 ## 4. Reading the result
 
+![A search halfway: the course of the search drawn as it runs](images/studio/search-running.png)
+
+*A search halfway: every structure the search follows is a line that falls as its loss improves; the best so far is
+bright.*
+
 The **Result** card shows the selected finalist:
 
 - **Three tiles**: its *audio loss* (0 is identical; with the loss the search started from, and how much better it got),
@@ -115,6 +121,16 @@ The **Result** card shows the selected finalist:
   numbers in [section 6](expert-manual.md#6-reading-a-result) and
   [section 13](expert-manual.md#13-the-objective-and-the-loss-numbers).
 - **Per-note similarity**: a bar per target note.
+- **Course of the search**: the loss (on a logarithmic scale) against the evaluations used, drawn while the search
+  runs and kept with the result. Bands mark the stages: *screening* tries many structures briefly (each a grey dot),
+  *survivors* and *deep* optimize the most promising ones and their mutations, *finalists* the best few, and
+  *refinement* polishes them more precisely. Every structure is a line that steps down where its loss improved; a
+  line breaks where the stage judges the loss differently (screening roughly, refinement in more detail). While the
+  search runs, the best line so far is bright; afterwards the finalists have the colours of their place in the list,
+  the selected one thickest, and a click on a line selects its finalist (the pointer on it names it). Under the chart a
+  note says what a higher budget brings: in a test on 26 sounds, three to four times the budget lowered the loss in 24,
+  whether the loss was still falling at the end or had stood still (expert manual,
+  [section 5](expert-manual.md#5-budget-seeds-and-time)).
 - **Finalists**: the best patches of the search, with their rank, the operators in use and where they came from. Select
   one to inspect it: the tiles, the bars, the patch card and the keyboard follow the selection. The search compares
   only the best patch with the targets; another finalist is compared the first time it is selected (its similarity

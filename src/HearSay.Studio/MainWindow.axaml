@@ -246,6 +246,8 @@
                   <TextBlock Text="{Binding SearchTraceTitle}" Classes="muted" FontSize="10" />
                   <local:SearchChart x:Name="Chart" Height="150" Trace="{Binding SearchTrace}" Budget="{Binding SearchTraceBudget}" Finalists="{Binding SearchTraceFinalists}" SelectedFinalist="{Binding SelectedTraceFinalist}" FinalistClicked="OnChartFinalistClicked"
                                      ToolTip.Tip="The loss of every structure the search tried, against the evaluations used; a finalist's line has the colour of its place in the list" />
+                  <TextBlock Classes="muted" FontSize="10" TextWrapping="Wrap" IsVisible="{Binding ShowsBudgetNote}"
+                             Text="Not there yet? A higher budget usually helps, whatever the course looked like: in a test on 26 sounds, three to four times the budget lowered the loss in 24 (by a median of 12 to 23 %)." />
                 </StackPanel>
 
                 <!-- Finalists: the one selected is shown below and played by the keyboard -->

@@ -786,8 +786,20 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public IReadOnlyList<SearchChartFinalist>? SearchTraceFinalists
     {
         get => _searchTraceFinalists;
-        private set => Set(ref _searchTraceFinalists, value);
+        private set
+        {
+            if (Set(ref _searchTraceFinalists, value))
+            {
+                OnPropertyChanged(nameof(ShowsBudgetNote));
+            }
+        }
     }
+
+    /// <summary>
+    /// True under the chart of a finished search: the note on what a higher budget brings. The course of a search does
+    /// not tell which searches would gain (expert manual, section 5), so the note is the same for every search.
+    /// </summary>
+    public bool ShowsBudgetNote => _searchTraceFinalists is not null;
 
     /// <summary>What the chart of <see cref="SearchTrace"/> shows, above it.</summary>
     public string SearchTraceTitle

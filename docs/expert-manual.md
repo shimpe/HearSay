@@ -229,9 +229,14 @@ never the result.
 best one, with the finalists of every seed as alternatives. Two seeds at budget N usually beat one seed at 2N, because
 the second seed starts from other hypotheses; beyond four seeds the gain flattens.
 
-**When to raise the budget instead:** when the search summary shows the loss still falling in the last stages
-(deep optimization and finalists improve markedly on the survivors). When the loss stops early and the finalists all
-have the same structure, another seed or another profile helps more than budget.
+**When to raise the budget.** As long as the sound is not right yet, a higher budget is usually worth it. A
+measurement on 26 sounds (the FM7 demo sounds and FMX6 sung vowels, seed 1) gave three to four times the budget a lower
+audio loss in 24 of them: by a median of 23 % from 3000 to 12 000 evaluations, and by 12 % from 20 000 to 60 000 (8
+sounds). The course of the search does not tell in advance which searches gain. Neither a loss still falling at the
+end nor a loss that stood still predicted the gain: a larger budget gives every stage more, so it also screens more
+hypotheses and keeps more structures, and a search that stood still on one structure often found a better one. At
+20 000 the searches that had stood still for half the run gained the most (9 to 59 %, the others 3 to 15 %). Whether another seed would
+have done better than the same evaluations as a higher budget was not measured.
 
 ## 6. Reading a result
 
@@ -251,6 +256,9 @@ Every result reports the same numbers, in Studio, on the console and in `search-
 - **Origin** is the hypothesis and the mutations that produced the patch, with the seed when several were run:
   `seed 1235: stack 1:3 with modulator feedback; add OP3 at 3.5 modulating OP1`. It tells you which prior found the
   structure and how far it travelled from it.
+- **Improvements** and **trace** are the course of the search: every new best loss per evaluation level with the
+  evaluation that found it, and every hypothesis screened and every improvement of every basin (the chart of the Studio
+  draws the trace).
 - **Stages** list, per stage, the evaluations spent and the best loss at the end, with the evaluation level: coarse
   (short render, few features), normal, detailed (full objective). A patch that looked great at the coarse level and
   fell back at the normal level is a typical screening artefact; the survivors stage corrects it.
@@ -273,7 +281,7 @@ spectrum and envelope, and the second-best is sometimes the more musical one.
 | `analysis.json` | analysis of the reference note (fundamental, partials, envelope, issues) |
 | `comparison.json` | HearSay's full diagnosis of preview against target: scores, differences, hints |
 | `preview-note2-262Hz.wav`, `analysis-note2-262Hz.json`, `comparison-note2-262Hz.json` | the same per note of a target set |
-| `search-summary.json` | reproducibility data, stages, basins, and all finalists with their losses |
+| `search-summary.json` | reproducibility data, stages, basins, the course of the search, and all finalists with their losses |
 | `alternatives/01-patch.json`, `01-preview.wav`, `01-patch.scd`, `02-…` | the other finalists, best first, each with its own SynthDef name (`HearSayAlternative1`, …) |
 
 `comparison.json` is the file to read when a match is close but not right: it names the frequency bands and time
