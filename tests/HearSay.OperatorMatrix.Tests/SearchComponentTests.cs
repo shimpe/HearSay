@@ -26,6 +26,33 @@ public sealed class SearchComponentTests
         new(Renderer, new AudioObjective(), StackTarget.Value, RenderRequest.Create(220, 0.8, 0.3), budget, 0.02, null, parallel);
 
     [Fact]
+    public void Evaluator_RecordsEveryNewBestLoss_PerLevel_WithItsEvaluationNumber_WhateverTheParallelism()
+    {
+        // Ratios from far to near the target's 2.5, then worse again; a repeated patch is answered from the cache.
+        OperatorMatrixPatch[] patches = [.. new[] { 7.0, 5.0, 6.0, 3.5, 2.5, 4.0 }.Select(ParameterTests.Stack)];
+        IReadOnlyList<LossImprovement> Run(int parallel)
+        {
+            PatchEvaluator evaluator = Evaluator(100, parallel);
+            IReadOnlyList<PatchEvaluation> normal = evaluator.Evaluate(patches, EvaluationLevel.Normal);
+            Assert.Equal(patches.Length, normal.Count);
+            Assert.NotNull(evaluator.Evaluate(patches[4], EvaluationLevel.Normal));
+            Assert.NotNull(evaluator.EvaluateWithAudio(patches[3], EvaluationLevel.Detailed));
+            Assert.NotNull(evaluator.EvaluateWithAudio(patches[4], EvaluationLevel.Detailed));
+            return evaluator.Improvements;
+        }
+
+        IReadOnlyList<LossImprovement> serial = Run(1);
+        Assert.Equal(serial, Run(8));
+
+        // Per level: evaluation numbers rise and losses fall, and the cache hit adds nothing.
+        List<LossImprovement> normalSteps = [.. serial.Where(static i => i.Level == EvaluationLevel.Normal)];
+        Assert.Equal(1, normalSteps[0].Evaluations);
+        Assert.All(normalSteps.Zip(normalSteps.Skip(1)), static p => Assert.True(p.Second.Evaluations > p.First.Evaluations && p.Second.Loss < p.First.Loss));
+        Assert.Equal(5, normalSteps[^1].Evaluations);
+        Assert.Equal([7, 8], serial.Where(static i => i.Level == EvaluationLevel.Detailed).Select(static i => i.Evaluations));
+    }
+
+    [Fact]
     public void CmaEs_MinimizesACoupledFunctionInsideTheUnitCube()
     {
         // Rotated, badly conditioned quadratic with its optimum at (0.7, 0.2, 0.55, 0.4).

@@ -137,6 +137,12 @@ public sealed record PatchCandidateResult(
 /// <param name="Notes">Free text: counts, decisions.</param>
 public sealed record SearchStageSummary(string Name, int Evaluations, double BestLoss, EvaluationLevel Level, string Notes);
 
+/// <summary>A new best loss during a search: the course of the search, one point per improvement.</summary>
+/// <param name="Evaluations">Number of the evaluation that found it, from 1.</param>
+/// <param name="Level">Its evaluation level; losses of different levels are not comparable.</param>
+/// <param name="Loss">The new best total loss at that level.</param>
+public sealed record LossImprovement(int Evaluations, EvaluationLevel Level, double Loss);
+
 /// <summary>What happened to one basin.</summary>
 /// <param name="Id">Basin number.</param>
 /// <param name="Origin">Hypothesis and mutations.</param>
@@ -179,6 +185,9 @@ public sealed record SearchSummary
 
     /// <summary>Stages in the order they ran.</summary>
     public required IReadOnlyList<SearchStageSummary> Stages { get; init; }
+
+    /// <summary>Every new best total loss of the target set, per evaluation level, in the order they were found.</summary>
+    public IReadOnlyList<LossImprovement> Improvements { get; init; } = [];
 
     /// <summary>All basins that received deep optimization.</summary>
     public required IReadOnlyList<BasinSummary> Basins { get; init; }

@@ -46,6 +46,9 @@ public sealed class PatchEvaluator
     private readonly ConcurrentDictionary<(string Hash, EvaluationLevel Level), PatchEvaluation> _cache = new();
     private readonly BudgetCounter _counter;
 
+    /// <summary>True for the evaluator of the whole target set, whose losses make the course of the best loss.</summary>
+    private readonly bool _records;
+
     /// <summary>Creates an evaluator for one note.</summary>
     /// <param name="renderer">Renderer of the selected synthesis profile.</param>
     /// <param name="objective">Audio objective.</param>
@@ -84,7 +87,7 @@ public sealed class PatchEvaluator
         double complexityWeight,
         ComplexityOptions? complexity = null,
         int maxParallel = 1)
-        : this(renderer, objective, notes, budget, complexityWeight, complexity, maxParallel, new BudgetCounter())
+        : this(renderer, objective, notes, budget, complexityWeight, complexity, maxParallel, new BudgetCounter(), records: true)
     {
     }
 
@@ -96,7 +99,8 @@ public sealed class PatchEvaluator
         double complexityWeight,
         ComplexityOptions? complexity,
         int maxParallel,
-        BudgetCounter counter)
+        BudgetCounter counter,
+        bool records)
     {
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentNullException.ThrowIfNull(objective);
@@ -120,6 +124,7 @@ public sealed class PatchEvaluator
         _complexity = complexity ?? new ComplexityOptions();
         _maxParallel = Math.Max(1, maxParallel);
         _counter = counter;
+        _records = records;
     }
 
     /// <summary>Candidate evaluations allowed in total.</summary>
@@ -133,6 +138,13 @@ public sealed class PatchEvaluator
 
     /// <summary>Evaluations left.</summary>
     public int Remaining => Math.Max(0, Budget - Used);
+
+    /// <summary>
+    /// Every new best total loss of the whole target set, per evaluation level, with the number of the evaluation that
+    /// found it: the course of the search. Evaluations of the reference note alone (<see cref="ForReferenceNote"/>) count
+    /// in the numbers but not as losses. Cache hits are no evaluations.
+    /// </summary>
+    public IReadOnlyList<LossImprovement> Improvements => _counter.Improvements;
 
     /// <summary>Evaluations answered from the cache.</summary>
     public int CacheHits => Volatile.Read(ref _counter.CacheHits);
@@ -156,7 +168,7 @@ public sealed class PatchEvaluator
     /// are worth optimizing is decided as well by one note as by all, at a fraction of the renders.
     /// </summary>
     public PatchEvaluator ForReferenceNote() =>
-        _notes.Count == 1 ? this : new PatchEvaluator(_renderer, _objective, [_notes[0]], Budget, _complexityWeight, _complexity, _maxParallel, _counter);
+        _notes.Count == 1 ? this : new PatchEvaluator(_renderer, _objective, [_notes[0]], Budget, _complexityWeight, _complexity, _maxParallel, _counter, records: false);
 
     /// <summary>Renders a patch with the reference note of this search.</summary>
     /// <param name="patch">Patch to render.</param>
@@ -203,7 +215,7 @@ public sealed class PatchEvaluator
             }
         }
 
-        Interlocked.Add(ref _counter.Used, pending.Count);
+        int numbered = Interlocked.Add(ref _counter.Used, pending.Count) - pending.Count;
         Parallel.For(0, pending.Count, new ParallelOptions { MaxDegreeOfParallelism = _maxParallel }, p =>
         {
             int i = pending[p];
@@ -211,6 +223,15 @@ public sealed class PatchEvaluator
             _cache[(hashes[i], level)] = evaluation;
             results[i] = evaluation;
         });
+
+        // In input order, numbered as the budget was assigned: the course does not depend on timing either.
+        if (_records)
+        {
+            for (int p = 0; p < pending.Count; p++)
+            {
+                _counter.Record(numbered + p + 1, level, results[pending[p]]!.Loss);
+            }
+        }
 
         foreach ((int index, int of) in duplicates)
         {
@@ -261,8 +282,14 @@ public sealed class PatchEvaluator
             return null;
         }
 
+        int number = Used;
         (PatchEvaluation evaluation, RenderedAudio? audio, bool playable) = Measure(patch, level);
         _cache[(patch.ComputeHash(), level)] = evaluation;
+        if (_records)
+        {
+            _counter.Record(number, level, evaluation.Loss);
+        }
+
         return (evaluation, playable ? audio ?? _renderer.Render(patch, Request) : null);
     }
 
@@ -333,10 +360,42 @@ public sealed class PatchEvaluator
     private static double Mean(double[] sums, double[] weights, int i) => weights[i] > 0 ? sums[i] / weights[i] : double.NaN;
 }
 
-/// <summary>Budget state shared by evaluators that draw on the same budget.</summary>
+/// <summary>Budget state shared by evaluators that draw on the same budget, and the course of the best loss.</summary>
 internal sealed class BudgetCounter
 {
     public int Used;
     public int Renders;
     public int CacheHits;
+
+    private readonly Lock _gate = new();
+    private readonly Dictionary<EvaluationLevel, double> _best = [];
+    private readonly List<LossImprovement> _improvements = [];
+
+    /// <summary>Every new best loss, per level, in the order of the evaluations.</summary>
+    public IReadOnlyList<LossImprovement> Improvements
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _improvements];
+            }
+        }
+    }
+
+    /// <summary>Notes the loss of an evaluation; a new best of its level is kept with the evaluation's number.</summary>
+    /// <param name="evaluation">Number of the evaluation, from 1.</param>
+    /// <param name="level">Its level.</param>
+    /// <param name="loss">Its total loss.</param>
+    public void Record(int evaluation, EvaluationLevel level, double loss)
+    {
+        lock (_gate)
+        {
+            if (!double.IsNaN(loss) && (!_best.TryGetValue(level, out double best) || loss < best))
+            {
+                _best[level] = loss;
+                _improvements.Add(new LossImprovement(evaluation, level, loss));
+            }
+        }
+    }
 }
