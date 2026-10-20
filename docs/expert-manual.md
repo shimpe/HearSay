@@ -1,7 +1,7 @@
 # HearSay expert manual
 
-For people who already know what phase modulation is and want the most out of the library, the command line and
-HearSay Studio. The [tutorial](tutorial.md) teaches the ideas; [patch-matching.md](patch-matching.md) documents
+For people who already know what phase modulation is and want the most out of the library and the command line. HearSay
+Studio, the desktop app, has its own [manual](studio-manual.md). The [tutorial](tutorial.md) teaches the ideas; [patch-matching.md](patch-matching.md) documents
 the design and the evidence. This manual is about getting good patches: what to feed in, which knob does what, how to
 read what comes out, and what to do when it is not good enough.
 
@@ -141,15 +141,33 @@ which fine-tuning moves as for any pulse) and never halves its harmonics below 6
 vowels better than the flat 1 % pulse, whose upper harmonics are as strong as its lowest: a benchmark of eleven vowel
 targets found the search's matches 32 % worse when every formant operator was the 1 % pulse. The editor gives the full
 voice source (`VoiceSource.AsVoiceSource`): choosing *formant* or a vowel preset on an operator with another filter, or
-none, makes it the 1 % pulse in the same step, as the presets' formant levels assume a flat source (section 9).
+none, makes it the 1 % pulse in the same step, as the presets' formant levels assume a flat source.
 The search uses F1–F3 on every formant filter: it gives F2 its own Q and F3 its ratio, level and own Q (both own Qs
 relative to `Q`, so that moving `Q` alone moves a formant without a Q of its own with it), and never sets F4 or F5. On
 a filter with F3 off it starts from a default F3 (3 x F1, or 1.4 x F2 when that is higher, at the level floor 0.001
 with the filter's `Q`); the filter stays as it is until the search moves one of those values, and from then on F3's
 level stays at 0.001 or more. Those come from the vowel
-presets of the Studio editor (section 9, *Editing a sound*) or from typing them. A formant filter with only F1 and F2
+presets of the Studio editor (below) or from typing them. A formant filter with only F1 and F2
 at one Q exports the filter rows of before; with an own Q on F2 or F3..F5 on, its rows carry the extra formants and
 need the FMX6 plugin with five formants (the header comment of the export says so).
+
+**Vowel presets.** `FormantPresets.Sets` holds the vowels the Studio editor offers as presets (Studio manual,
+[section 8](studio-manual.md#8-formant-filters-and-vowels)).
+Each preset sets F1 in Hz, Q1 = F1 / B1, and for F2..F5 the ratio Fn / F1, a level relative to F1 and Q = Fn / Bn.
+The sets:
+
+| Set | Speakers | Vowels | Source |
+| --- | --- | --- | --- |
+| Sung | soprano, alto, countertenor, tenor, bass | a e i o u | The formant table of the Csound manual (TABLE III): F1..F5, their levels in dB and their bandwidths, all from the table. |
+| English | men, women, children | heed hid hayed head had hod hawed hoed hood who'd hud heard | Hillenbrand, Getty, Clark & Wheeler (1995), "Acoustic characteristics of American English vowels", JASA 97: the means of F1..F3 of 45 men, 48 women and 46 children (American English). |
+| Dutch | men, women | poet paat poot pat peut piet puut peet put pet pot pit | Pols, Tromp & Plomp (1973), JASA 53 (50 men) and Van Nierop, Pols & Plomp (1973), Acta Psychologica 37 (25 women): the means of F1..F3 and their levels. The speakers are Northern (Netherlands) Standard Dutch. |
+
+The speech sets measured F1..F3 only (Dutch also their levels); the rest is filled in by rule: bandwidths
+B1..B5 = 80, 100, 150, 250 and 300 Hz; F4 and F5 at 3500 and 4500 Hz for men, 4100 and 5000 Hz for women, 4600 and
+5600 Hz for children, each raised where needed to at least 300 Hz above the formant below; the levels that were not
+measured (English F2..F5, Dutch F4 and F5) from a cascade model of the vocal tract, five two-pole resonances on a
+source falling 6 dB per octave, the Dutch F4 and F5 relative to the measured F3; every level at most F1's. The means
+were computed from the per-speaker data that Praat distributes.
 
 An optional envelope moves the frequency, `frequency x 2^(EnvelopeOctaves x env)` with `EnvelopeOctaves` -4..4 and
 levels 0..1; it uses the operator's key scaling of time. Key-tracked frequencies follow the note, not the pitch
@@ -299,307 +317,15 @@ the key velocity as volume; the SynthDef does not, so such a patch plays at full
 
 ## 9. HearSay Studio
 
-Studio is the library with a window around it. Everything it does is available in the API.
+HearSay Studio, the desktop app, puts the search, the structure library and a patch editor in one window: load
+target notes and search, play the result on the screen keyboard or a MIDI controller, edit it in a block diagram,
+browse the library as sound families, keep favourites. It has a manual of its own, the
+[HearSay Studio manual](studio-manual.md) (`HearSay-Studio-Manual.pdf` in the release packages).
 
-**Header.** MIDI in (see *Playing like a synth* below), Target (FM7, FMX6, Nome6, or All), Budget, Seed, Seeds,
-Library, Run, Stop. Stop returns the best patch found so far; the progress bar shows the run within the seeds and the stage within the run. Library (on by default)
-adds the nearest patches of the structure library as extra starting points (`StructureLibrarySize`, section 12); the
-first search of a target builds its library once, which the status line says. Off, the whole budget goes to the
-structures read from the target.
-
-Every target keeps its last result for the current target set: search under FM7, switch the Target selector to
-FMX6, search again, and switch back and forth to compare the two by ear on the keyboard, in the matrix and in the
-code. "All" runs the three searches one after the other with the full budget and seeds each, keeps every result
-and shows the one with the lowest loss; the status line has all losses and similarities, and selecting a single
-target shows that one. The result header says which results are kept; adding a target file discards them all. A search
-is reproducible, so a target whose kept result was searched with the same inputs (the same target files, unchanged on
-disk, with the same pitch and velocity, budget, seed, number of seeds and library setting) is not searched again: after
-a Nome6 search, "All" searches only FM7 and FMX6, and the status line says how many results were kept. A search that
-was stopped early is always searched again.
-
-**Target notes.** Add one or more WAV files; each is analysed at once and shows its fundamental, length, note-off,
-partial count and inharmonicity. Override the pitch (MIDI note or Hz) and the velocity per note when known. The play
-button plays the file as it is. Several notes make a target set (section 3).
-
-**Result.** Three tiles for the selected finalist (its audio loss, with the search's initial loss and how much better
-or worse it is; its similarity; the search's renders and time with the seed), a similarity bar per note for the
-selected finalist, the list of finalists, the keyboard, the modulation matrix and the routing summary.
-
-- **Finalists**: rank, operators in use, origin with seed. Select one to inspect it: the tiles, the per-note bars,
-  matrix, summary and code follow the selection, and the keyboard plays it. The search compares only the best patch
-  with the targets; another finalist is compared the first time it is selected (one render per target note, a moment
-  in which its similarity reads …), and kept. The header of the code says whether it is the best patch or an
-  alternative. "Save result folder" always saves the whole result.
-- **Keyboard**: MIDI 0..127, scrollable, opens centred on C4 for every new result. Amber dots mark the target notes.
-  A key sounds while it is held, as on a synth (see *Playing like a synth* below). Pressing lower on a key plays
-  louder (velocity 0.3..1.0). A patch without velocity sensitivity is played at a volume that follows the key velocity
-  instead, and the caption says so. One gain per shown patch, taken from the searched note at full velocity, so level
-  differences between keys are real.
-- **Matrix**: rows are destinations, columns sources, values in radians; the diagonal is self-feedback.
-  Off operators leave their cells empty.
-
-**SuperCollider patch.** The code of the shown finalist, at the level HearSay plays it at (section 8). Copy puts it
-on the clipboard; Save result folder writes the whole folder of section 7 for the result. **Find in library** opens
-the Library tab on the library of the result's profile and places the shown finalist among the library sounds like
-it, as an imported sound: a star, selected and played, with its neighbours around it. It joins the imported sounds as
-*search best* or *search #2*, so several finalists can be compared there.
-
-**Block diagram.** The second tab of the patch card draws the operators in use (greyed when they cannot be heard; see
-*Editing a sound* below): carriers on the bottom row
-feeding OUT with their output levels, every modulator above what it modulates, edges with their amounts in radians
-(dashed amber when they feed back, a loop for self-feedback, and a small sketch beside the amount when it follows an
-envelope; the pointer on an amount shows the edge with its envelope breakpoints), and an operator filter as a strip at
-the bottom of its box. Each box gives the frequency and a short waveform name (*tri*, *sqr*, *pls0.3* with its duty,
-*S&H*, *fnoise*, *ell q0.26* with the nome), and a sketch of its amplitude envelope, time on a square-root scale so
-that a 5 ms attack and a 2 s decay both show, with a flat stretch where the note is held; a filter sweep is a violet
-line over it, rising for a sweep up and hanging from the top for a sweep down. Resting
-the pointer on a box shows everything about the operator in full: tuning, waveform parameters, filter, shared noise,
-the envelope breakpoints, velocity sensitivity, key scaling and start phase. On Nome6, the shared noise source is a box at the top left with its colour
-(*white*, or for example *LP 60% · 1.9 kHz*), and a dotted line runs into every operator that plays it (*plays*) or
-that it roughens (*φ 0.4*: radians of phase, *m -0.2*: the elliptic parameter). A patch whose pitch moves has a PITCH
-box at the top right: the vibrato rate and depth (*vib 5.5 Hz ±14 ct*) and the pitch envelope sketched around a zero
-line, up and down in cents. It moves the ratio operators only; fixed-frequency ones keep their pitch. Resting the
-pointer on the box shows the breakpoints in cents and the vibrato delay and fade-in.
-
-**Start from scratch.** While a tab shows no sound (the Search tab before a search, or once its result is gone; the
-Library tab before a sound is clicked), its empty block diagram has a **Start from scratch** button. It shows a new
-sound, *New sound*: OP1 a sine at ratio 1 with a plain envelope (attack 10 ms, decay 0.3 s to sustain 0.7, release
-0.3 s), heard at 0.8, the other operators off. It is on the profile of the Target selector in the Search tab and on the
-profile of the library shown in the Library tab, and plays at the level of the library's reference note. From there it
-is edited like any other sound (*Editing a sound* below): add modulators, filters and the rest, play it on the
-keyboard or the MIDI device, Copy or Save its code (the header says *Made from scratch in HearSay Studio.*), keep it
-with ☆ (the status line says so). Its favourite says *made from scratch*, edited or not. In the Search tab the next
-search replaces it. Its edits are kept like those of any other sound, so starting from scratch again on the same
-profile, while the Studio runs, brings back the edits made to it before; the Original side of the switch is the single
-sine. The button only shows in an empty tab, though, so an edited new sound that is not kept is asked about before
-anything replaces it: *Replace your new sound?* **Replace** (the default) goes on; **Cancel** leaves everything as it
-was, and ☆ then keeps it. In the Search tab that is Run search, Add WAV, another target in the Target selector (which
-then goes back on Cancel) and Show in Search from the Library tab (which shows the Search tab for the question, and is
-not offered while a search runs); in the Library tab a click on a node, a favourite or an import, and Find in library.
-A placement that waits for its library asks when the new sound was started meanwhile. An unedited new sound, or one
-whose edit is a favourite, is replaced without asking, whichever side of the Original ⇄ Edited switch is shown.
-
-**Editing a sound.** Whatever the patch card shows (a finalist, a library sound, a favourite, a placed import) can be
-edited in the block diagram, in both tabs. The original is never changed: editing works on a copy, and the next note
-played, on the on-screen keyboard or the MIDI device, plays the edit (notes already held keep their sound). The diagram
-follows every edit at once, the code a moment later, with the line *Edited in HearSay Studio.* in its header.
-
-- **Selecting.** Click an operator box, the amount of a connection, the NOISE box or the PITCH box to select it: it is
-  outlined, and the inspector beside the diagram shows it. Clicking empty space, or the × of the inspector, closes it;
-  the inspector's place then says *Click a part of the diagram to edit it.*, so the diagram keeps its size.
-  While a sound is shown, the PITCH box is always there (empty when the pitch does not move), and so is the NOISE box
-  on Nome6, so that a pitch envelope, vibrato or noise can be added. An operator that is in use but no longer heard
-  (output 0 and modulating nothing that is heard) stays in the diagram, greyed, and can still be selected and edited.
-- **The inspector** lists every value of the part. An operator has *Add modulator*, *Modulate…*, *Modulated by…*,
-  *Duplicate* and *Remove*, menus
-  for the waveform and the frequency mode (ratio or fixed Hz), its numbers, a filter section (type, *Sweep*) and, on
-  Nome6, *Roughness from the shared noise*. A connection has *Disconnect*, its amount and *Amount follows an envelope*;
-  NOISE its colour and cutoff; PITCH the toggles *Pitch envelope* and *Vibrato* and the vibrato rate, depth, delay and
-  fade-in. *Add modulator* takes the first free operator: a sine at ratio 1 with a short decaying envelope, modulating
-  the selected operator by 1 rad and not heard on its own. *Duplicate* puts a copy of the selected operator in the first
-  free operator, with its output level and all its connections: what modulates the original modulates the copy, the
-  copy modulates what the original modulates (so the sound changes until the copy is changed), and the original's
-  feedback becomes the copy's own; the copy is selected, and one undo removes it. It is refused when all six operators
-  are in use or when an operator would receive more modulation than the profile allows. *Modulate…* lets the selected
-  operator modulate another one
-  (or itself: feedback), *Modulated by…* lets another one modulate it; their menus read *OP1 → OP2*, grey the
-  connections that exist already and mark *(not heard)* a connection into an operator that is not heard, which changes
-  nothing until that operator is heard. A new connection starts at 1 rad and is selected, so that its amount can be
-  typed or dragged at once. *Remove* switches an operator off with its own connections;
-  the last carrier that is heard cannot be removed.
-- **Formant filters.** A formant filter shows F1 (in Hz) and Q1, then F2 and F3 (ratio, level and Q each), and folds
-  F4 and F5 under *more formants*, closed at first; it stays open or closed as left while the Studio runs. Ratios go up
-  to 32 and every Q up to 50. A formant without a Q of its own shows the Q it plays at, Q1; typing or dragging its Q
-  gives it one. Under the filter type, *preset* chooses a set of vowels, *speaker* a voice or group of speakers of
-  that set, and a button per vowel, labelled with its word (its IPA symbol in the tooltip), sets all five formants to
-  that vowel. A preset is one step to undo and keeps the filter's sweep and the rest of the operator; on an operator
-  whose filter is not a formant filter yet (or that has none) it also makes the operator the voice source, in the
-  same step, while on a formant filter it changes only the formants (waveform and width stay). Each inspector
-  applies the set and speaker its own menus show; a newly shown one starts at the set used last and that set's speaker
-  used last (at first Sung, soprano). The search never sets F4 and F5 (section 4, *Operator filters*); the presets do.
-  Each preset sets F1 in Hz, Q1 = F1 / B1, and for F2..F5 the ratio Fn / F1, a level relative to F1 and Q = Fn / Bn.
-  The sets:
-
-  | Set | Speakers | Vowels | Source |
-  | --- | --- | --- | --- |
-  | Sung | soprano, alto, countertenor, tenor, bass | a e i o u | The formant table of the Csound manual (TABLE III): F1..F5, their levels in dB and their bandwidths, all from the table. |
-  | English | men, women, children | heed hid hayed head had hod hawed hoed hood who'd hud heard | Hillenbrand, Getty, Clark & Wheeler (1995), "Acoustic characteristics of American English vowels", JASA 97: the means of F1..F3 of 45 men, 48 women and 46 children (American English). |
-  | Dutch | men, women | poet paat poot pat peut piet puut peet put pet pot pit | Pols, Tromp & Plomp (1973), JASA 53 (50 men) and Van Nierop, Pols & Plomp (1973), Acta Psychologica 37 (25 women): the means of F1..F3 and their levels. The speakers are Northern (Netherlands) Standard Dutch. |
-
-  The speech sets measured F1..F3 only (Dutch also their levels); the rest is filled in by rule: bandwidths
-  B1..B5 = 80, 100, 150, 250 and 300 Hz; F4 and F5 at 3500 and 4500 Hz for men, 4100 and 5000 Hz for women, 4600 and
-  5600 Hz for children, each raised where needed to at least 300 Hz above the formant below; the levels that were not
-  measured (English F2..F5, Dutch F4 and F5) from a cascade model of the vocal tract, five two-pole resonances on a
-  source falling 6 dB per octave, the Dutch F4 and F5 relative to the measured F3; every level at most F1's. The means
-  were computed from the per-speaker data that Praat distributes.
-
-  **A vowel needs a source.** A formant filter only shapes the harmonics it is given: a vowel is heard when the operator
-  sends many harmonics of about the same strength, so that every formant finds some to lift. A narrow pulse does that;
-  a saw less so (its harmonics fall 6 dB per octave, so F3..F5 have less to work with), and a sine has nothing above
-  the fundamental. The number of harmonics matters as much: a waveform built from 8 harmonics sends nothing above
-  8 × the note's frequency, so on A3 (220 Hz) nothing above 1760 Hz reaches F2 and higher. *Voice source*, under the
-  vowel buttons, makes the operator such a source in one step: a pulse 1 % wide (*pulse width* 0.01) with 64
-  harmonics, its filter and everything else left as they are. It is refused on a profile without a pulse waveform.
-  Choosing *formant* as the filter type, or a vowel preset, on an operator with another filter or none makes it the
-  voice source by itself, in the same undo step (a pulse 1 % wide with 64 harmonics, or the more it had); a noise
-  operator stays noise, a whispered vowel. Its width can be changed afterwards (*pulse width*), as the search may do.
-  The library and the search use a richer rule (section 4, *Operator filters*): their formant operators keep a saw,
-  or a pulse at its width, with at least 64 harmonics, and only a sine, triangle or square becomes the 1 % pulse.
-- **Harmonics.** A triangle, saw, square or pulse operator (FMX6) has a *harmonics* row: the number of harmonics its
-  waveform is built from, 1..128 (the FMX6 UGen's range), as in the export. It is a whole number: a typed value is
-  rounded, and a drag moves in equal ratios. Sounds from the library may have only 8 or 16: few harmonics make a mellow
-  waveform but leave nothing for a filter to shape higher up. Sine, noise and elliptic operators have no such row. It
-  is not one of the numbers the search fine-tunes (its structural moves only halve or double it).
-- **Numbers.** Type a number and press Enter (or leave the box). Or drag sideways, on the box or its name in the
-  inspector, or on the dashed-underlined numbers of the diagram itself (frequency ratio or fixed frequency, connection
-  amounts, output levels) while a note plays: 200 pixels cross the whole range, along its scale (a ratio in equal
-  musical steps). Hold **Shift** for steps ten times finer, **Ctrl** to snap a ratio to the musical ratios the search
-  uses (0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 3.5, 4 and on up to 16). **Escape** during a drag puts the value back. A
-  click on a number of the diagram selects its part; a drag selects it too. While the original is shown, the numbers
-  of the diagram are not underlined and do not drag.
-- **Envelopes** are small graphs in the inspector, time on the same square-root scale as the diagram, with their
-  breakpoints as numbers under them. Drag a point to move it in time and level (the first point only up and down);
-  double-click a line to add a point; right-click a point to remove it, hold the note there (*Sustain here*), make the
-  envelope run its course (*One-shot*), or choose the curve of the segment that ends there (linear, exponential, step).
-  The pitch envelope has no exponential curves: they cannot go below zero, and its cents go either way of the note.
-- **Undo and Redo** (the arrows right of the tabs, or above them where the patch card is too narrow; Ctrl+Z, and Ctrl+Y
-  or Ctrl+Shift+Z) go back step by step to the sound as it was. One step is one drag from press to release, one typed
-  number, one menu choice, one part added or removed, one envelope point dragged, one vowel preset, one *Voice source*.
-  While a box holds typed text, Ctrl+Z undoes the typing; during a drag the keys do nothing.
-- **Match loudness.** An edit plays at the loudness of the original: its gain is the original's, not normalised again
-  after each edit, so that turning an output level down really makes it softer. An edit that changes the sound a lot
-  can therefore be much quieter (or louder) than the original: a triangle turned into a 1 % pulse through narrow
-  formants can be some 30 dB quieter, and an output level cannot go above 1.5 to make up for it. *Match loudness*,
-  beside the arrows (enabled while the edit is shown), computes the gain the edit would get as a new sound (its
-  reference note normalised, as every sound of the library) and plays the edit at that gain from then on; the status
-  line says *Loudness matched: the edit now plays as loud as a new sound would.* The matched loudness belongs to the
-  sound's edit (the same sound in both tabs shares it) and stays while the Studio runs: later edits keep it, it is not
-  matched again by itself; click again to match the edit as it then is. Edits made after matching that make the sound
-  louder are held back by the player's soft limiter; click *Match loudness* again. *Original* still plays at the
-  original's loudness, and undoing back to the original shows it as before (redo comes back to the matched edit); a new
-  edit started from the original is another edit and plays at the original's loudness until it is matched. While the
-  loudness is being matched the button is disabled, in both tabs. ☆ and *Update* on an edit keep the matched gain in the
-  favourite. (The `preview.wav` of *Save edited sound…* is normalised on its own, to a peak of 0.7, which is why it can
-  sound louder than an unmatched edit.)
-- **Original ⇄ Edited.** Once a sound is edited, a switch beside the arrows shows the original or the edit: the
-  diagram, the code and the keys follow, to compare by ear. The original can be inspected but not changed; an edit,
-  undo or redo returns to the edit. Copy, Save…, Show in Search, Find in library and ☆ act on the version shown; while
-  the edit is shown, *Save result folder…* becomes *Save edited sound…* and saves the edited sound's own folder. In the
-  Search tab, the audio loss, the similarity and the per-note similarity shown with an edit are the
-  original's, marked *(original)*: they are not computed again; the routing and the matrix follow the edit.
-- **What the edit changed.** While the edit is shown, what differs from the original is outlined in pink. In the
-  diagram: an operator box, the PITCH or NOISE box when anything of that part changed, and a connection amount or an
-  output level when that connection or level changed (a new operator or connection counts as changed; one that was
-  removed is no longer drawn). In the inspector: each number box, menu, toggle and envelope graph whose value differs,
-  with the original value in its tooltip (*Edited; the original is 1*), or every control of a part the edit added
-  (*New: not in the original*); a change under the folded F4 and F5 also reads on the fold: *more formants (edited)*.
-  Parts are compared by what they hold, so a value set back by hand is no longer marked.
-  The Original side shows no marks. The selected part's cyan outline is drawn just outside its own pink one.
-- **Closing with unsaved edits.** Edits live only while the Studio runs. When the window is closed while an edited
-  sound, in either tab, is neither a ☆ favourite nor written with *Save edited sound…* since its last change, the Studio
-  asks first, saying how many sounds that is: *Cancel* (also Enter and Escape) keeps it open, *Close without saving*
-  closes it. An edit undone back to the original, or to a version that is a favourite or was saved, does not count.
-  A shutdown of the system is not held up.
-- **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
-  original's origin; the favourite of the original stays as it was. In the Library tab the edit then moves to the new
-  favourite: it is shown and selected, and the sound it was made from goes back to its original, without the edit's
-  history, so that the old favourite reads as before when it is chosen again. To change the favourite itself instead,
-  ☆ on an edit of a favourite offers *Update "name"*; after *Overwrite* the favourite keeps its nickname and origin and
-  holds the edit (its old version is gone). In the Library tab it is then shown as it now is, with no history; in the
-  Search tab the edit stays shown, now as that favourite. The edit plays at the loudness of the original (its
-  gain is not normalised again, so a lower output level really is softer) or, after *Match loudness*, at its own, and
-  its favourite keeps that loudness: the gain is stored in `favourite.json` as `gain`. Favourites without it are
-  normalised as before.
-- **Limits of the profile.** An edit always stays playable by the sound's backend. Values are clamped to the profile's
-  ranges (those of the search's parameter schema where it has the value). Connection amounts stop at the backend's
-  modulation limit: 24 rad into one operator in all, shared by every connection into it (an amount that follows an
-  envelope counts at its peak). Menus offer only what the profile has: no waveform menu on FM7 (sine only), filters on
-  FMX6 only, roughness and NOISE on Nome6 only, and no new operator beyond six. An edit that cannot be made so is
-  refused, and the status line says why.
-- **History.** Every sound keeps its edit and its history while the Studio runs, per patch and profile: look at
-  another finalist or library sound and come back, and the edit is still there, with its undo steps; the same sound in
-  both tabs shares one edit. The edits are kept per sound for as long as the Studio runs, also after a new search:
-  coming back to the same sound, as a finalist, from the library or as a favourite, finds its edit and its history
-  again. Nothing is kept when the Studio closes (keep an edit with ☆ or Save edited sound…).
-
-**Playing like a synth.** The keyboard of each tab, and a MIDI controller, play the sound of the visible tab: in the
-Search tab the shown finalist (or the library sound shown there), in the Library tab the last clicked sound.
-
-- A note sounds for as long as its key is held: an envelope with a sustain point holds there until the key is let go
-  and then plays its release; a percussive envelope runs its course whatever the key does. What is heard is what the
-  search matched and what the SuperCollider export plays for a note held that long.
-- On the on-screen keyboard, mouse button or touch down is note-on and up is note-off. Sliding a held pointer onto
-  another key releases the old note and plays the new one. Every finger on a touch screen holds a note of its own;
-  with one mouse, one key is held at a time and earlier notes ring on through their release. A finger on the keys
-  plays rather than scrolls; the scroll bar under the keys scrolls the keyboard.
-- Up to 16 notes sound at once; a 17th takes the oldest, which fades out over a few milliseconds. A note keeps the
-  sound it started with: select another finalist or click another node while holding a chord, and the new notes play
-  the new sound while the held ones go on.
-- Keys light up while they sound, from the mouse or from MIDI, in both tabs.
-- **MIDI in** in the header chooses the MIDI input device: *none*, then the devices by name. The list is read again
-  whenever it opens. Only note-on, note-off and velocity are used (a note-on with velocity 0 is a note-off); every
-  channel plays, and pitch bend, controllers, the sustain pedal, aftertouch and program changes are ignored. The
-  choice is remembered by name between sessions in `%LOCALAPPDATA%\HearSay\studio-settings.json`; a remembered device
-  that is not connected at start leaves the selector on *none*, without an error. Choosing a device that cannot be
-  opened changes nothing: the device before stays open and remembered, and the status line says so. A device
-  unplugged while open releases its notes, the selector goes back to *none* and the status line says so; it stays
-  remembered for the next session.
-- An audio device unplugged while the Studio runs (headphones, a USB interface) is noticed within a second: live notes
-  stop, the MIDI device is closed and the selector set to *none* (it stays remembered), the keyboard says it is silent,
-  and the status line asks to restart the Studio once an audio device is connected again.
-- A sound whose profile has no live voices is not played, and the status line says so (FM7, FMX6 and Nome6 all play).
-- Latency from key to sound is about 41 ms at most on the development machine (Windows, WASAPI shared mode: 22 ms of
-  it is the device's own buffering). A running search or library build keeps its full speed, so notes may stutter or
-  drop out while one runs; on an otherwise idle machine they play cleanly. When the computer cannot keep up, the
-  oldest notes are dropped (with a short fade) rather than all of them stuttering.
-- The Studio runs on Windows, macOS and Linux; MIDI input works there through OwnAudioSharp.Midi. Android and iOS are
-  not supported by the Studio.
-
-Studio plays through OpenAL Soft. Without an audio device the keyboard is silent and a note says so; everything else
-works. Target files and live notes can sound at the same time.
-
-The logo in the header and the window icon are one vector drawing (`HearSayLogo`): six operators on a ring, the
-chords of a modulation matrix, a wave through them. `HearSay.Studio --logo out.png [size]` writes it as a PNG and
-exits, for packaging.
-
-### The Library tab
-
-The Library tab shows the structure library of FM7, FMX6 or Nome6 as sound families: k-means on the spectral
-fingerprints splits the 300 000 sounds (600 000 for FMX6 and Nome6, half of them noise-free) into 40 families, each
-family into 40 more, down to single sounds. Every node is a real sound, the member closest to its family's centre;
-nodes are sized by the number of sounds and coloured from dark (blue) to bright (yellow), and each is joined to its two
-nearest neighbours.
-
-- Click a node to hear it at A3 (the note the library was rendered at, held for its 1 s and released) and see its
-  code and block diagram; the keyboard and the MIDI device play the last clicked sound at any pitch, held as long as
-  the key. Double-click a family, or click the plus, to open it; the
-  breadcrumb goes back up. Resting the pointer on a node shows a few words about it: brightness, envelope, the
-  waveform of the loudest carrier, *filtered*, *noisy*, and the number of sounds.
-- **Copy** copies the SuperCollider code, with the library and seed in its header and the level the sound plays at
-  here (section 8). **Save…** writes `patch.json`, `patch.scd`, `preview.wav` and a `search-summary.json` with the
-  profile, a folder that can be imported again.
-  **Show in Search** makes the sound the patch of the Search tab, until the next search.
-- **Import folder…** reads every `patch.json` (and the alternatives) under a folder of exported results. Click one in
-  the list to place it: the tab opens the family whose centre is closest at every level and shows the sound there as a
-  star among the sounds like it. One level up, the family it fell in has a dashed ring. Placement is by sound, so an
-  FM7 export can be placed in the FMX6 library.
-- **☆** keeps the shown sound as a favourite under a nickname you type (a library sound, a placed import or finalist
-  here; the shown finalist or library sound in the Search tab, which has the same button). A favourite has a filled
-  ★; clicking it again renames or removes it. Favourites are kept between sessions as ordinary exported-sound folders
-  named by their nicknames under `%LOCALAPPDATA%\HearSay\favourites`, each with a `favourite.json` saying where it came
-  from. The **Favourites** side of the list beside the graph, first and shown by default, has them all with their profiles (importing a folder or *Find in library* switches to **Imported**): click one to place it
-  among its neighbours in the library of its profile, selected and played, ready to copy or save; **Rename** and
-  **Remove** act on the selected one (removing deletes its folder, after asking).
-- **Filter ▾** shows only some sounds: by the waveforms and filter types of the operators you can hear, brightness,
-  envelope, noise (*noisy* or *noise-free*), the number of audible operators and feedback. Values in a row are
-  alternatives, rows must all hold (*saw or square*, and *low-pass*). Each chip shows how many sounds match the rest of
-  the filter and have its value. The matching sounds are grouped into families of their own (a few seconds), so the
-  screen stays full; **Clear** returns to all sounds. An imported sound is placed among the filtered sounds.
-
-The first time a library is opened its top level is grouped (under a minute) and kept next to the library as
-`…-atlas-v1.bin`; a library missing on disk is built first, and the graph shows the share done and the time left
-(FMX6: about 20 minutes on 24 threads; when the older FMX6 library is on disk only its noise-free sounds are added,
-about 12).
+Everything the Studio does is available in the API. The editing is `PatchEditor` with the edits of `PatchEdits`,
+`EditableValues`, `EnvelopeEdits` and `FormantPresets` (section 14); `EditMarks` tells which parts an edit changed;
+`EditSessions` keeps the edits of several sounds. The Library tab is `LibraryAtlas` over a structure library
+(section 11), the favourites are `FavouriteSounds`, and live playing is `LivePlayer`.
 
 ## 10. The command line
 

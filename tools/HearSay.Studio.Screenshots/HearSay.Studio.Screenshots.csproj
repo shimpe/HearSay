@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Renders the screenshots of the HearSay Studio manual (docs/images/studio) headless. Not part of HearSay.sln: run it
+       by hand after a change to the Studio's look, see Program.cs. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Skia" Version="11.3.22" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HearSay.Studio\HearSay.Studio.csproj" />
+  </ItemGroup>
+
+</Project>

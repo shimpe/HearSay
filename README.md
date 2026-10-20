@@ -38,8 +38,9 @@ selector in HearSay Studio picks one or all of them. FMX6 operators can have a f
 notch, peak or formant, with an optional sweep); the search proposes and tunes them. Exported patches with filters
 need the FMX6 plugin with operator filters. See [Patch matching](#patch-matching) and the full
 [patch-matching documentation](docs/patch-matching.md). The [expert manual](docs/expert-manual.md) is the
-practical guide: preparing targets, target sets, choosing FM7, FMX6 or Nome6, budget and seeds, reading results, Studio,
-the command line, the API, every search option, hand-editing patches and troubleshooting.
+practical guide: preparing targets, target sets, choosing FM7, FMX6 or Nome6, budget and seeds, reading results,
+the command line, the API, every search option, hand-editing patches and troubleshooting. The desktop app has its own
+[HearSay Studio manual](docs/studio-manual.md), with screenshots.
 
 ## Contents
 
@@ -61,7 +62,8 @@ the command line, the API, every search option, hand-editing patches and trouble
 ## Installation
 
 **Ready-made builds** of HearSay Studio and the command line (`hearsay-cli`) for Windows, macOS and Linux (x64 and
-ARM64) are on the [Releases](https://github.com/shimpe/HearSay/releases) page: self-contained, unpack and run. They
+ARM64) are on the [Releases](https://github.com/shimpe/HearSay/releases) page: self-contained, unpack and run, with the
+manuals as PDF files next to the program. They
 are made by the `Release` workflow (`.github/workflows/release.yml`) whenever a version tag is pushed:
 
 ```bash
@@ -516,7 +518,12 @@ HearSay.sln
 ├── benchmarks/HearSay.Benchmarks         BenchmarkDotNet
 ├── docs
 │   ├── tutorial.md                       step-by-step tutorial for the comparison and closed-loop API
-│   └── patch-matching.md                 the audio-to-patch solver
+│   ├── patch-matching.md                 the audio-to-patch solver
+│   ├── expert-manual.md                  getting good patches: targets, synthesis targets, options, command line, API
+│   └── studio-manual.md                  the desktop app, with screenshots (images/studio)
+├── tools
+│   ├── HearSay.Docs                      the manuals as PDF files (release workflow)
+│   └── HearSay.Studio.Screenshots        renders the screenshots of the Studio manual
 └── samples
     ├── HearSay.Tutorial                  companion program of the tutorial, one method per step
     ├── HearSay.Demo                      compare two WAV files

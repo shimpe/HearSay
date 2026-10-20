@@ -66,10 +66,34 @@ jobs:
             dotnet test "tests/$project" -c Release --no-build
           done
 
+  # The manuals as PDF files, once for every package: tools/HearSay.Docs turns docs/studio-manual.md and
+  # docs/expert-manual.md into HTML pages, which the runner's Chrome prints.
+  manuals:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu-core
+      - name: Build the manuals
+        run: dotnet run -c Release --project tools/HearSay.Docs -- --out manuals --version "$VERSION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: manuals
+          path: manuals/*.pdf
+          if-no-files-found: error
+
   # Each platform builds on its own runner: building the Windows executables on Linux cannot embed their manifest and
   # icon, and the macOS app has to be signed (ad hoc) on a Mac to start on Apple Silicon.
   build:
-    needs: [version, test]
+    needs: [version, test, manuals]
     strategy:
       fail-fast: false
       matrix:
@@ -90,14 +114,20 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: manuals
+          path: manuals
+
+      # The Studio gets both manuals, the command line the expert manual.
       - name: Publish
         shell: bash
         run: |
           common="-c Release -r $RID --self-contained true -p:Version=$VERSION -p:DebugType=None -p:DebugSymbols=false"
           dotnet publish src/HearSay.Studio/HearSay.Studio.csproj $common -o publish/studio
           dotnet publish src/HearSay.Cli/HearSay.Cli.csproj $common -o publish/cli
-          cp LICENSE README.md publish/studio/
-          cp LICENSE README.md publish/cli/
+          cp LICENSE README.md manuals/HearSay-Studio-Manual.pdf manuals/HearSay-Expert-Manual.pdf publish/studio/
+          cp LICENSE README.md manuals/HearSay-Expert-Manual.pdf publish/cli/
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -121,9 +151,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          app="publish/HearSay Studio.app"
+          # A folder with the app and, beside it where they can be found, the manuals, the licence and the README.
+          folder="publish/HearSay Studio"
+          app="$folder/HearSay Studio.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp -R publish/studio/. "$app/Contents/MacOS/"
+          mv "$app/Contents/MacOS/"*.pdf "$app/Contents/MacOS/LICENSE" "$app/Contents/MacOS/README.md" "$folder/"
           cat > "$app/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -146,7 +179,7 @@ jobs:
           # so Gatekeeper still asks; see the release notes.
           codesign --force --deep --sign - "$app"
           codesign --force --sign - publish/cli/hearsay-cli
-          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/HearSay-Studio-$VERSION-$RID.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$folder" "dist/HearSay-Studio-$VERSION-$RID.zip"
           tar -czf "dist/hearsay-cli-$VERSION-$RID.tar.gz" -C publish/cli .
 
       - uses: actions/upload-artifact@v7
@@ -178,8 +211,11 @@ jobs:
           The first search for a synthesis target builds its structure library once (a few minutes, about 86 MB in the
           local application data); turn it off with the Library check box or `--library 0`.
 
+          The manuals come as PDF files with the programs: `HearSay-Studio-Manual.pdf` for the desktop app and
+          `HearSay-Expert-Manual.pdf` for the search, the command line and the library.
+
           - **Windows:** unzip and start `HearSay.Studio.exe`. SmartScreen may warn about an unknown publisher: More info, Run anyway.
-          - **macOS:** unzip and move `HearSay Studio.app` to Applications. The app is not notarized: the first time,
+          - **macOS:** unzip; the folder `HearSay Studio` holds the app and the manuals. Move `HearSay Studio.app` to Applications. The app is not notarized: the first time,
             right-click it and choose Open, or run `xattr -dr com.apple.quarantine "/Applications/HearSay Studio.app"`.
             `osx-arm64` is for Apple Silicon, `osx-x64` for Intel Macs.
           - **Linux:** unpack and start `./HearSay.Studio`; sound needs a working OpenAL output (PulseAudio or PipeWire).
