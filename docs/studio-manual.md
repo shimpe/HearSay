@@ -195,7 +195,8 @@ The **Block diagram** tab of the patch card draws the operators in use:
   stretch where the note is held. An operator filter is a strip at the bottom of the box; a filter sweep is a violet
   line over the envelope. Resting the pointer on a box shows everything about the operator.
 - **NOISE** (Nome6) at the top left: the shared noise source with its colour (*white*, or for example *LP 60% · 1.9
-  kHz*), with a dotted line into every operator that plays it (*plays*) or that it roughens (*φ 0.4*, *m -0.2*).
+  kHz*), with a dotted line into every operator that plays it (*plays*) or that it roughens (*φ 0.4*, *m -0.2*). When
+  nothing that is heard uses the noise, the box is greyed and reads *unused*: its colour and cutoff then change nothing.
 - **PITCH** at the top right: the vibrato (*vib 5.5 Hz ±14 ct*) and the pitch envelope, in cents around the note. It
   moves the ratio operators only; fixed-frequency ones keep their pitch.
 - An operator that is in use but cannot be heard (output 0, and modulating nothing that is heard) is greyed.
@@ -240,7 +241,9 @@ NOISE box on Nome6, so that a pitch envelope, vibrato or noise can be added.
     another ratio). The copy is selected; one undo removes it.
   - *Remove* switches the operator off with its connections; the last operator that is heard cannot be removed.
 - **A connection** has *Disconnect*, its amount and *Amount follows an envelope*.
-- **NOISE** has its colour and cutoff; **PITCH** the toggles *Pitch envelope* and *Vibrato*, and the vibrato rate,
+- **NOISE** has its colour and cutoff, and says which operators use the noise (*Used by OP2 (plays it), OP1 (roughness
+  φ 0.3).*). When none does, it says so and greys colour and cutoff: give an operator the waveform *noise*, or switch
+  on its *Roughness from the shared noise*, to hear them. **PITCH** has the toggles *Pitch envelope* and *Vibrato*, and the vibrato rate,
   depth, delay and fade-in.
 - **Harmonics.** A triangle, saw, square or pulse operator (FMX6) has a *harmonics* row: the number of harmonics its
   waveform is built from, 1 to 128. Few harmonics make a mellow waveform but leave nothing for a filter to shape

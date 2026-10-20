@@ -7,6 +7,51 @@ namespace HearSay;
 public static class PatchDescription
 {
     /// <summary>
+    /// Who uses the shared noise (Nome6), as one sentence: "Used by OP2 (plays it), OP1 (roughness φ 0.8)."; empty when
+    /// nothing does, and then its colour and cutoff change nothing. Only operators that can be heard count, as for the
+    /// search (<see cref="OperatorMatrix.Parameters.PatchParameterSchema.UsesSharedNoise"/>).
+    /// </summary>
+    /// <param name="patch">Patch.</param>
+    public static string NoiseUse(OperatorMatrixPatch patch)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        bool[] audible = patch.FindAudibleOperators();
+        var users = new List<string>();
+        for (int i = 0; i < patch.OperatorCount; i++)
+        {
+            OperatorPatch op = patch.Operators[i];
+            if (!audible[i])
+            {
+                continue;
+            }
+
+            if (op.Waveform == OperatorWaveform.Noise)
+            {
+                users.Add($"OP{i + 1} (plays it)");
+                continue;
+            }
+
+            var roughness = new List<string>();
+            if (op.NoisePhase != 0.0)
+            {
+                roughness.Add(string.Create(CultureInfo.InvariantCulture, $"φ {op.NoisePhase:0.##}"));
+            }
+
+            if (op.Waveform == OperatorWaveform.Elliptic && op.NoiseM != 0.0)
+            {
+                roughness.Add(string.Create(CultureInfo.InvariantCulture, $"m {op.NoiseM:0.##}"));
+            }
+
+            if (roughness.Count > 0)
+            {
+                users.Add($"OP{i + 1} (roughness {string.Join(", ", roughness)})");
+            }
+        }
+
+        return users.Count == 0 ? string.Empty : "Used by " + string.Join(", ", users) + ".";
+    }
+
+    /// <summary>
     /// The waveform parameters of an operator that its waveform uses, empty for the others: the duty cycle of a pulse,
     /// the response of filtered noise, the elliptic parameter m (with its nome q), the sn-to-sd morph, and the roughness
     /// the shared noise gives the phase or the elliptic parameter, and the operator filter.

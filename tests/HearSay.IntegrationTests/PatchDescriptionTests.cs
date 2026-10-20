@@ -6,6 +6,31 @@ namespace HearSay.IntegrationTests;
 public sealed class PatchDescriptionTests
 {
     [Fact]
+    public void NoiseUse_NamesTheHeardOperatorsThatUseTheSharedNoise()
+    {
+        OperatorPatch sine = OperatorPatch.Sine(OperatorFrequency.AtRatio(1));
+        OperatorMatrixPatch silent = OperatorMatrixPatch.Silent(6).WithOperator(0, sine).WithOutputLevel(0, 0.8);
+
+        // Nothing uses it: no sentence, and the search agrees.
+        Assert.Equal(string.Empty, PatchDescription.NoiseUse(silent));
+        Assert.False(HearSay.OperatorMatrix.Parameters.PatchParameterSchema.UsesSharedNoise(silent));
+
+        // A noise operator that is heard, a roughened sine, and an elliptic operator with m roughness.
+        OperatorMatrixPatch used = silent
+            .WithOperator(0, sine with { NoisePhase = 0.8 })
+            .WithOperator(1, sine.WithWaveform(OperatorWaveform.Noise)).WithOutputLevel(1, 0.5)
+            .WithOperator(2, sine.WithWaveform(OperatorWaveform.Elliptic) with { NoiseM = 0.1 })
+            .WithEdge(new ModulationEdge(2, 0, true, 1.0));
+        Assert.Equal("Used by OP1 (roughness φ 0.8), OP2 (plays it), OP3 (roughness m 0.1).", PatchDescription.NoiseUse(used));
+        Assert.True(HearSay.OperatorMatrix.Parameters.PatchParameterSchema.UsesSharedNoise(used));
+
+        // An operator that cannot be heard does not count, whatever it would do.
+        OperatorMatrixPatch unheard = silent.WithOperator(1, sine.WithWaveform(OperatorWaveform.Noise)).WithOperator(2, sine with { NoisePhase = 0.5 });
+        Assert.Equal(string.Empty, PatchDescription.NoiseUse(unheard));
+        Assert.False(HearSay.OperatorMatrix.Parameters.PatchParameterSchema.UsesSharedNoise(unheard));
+    }
+
+    [Fact]
     public void Filters_AreDescribed()
     {
         Assert.Equal("LP4 x4", PatchDescription.FilterLabel(OperatorFilter.LowPass(4, poles: 4)));

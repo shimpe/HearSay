@@ -121,7 +121,7 @@ public sealed partial class FmDiagram : Control
             ToolTip.SetTip(this, hit switch
             {
                 >= 0 => PatchDescription.OperatorDetail(patch, hit),
-                -1 => NoiseDetail(patch.Noise),
+                -1 => NoiseDetail(patch.Noise) + Environment.NewLine + (PatchDescription.NoiseUse(patch) is { Length: > 0 } use ? use : "Nothing in this sound uses it, so its colour and cutoff change nothing."),
                 -2 => PatchDescription.PitchDetail(patch.Pitch) is { Length: > 0 } pitch ? pitch : "The pitch does not move: no pitch envelope, no vibrato.",
                 _ => PatchDescription.EdgeDetail(_hitEdges[-100 - hit]),
             });
@@ -502,17 +502,17 @@ public sealed partial class FmDiagram : Control
             }
         }
 
-        // While editing, the NOISE box of a profile with shared noise is there even when nothing uses it, empty.
+        // While editing, the NOISE box of a profile with shared noise is there even when nothing uses it: greyed, saying
+        // so, as its colour and cutoff then change nothing.
         if (noiseUsers.Count > 0 || (editing && SharedNoise))
         {
+            bool unused = PatchDescription.NoiseUse(patch).Length == 0;
+            using IDisposable? pale = Unheard(context, unused);
             context.DrawRectangle(NoiseFill, Edited(new PatchPart.NoisePart()) ? EditedPen : NoisePen, noiseBox, 6, 6);
             _hitBoxes.Add((noiseBox, -1));
             AddPart(noiseBox, new PatchPart.NoisePart());
             DrawText(context, "NOISE", new Point(noiseBox.X + 7, noiseBox.Y + 2), 11, Text, FontWeight.SemiBold);
-            if (noiseUsers.Count > 0)
-            {
-                DrawText(context, DescribeNoise(patch.Noise), new Point(noiseBox.X + 7, noiseBox.Y + 17), 10, Muted, maxWidth: noiseBox.Width - 10);
-            }
+            DrawText(context, unused ? "unused" : DescribeNoise(patch.Noise), new Point(noiseBox.X + 7, noiseBox.Y + 17), 10, Muted, maxWidth: noiseBox.Width - 10);
         }
 
         // Labels on a patch of background, so that the lines under them do not cut through the digits. An amount that

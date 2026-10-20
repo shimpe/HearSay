@@ -143,7 +143,8 @@ public sealed partial class PatchInspector : UserControl
             }
             else
             {
-                child.IsEnabled = editable;
+                // Values that change nothing in this sound (the colour of a noise nothing uses) are greyed as well.
+                child.IsEnabled = editable && !child.Classes.Contains("unused");
             }
         }
 
@@ -168,6 +169,9 @@ public sealed partial class PatchInspector : UserControl
                 break;
             case PatchPart.ConnectionPart { Source: var s, Destination: var d } when (uint)s < (uint)patch.OperatorCount && (uint)d < (uint)patch.OperatorCount:
                 shape.Add(FormattableString.Invariant($"{patch.ModulationMatrix.Find(s, d) is not null}"));
+                break;
+            case PatchPart.NoisePart:
+                shape.Add(PatchDescription.NoiseUse(patch).Length > 0 ? "noise used" : "noise unused");
                 break;
             case PatchPart.PitchPart:
                 shape.Add(FormattableString.Invariant($"{patch.Pitch.Vibrato is not null}"));
@@ -243,8 +247,28 @@ public sealed partial class PatchInspector : UserControl
                     return;
                 }
 
-                AddRows(_editor!.SelectedValues);
-                Note("Roughen an operator (its roughness toggle) or give it a noise waveform to hear the shared noise.");
+                // Whether anything uses the noise, first: unused, its colour and cutoff change nothing, and they say so.
+                string use = PatchDescription.NoiseUse(patch);
+                if (use.Length > 0)
+                {
+                    Note(use);
+                }
+                else
+                {
+                    Body.Children.Add(new TextBlock
+                    {
+                        Name = "NoiseUnused",
+                        Text = "Nothing in this sound uses the noise: its colour and cutoff change nothing until an operator plays noise (waveform noise) or is roughened (its Roughness toggle).",
+                        FontSize = 11,
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                        Foreground = (Avalonia.Media.IBrush)this.FindResource("AmberBrush")!,
+                    });
+                }
+
+                var noiseRows = new StackPanel { Name = "NoiseRows", Spacing = 4 };
+                noiseRows.Classes.Set("unused", use.Length == 0);
+                AddRows(_editor!.SelectedValues, noiseRows);
+                Body.Children.Add(noiseRows);
                 break;
             case PatchPart.PitchPart:
                 Title.Text = "PITCH";
