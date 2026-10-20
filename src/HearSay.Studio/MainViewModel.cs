@@ -300,6 +300,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         && Library.FindFavourite(editor.Current, patch.Profile) is null;
 
     /// <summary>
+    /// The number of sounds whose edit is lost when the Studio closes: edited, in either tab, and the edit neither a
+    /// favourite nor written to a folder by Save… since it was last changed. The window asks before it closes on them.
+    /// </summary>
+    public int UnsavedEditCount =>
+        Edits.Sessions.Edited().Count(e => !Edits.Sessions.IsSaved(e.Current, e.Profile) && Library.FindFavourite(e.Current, e.Profile) is null);
+
+    /// <summary>
     /// Asks the user whether the sound shown may be replaced; set by the window, which shows the question. Its task gives
     /// true for Replace and false for Cancel. Null replaces without asking.
     /// </summary>
@@ -1061,6 +1068,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             OperatorMatrixPatch patch = Edits.DisplayedPatch ?? library.Patch;
             IReadOnlyList<string> header = Edits.ShowsEdit ? PatchEditorViewModel.WithEditedLine(library.HeaderComments) : library.HeaderComments;
             IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(patch, library.Profile, directory, header, gain));
+            Edits.Sessions.MarkSaved(patch, library.Profile);
             Status = $"{written.Count} files written to {directory}.";
             return;
         }
@@ -1075,6 +1083,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             PatchMatchResult shown = _result;
             IReadOnlyList<string> header = PatchEditorViewModel.WithEditedLine(FinalistHeader(shown, candidate));
             IReadOnlyList<string> written = await Task.Run(() => LibrarySoundWriter.Write(edited, shown.Profile, directory, header, gain));
+            Edits.Sessions.MarkSaved(edited, shown.Profile);
             Status = $"{written.Count} files of the edited sound written to {directory}.";
             return;
         }

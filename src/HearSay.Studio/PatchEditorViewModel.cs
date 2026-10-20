@@ -73,6 +73,9 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /// <summary>The edits of every sound, shared by the tabs, and the patches written to a folder.</summary>
+    public EditSessions Sessions => _sessions;
+
     /// <summary>The edit model of the shown sound; null when nothing is shown.</summary>
     public PatchEditor? Editor => _editor;
 

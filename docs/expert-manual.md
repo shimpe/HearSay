@@ -494,6 +494,11 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   with the original value in its tooltip (*Edited; the original is 1*), or every control of a part the edit added
   (*New: not in the original*). Parts are compared by what they hold, so a value set back by hand is no longer marked.
   The Original side shows no marks. The selected part's cyan outline is drawn just outside its own pink one.
+- **Closing with unsaved edits.** Edits live only while the Studio runs. When the window is closed while an edited
+  sound, in either tab, is neither a ☆ favourite nor written with *Save edited sound…* since its last change, the Studio
+  asks first, saying how many sounds that is: *Cancel* (also Enter and Escape) keeps it open, *Close without saving*
+  closes it. An edit undone back to the original, or to a version that is a favourite or was saved, does not count.
+  A shutdown of the system is not held up.
 - **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
   original's origin; the favourite of the original stays as it was. In the Library tab the edit then moves to the new
   favourite: it is shown and selected, and the sound it was made from goes back to its original, without the edit's

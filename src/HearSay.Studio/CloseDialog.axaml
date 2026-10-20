@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="HearSay.Studio.CloseDialog"
+        Title="Close HearSay Studio?"
+        Width="440" SizeToContent="Height" CanResize="False"
+        ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource CardBackgroundBrush}"
+        FontFamily="Inter, Segoe UI, sans-serif">
+  <Window.Styles>
+    <Style Selector="Button">
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="18,8" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="#0F172A" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#67E8F9" />
+      <Setter Property="Foreground" Value="#0F172A" />
+    </Style>
+  </Window.Styles>
+  <!-- Cancel is the default (Enter) and the cancel button (Escape): closing loses the edits, so it takes a click. Closing
+       this window cancels too. -->
+  <StackPanel Margin="22,20" Spacing="18">
+    <StackPanel Spacing="8">
+      <TextBlock Text="Close with unsaved edits?" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" />
+      <TextBlock x:Name="Message" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" />
+    </StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button x:Name="CloseButton" Content="Close without saving" Click="OnClose" />
+      <Button x:Name="CancelButton" Content="Cancel" IsCancel="True" IsDefault="True" Classes="primary" Click="OnCancel" />
+    </StackPanel>
+  </StackPanel>
+</Window>

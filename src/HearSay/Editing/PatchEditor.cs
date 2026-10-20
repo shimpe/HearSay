@@ -334,12 +334,14 @@ public sealed class PatchEditor
 
 /// <summary>
 /// The editors of the sounds edited while the program runs, one per original patch and profile, so that going to
-/// another sound and back keeps the edits and their history.
+/// another sound and back keeps the edits and their history; and the patches written to a folder meanwhile, so that the
+/// edits that would be lost when the program closes are known.
 /// </summary>
 public sealed class EditSessions
 {
     private readonly object gate = new();
     private readonly Dictionary<(string Profile, string Hash), PatchEditor> editors = [];
+    private readonly HashSet<(string Profile, string Hash)> saved = [];
 
     /// <summary>The editor of a sound; the same one each time for the same profile and original patch.</summary>
     /// <param name="original">The patch as it was.</param>
@@ -359,6 +361,41 @@ public sealed class EditSessions
             }
 
             return editor;
+        }
+    }
+
+    /// <summary>The editors whose patch is edited now, in no particular order.</summary>
+    public IReadOnlyList<PatchEditor> Edited()
+    {
+        lock (gate)
+        {
+            return [.. editors.Values.Where(static e => e.IsEdited)];
+        }
+    }
+
+    /// <summary>Notes that a patch was written to a folder (Save…), so that an edit equal to it is kept.</summary>
+    /// <param name="patch">The patch written.</param>
+    /// <param name="profile">Its profile.</param>
+    public void MarkSaved(OperatorMatrixPatch patch, SynthesisProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(profile);
+        lock (gate)
+        {
+            saved.Add((profile.Name, patch.ComputeHash()));
+        }
+    }
+
+    /// <summary>True when a patch was written to a folder while the program runs (<see cref="MarkSaved"/>).</summary>
+    /// <param name="patch">The patch.</param>
+    /// <param name="profile">Its profile.</param>
+    public bool IsSaved(OperatorMatrixPatch patch, SynthesisProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        ArgumentNullException.ThrowIfNull(profile);
+        lock (gate)
+        {
+            return saved.Contains((profile.Name, patch.ComputeHash()));
         }
     }
 }

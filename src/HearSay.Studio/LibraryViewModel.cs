@@ -1047,6 +1047,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
         IReadOnlyList<string> header = ShownHeader(selection);
         IReadOnlyList<string> files = await Task.Run(() => LibrarySoundWriter.Write(patch, selection.Profile, directory, header, gain));
+        Edits.Sessions.MarkSaved(patch, selection.Profile);
         _status($"{files.Count} files written to {directory}.");
     }
 

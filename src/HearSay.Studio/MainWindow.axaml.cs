@@ -25,6 +25,55 @@ public sealed partial class MainWindow : Window
 
     private bool _keyboardCentred;
 
+    /// <summary>True once the user chose to close despite unsaved edits, or while the question is open.</summary>
+    private bool _closeConfirmed, _askingToClose;
+
+    /// <summary>
+    /// Asks before the window closes on edits that would be lost (<see cref="MainViewModel.UnsavedEditCount"/>): the close
+    /// is held until the user chooses Close without saving. Only a close the user started is asked about: the system
+    /// shutting down is not held up.
+    /// </summary>
+    protected override async void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+        if (e.Cancel || _closeConfirmed || e.CloseReason != WindowCloseReason.WindowClosing || DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        int unsaved = viewModel.UnsavedEditCount;
+        if (unsaved == 0)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (_askingToClose)
+        {
+            return;
+        }
+
+        _askingToClose = true;
+        try
+        {
+            if (await new CloseDialog(unsaved).ShowDialog<bool>(this))
+            {
+                _closeConfirmed = true;
+                Close();
+            }
+        }
+        catch (Exception)
+        {
+            // Without a question the window could never close: it closes, as it did before it asked.
+            _closeConfirmed = true;
+            Close();
+        }
+        finally
+        {
+            _askingToClose = false;
+        }
+    }
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
