@@ -163,6 +163,25 @@ public sealed class PatchEditsTests
     }
 
     [Fact]
+    public void DuplicateOperator_IgnoresConnectionsWithFreeOperators()
+    {
+        // OP3 was removed by a search step that kept its connection to OP1, and OP1 modulates the free OP4: the copy of
+        // OP1 goes to OP3 and must not turn the stale OP3 -> OP1 into feedback, nor copy OP1 -> OP4.
+        OperatorMatrixPatch patch = TwoOperators()
+            .WithEdge(new ModulationEdge(2, 0, true, 4.0))
+            .WithEdge(new ModulationEdge(0, 3, true, 1.0));
+        Assert.False(patch.Operators[2].Enabled);
+
+        OperatorMatrixPatch edited = Done(patch, Fm7, PatchEdits.DuplicateOperator(0));
+
+        Assert.Equal(patch.Operators[0], edited.Operators[2]);
+        Assert.Null(edited.ModulationMatrix.Find(2, 2));
+        Assert.Null(edited.ModulationMatrix.Find(2, 3));
+        Assert.Equal(new ModulationEdge(1, 2, true, 2.0), edited.ModulationMatrix.Find(1, 2));
+        Assert.Null(edited.ModulationMatrix.Find(2, 0));
+    }
+
+    [Fact]
     public void DuplicateOperator_WithNoFreeSlot_OrOfAFreeSlot_IsRefused()
     {
         OperatorMatrixPatch patch = TwoOperators();

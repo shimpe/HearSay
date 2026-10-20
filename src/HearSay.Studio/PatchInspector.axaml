@@ -45,6 +45,15 @@
       <Setter Property="BorderBrush" Value="{StaticResource EditedBrush}" />
       <Setter Property="BorderThickness" Value="1.5" />
     </Style>
+    <!-- The theme colours the border of a box or menu under the pointer and with focus; an edited one stays pink then,
+         while its tooltip is read or it is typed in -->
+    <Style Selector="TextBox.edited:pointerover /template/ Border#PART_BorderElement, TextBox.edited:focus /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="{StaticResource EditedBrush}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+    </Style>
+    <Style Selector="ComboBox.edited:pointerover /template/ Border#Background, ComboBox.edited:focus /template/ Border#Background, ComboBox.edited:pressed /template/ Border#Background">
+      <Setter Property="BorderBrush" Value="{StaticResource EditedBrush}" />
+    </Style>
     <Style Selector="Border.mark">
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="BorderThickness" Value="1.5" />

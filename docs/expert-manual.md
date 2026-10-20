@@ -492,7 +492,8 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   output level when that connection or level changed (a new operator or connection counts as changed; one that was
   removed is no longer drawn). In the inspector: each number box, menu, toggle and envelope graph whose value differs,
   with the original value in its tooltip (*Edited; the original is 1*), or every control of a part the edit added
-  (*New: not in the original*). Parts are compared by what they hold, so a value set back by hand is no longer marked.
+  (*New: not in the original*); a change under the folded F4 and F5 also reads on the fold: *more formants (edited)*.
+  Parts are compared by what they hold, so a value set back by hand is no longer marked.
   The Original side shows no marks. The selected part's cyan outline is drawn just outside its own pink one.
 - **Closing with unsaved edits.** Edits live only while the Studio runs. When the window is closed while an edited
   sound, in either tab, is neither a ☆ favourite nor written with *Save edited sound…* since its last change, the Studio

@@ -138,10 +138,13 @@ public static class PatchEdits
         OperatorMatrixPatch edited = WithoutConnectionsOf(patch, slot)
             .WithOperator(slot, patch.Operators[op])
             .WithOutputLevel(slot, patch.OutputLevels[op]);
+        // The original's connections with operators in use: a connection a free operator kept (the slot's own included,
+        // which would become feedback of the copy) is not part of the sound.
         var destinations = new HashSet<int>();
         foreach (ModulationEdge edge in patch.ModulationMatrix.Edges)
         {
-            if (!edge.Enabled || (edge.SourceOperator != op && edge.DestinationOperator != op))
+            if (!edge.Enabled || (edge.SourceOperator != op && edge.DestinationOperator != op)
+                || !patch.Operators[edge.SourceOperator].Enabled || !patch.Operators[edge.DestinationOperator].Enabled)
             {
                 continue;
             }

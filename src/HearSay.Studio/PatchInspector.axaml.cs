@@ -42,6 +42,9 @@ public sealed partial class PatchInspector : UserControl
     private readonly List<NumberBox> _boxes = [];
     private readonly List<EnvelopeEditor> _envelopes = [];
     private readonly List<Mark> _marks = [];
+
+    /// <summary>The "more formants" fold of the part shown; null when it has none.</summary>
+    private Expander? _moreFormants;
     private readonly Dictionary<string, EditableValue> _values = [];
     private PatchEditorViewModel? _editor;
 
@@ -205,6 +208,7 @@ public sealed partial class PatchInspector : UserControl
             _boxes.Clear();
             _envelopes.Clear();
             _marks.Clear();
+            _moreFormants = null;
             Title.Text = string.Empty;
             if (_editor is { Editor: { } editor, DisplayedPatch: { } patch, Selected: { } part })
             {
@@ -333,6 +337,7 @@ public sealed partial class PatchInspector : UserControl
                         _moreFormantsExpanded = expander.IsExpanded;
                     }
                 };
+                _moreFormants = expander;
                 Body.Children.Add(expander);
             }
 
@@ -569,7 +574,7 @@ public sealed partial class PatchInspector : UserControl
             var label = new TextBlock { Name = "label:" + id, Text = value.Label, Classes = { "row", "drag" } };
             ToolTip.SetTip(label, "Drag sideways to change; Shift for finer steps" + (value.SnapPoints is null ? "." : ", Ctrl for the musical ratios."));
             box.DragWith(label);
-            AddMark(box, p => Current().Get(p), static v => NumberBox.Format((double)v!));
+            AddMark(box, p => Current().Get(p), static v => NumberBox.Format((double)v!), folded: into is not null);
             AddRow(label, box, value.Unit, into);
         }
     }
@@ -699,8 +704,9 @@ public sealed partial class PatchInspector : UserControl
     /// <param name="target">The control that gets the outline: the box or menu itself, or a frame around a toggle or graph.</param>
     /// <param name="read">Reads the value from a patch.</param>
     /// <param name="describe">The value in words for the tooltip; null for no tooltip.</param>
-    private void AddMark(Control target, Func<OperatorMatrixPatch, object?> read, Func<object?, string>? describe)
-        => _marks.Add(new Mark(target, read, describe));
+    /// <param name="folded">True for a value under the "more formants" fold.</param>
+    private void AddMark(Control target, Func<OperatorMatrixPatch, object?> read, Func<object?, string>? describe, bool folded = false)
+        => _marks.Add(new Mark(target, read, describe, folded));
 
     /// <summary>
     /// Gives the controls whose value the edit changed the "edited" class and a tooltip with the original value; none
@@ -710,16 +716,24 @@ public sealed partial class PatchInspector : UserControl
     {
         OperatorMatrixPatch? original = _editor?.EditedFrom;
         bool isNew = original is not null && _editor?.Selected is { } part && EditMarks.IsNew(original, patch, part);
+        bool anyFolded = false;
         foreach (Mark mark in _marks)
         {
             object? was = original is null ? null : mark.Read(original);
             bool edited = original is not null && (isNew || !Equals(mark.Read(patch), was));
+            anyFolded |= edited && mark.Folded;
             mark.Target.Classes.Set("edited", edited);
             if (mark.Describe is { } describe)
             {
                 string? tip = !edited ? null : isNew ? "New: not in the original" : $"Edited; the original is {Described(describe(was))}";
                 ToolTip.SetTip(mark.Target, tip);
             }
+        }
+
+        // A change under the folded F4 and F5 shows on the fold's header too.
+        if (_moreFormants is { } more)
+        {
+            more.Header = anyFolded ? "more formants (edited)" : "more formants";
         }
 
         static string Described(string text) => text.Length == 0 ? "not set" : text;
@@ -762,7 +776,7 @@ public sealed partial class PatchInspector : UserControl
     /// A control that shows a value of the patch, marked when the edit changed that value: <see cref="Read"/> takes the
     /// value from a patch, to compare the edit with the original.
     /// </summary>
-    private sealed record Mark(Control Target, Func<OperatorMatrixPatch, object?> Read, Func<object?, string>? Describe);
+    private sealed record Mark(Control Target, Func<OperatorMatrixPatch, object?> Read, Func<object?, string>? Describe, bool Folded);
 
     private static string FilterName(OperatorFilterType type) => type switch
     {

@@ -41,6 +41,23 @@ public sealed class EditMarksTests
     private static PatchPart[] Edited(OperatorMatrixPatch original, OperatorMatrixPatch current)
         => [.. AllParts(original.OperatorCount).Where(p => EditMarks.IsEdited(original, current, p))];
 
+    /// <summary>The inspector's rule for one value: every value of a new part is edited, any other when it differs.</summary>
+    private static bool ValueEdited(OperatorMatrixPatch original, OperatorMatrixPatch current, PatchPart part, EditableValue value)
+        => EditMarks.IsNew(original, current, part) || !value.Get(original).Equals(value.Get(current));
+
+    [Fact]
+    public void AConnectionAFreeOperatorKept_IsNotInTheOriginal()
+    {
+        // OP3 is free but kept a connection to OP1; a new modulator in OP3 makes a new connection, not an edited one.
+        OperatorMatrixPatch original = TwoOperators().WithEdge(new ModulationEdge(2, 0, true, 4.0));
+        OperatorMatrixPatch added = Done(original, Fmx6, PatchEdits.AddModulator(0));
+        Assert.True(EditMarks.IsNew(original, added, new PatchPart.ConnectionPart(2, 0)));
+        Assert.True(EditMarks.IsEdited(original, added, new PatchPart.ConnectionPart(2, 0)));
+
+        // And with OP3 still free the kept connection is not part of the sound: nothing to mark.
+        Assert.Empty(Edited(original, TwoOperators()));
+    }
+
     [Fact]
     public void Unchanged_MarksNothing()
     {
@@ -60,7 +77,7 @@ public sealed class EditMarksTests
 
         Assert.Equal([new PatchPart.OperatorPart(1)], Edited(original, edited));
         IReadOnlyList<EditableValue> values = EditableValues.For(edited, Fmx6.Capabilities, new PatchPart.OperatorPart(1));
-        Assert.Equal(["op2.frequency.ratio"], values.Where(v => EditMarks.IsEdited(original, edited, new PatchPart.OperatorPart(1), v)).Select(static v => v.Id));
+        Assert.Equal(["op2.frequency.ratio"], values.Where(v => ValueEdited(original, edited, new PatchPart.OperatorPart(1), v)).Select(static v => v.Id));
     }
 
     [Fact]
@@ -71,7 +88,7 @@ public sealed class EditMarksTests
         OperatorMatrixPatch edited = Done(original, Fmx6, output.Set(0.5));
 
         Assert.Equal([new PatchPart.OperatorPart(0)], Edited(original, edited));
-        Assert.True(EditMarks.IsEdited(original, edited, new PatchPart.OperatorPart(0), output));
+        Assert.True(ValueEdited(original, edited, new PatchPart.OperatorPart(0), output));
     }
 
     [Fact]
@@ -105,7 +122,7 @@ public sealed class EditMarksTests
 
         // Every value of the new operator is new.
         IReadOnlyList<EditableValue> values = EditableValues.For(duplicated, Fmx6.Capabilities, new PatchPart.OperatorPart(2));
-        Assert.All(values, v => Assert.True(EditMarks.IsEdited(original, duplicated, new PatchPart.OperatorPart(2), v), v.Id));
+        Assert.All(values, v => Assert.True(ValueEdited(original, duplicated, new PatchPart.OperatorPart(2), v), v.Id));
 
         // A removed operator differs too (its connection goes with it), though the diagram no longer draws it.
         OperatorMatrixPatch removed = Done(original, Fmx6, PatchEdits.RemoveOperator(1));
