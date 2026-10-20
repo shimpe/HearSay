@@ -134,7 +134,20 @@ public sealed class FilterTuningTests
             new AudioTarget(audio.Samples, audio.SampleRate, bell.FrequencyHz),
             new PatchMatchOptions { EvaluationBudget = 600, RandomSeed = 5, StructureLibrarySize = 0 });
 
-        string result = string.Join(" ", outcome.Candidates.Select(static c => c.Patch.ComputeHash() + "@" + c.Loss.ToString("R", CultureInfo.InvariantCulture)));
-        Assert.Equal("A827AF6B53B560E0DC0D54E3C2FB393C@0.29851082327657774 4D44D3BDF09BAEB5C2BEF87220DA74D1@0.31178206263980823 5F76C34D33C60667AB17B0E87647F540@0.3120797354081999", result);
+        // The structures exactly, the losses to eight significant digits: Windows and Linux round the last bits of their
+        // maths functions differently, which moves the tuned values and the losses that far and no further.
+        Assert.Equal(
+            [
+                "op1:PhaseModulation/Sine/r1/out;op2:PhaseModulation/Sine/r2.5/out;op3:PhaseModulation/Sine/r2.76/out;op4:PhaseModulation/Sine/r4.5/out;op5:PhaseModulation/Sine/r6/out;op6:PhaseModulation/Sine/r8/out;|4>4;",
+                "op1:PhaseModulation/Sine/r1/out;op2:PhaseModulation/Sine/r2.76/out;op3:PhaseModulation/Sine/r3.5;op4:PhaseModulation/Sine/r3.5;op5:PhaseModulation/Sine/r5.4;|3>1;4>1;5>2;",
+                "op1:PhaseModulation/Sine/r2.5/out;op2:PhaseModulation/Sine/r2.76/out;op3:PhaseModulation/Sine/r4.5/out;op4:PhaseModulation/Sine/r3.5;op5:PhaseModulation/Sine/r3.5;op6:PhaseModulation/Sine/r5.4;|5>1;6>2;4>3;5>3;",
+            ],
+            outcome.Candidates.Select(static c => c.Regime.Value));
+        double[] losses = [0.29851082327657774, 0.31178206263980823, 0.3120797354081999];
+        for (int i = 0; i < losses.Length; i++)
+        {
+            double loss = outcome.Candidates[i].Loss;
+            Assert.True(Math.Abs(loss - losses[i]) <= 1e-8 * losses[i], string.Create(CultureInfo.InvariantCulture, $"finalist {i + 1}: loss {loss:R}, expected {losses[i]:R}"));
+        }
     }
 }
