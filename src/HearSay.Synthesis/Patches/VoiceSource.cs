@@ -4,8 +4,8 @@ namespace HearSay.Synthesis.Patches;
 /// The sources of an operator with a formant filter, which only shapes the harmonics it is given. The voice source, a
 /// narrow pulse (<see cref="Width"/>, 1 %) with at least <see cref="Harmonics"/> harmonics and no noise on the elliptic
 /// parameter, is the flat source the editor gives (the vowel presets assume one). The rich source is what the library
-/// and the search give: a saw or a pulse with many harmonics, which matches heard vowels better, and the voice source
-/// in place of a waveform with few harmonics. A noise operator with a formant filter stays noise (a whisper).
+/// and the search give: a saw or a pulse with many harmonics, which matches recorded vowels better, and the voice source
+/// in place of any other tonal waveform. A noise operator with a formant filter stays noise (a whisper).
 /// </summary>
 public static class VoiceSource
 {
@@ -18,8 +18,8 @@ public static class VoiceSource
     /// <summary>
     /// The operator as a rich source, what the library and the search give an operator with a formant filter: noise
     /// unchanged (a whisper); a saw, or a pulse at its own width, with <see cref="Harmonics"/> harmonics or the more
-    /// it has; any other tonal waveform (sine, triangle, square, elliptic), which leaves a formant filter little to
-    /// shape, the voice source (<see cref="AsVoiceSource"/>). Everything else stays.
+    /// it has; any other tonal waveform the voice source (<see cref="AsVoiceSource"/>): a sine leaves a formant filter
+    /// nothing to shape, a triangle little, and a square or an elliptic only odd harmonics. Everything else stays.
     /// </summary>
     /// <param name="op">The operator.</param>
     public static OperatorPatch AsRichSource(OperatorPatch op)

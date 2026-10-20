@@ -430,7 +430,7 @@ follows every edit at once, the code a moment later, with the line *Edited in He
 
   **A vowel needs a source.** A formant filter only shapes the harmonics it is given: a vowel is heard when the operator
   sends many harmonics of about the same strength, so that every formant finds some to lift. A narrow pulse does that;
-  a saw does not (its harmonics fall 6 dB per octave, so F3..F5 have little to work with), and a sine has nothing above
+  a saw less so (its harmonics fall 6 dB per octave, so F3..F5 have less to work with), and a sine has nothing above
   the fundamental. The number of harmonics matters as much: a waveform built from 8 harmonics sends nothing above
   8 × the note's frequency, so on A3 (220 Hz) nothing above 1760 Hz reaches F2 and higher. *Voice source*, under the
   vowel buttons, makes the operator such a source in one step: a pulse 1 % wide (*pulse width* 0.01) with 64
