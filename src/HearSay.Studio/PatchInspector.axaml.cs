@@ -263,6 +263,7 @@ public sealed partial class PatchInspector : UserControl
             Action("AddModulator", "Add modulator", $"A new operator that modulates OP{op + 1}", () => _editor!.Apply(PatchEdits.AddModulator(op))),
             ConnectButton("ModulateTo", "Modulate…", $"Let OP{op + 1} modulate another operator, or itself", op, outgoing: true),
             ConnectButton("ModulatedBy", "Modulated by…", $"Let another operator, or OP{op + 1} itself, modulate OP{op + 1}", op, outgoing: false),
+            Action("Duplicate", "Duplicate", $"A copy of OP{op + 1} in the first free operator, with all its connections", () => ApplyAndSelectAdded(PatchEdits.DuplicateOperator(op))),
             Action("Remove", "Remove", $"Remove OP{op + 1} and its connections", () => Deselect(_editor!.Apply(PatchEdits.RemoveOperator(op)))));
 
         IReadOnlyList<OperatorWaveform> waveforms = PatchEdits.WaveformsFor(caps);
@@ -506,6 +507,37 @@ public sealed partial class PatchInspector : UserControl
         if (!outcome.IsRefused && _editor is not null)
         {
             _editor.Selected = null;
+        }
+    }
+
+    /// <summary>Makes an edit and selects the operator it put in a free slot, such as a copy, so that it can be changed at once.</summary>
+    /// <param name="edit">The edit.</param>
+    private void ApplyAndSelectAdded(PatchEdit edit)
+    {
+        if (_editor is null)
+        {
+            return;
+        }
+
+        // The patch the edit is made on, which is the edited version even while the original is shown.
+        OperatorMatrixPatch? before = null;
+        EditOutcome outcome = _editor.Apply((p, c) =>
+        {
+            before = p;
+            return edit(p, c);
+        });
+        if (outcome.IsRefused || before is null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < before.OperatorCount; i++)
+        {
+            if (!before.Operators[i].Enabled && outcome.Patch.Operators[i].Enabled)
+            {
+                _editor.Selected = new PatchPart.OperatorPart(i);
+                return;
+            }
         }
     }
 

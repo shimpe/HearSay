@@ -128,6 +128,71 @@ public sealed class PatchEditsTests
     }
 
     [Fact]
+    public void DuplicateOperator_CopiesTheOperatorAndAllItsConnections()
+    {
+        // OP3 -> OP2 (with an envelope) -> OP1, OP2 feeds itself back and is heard as well. OP4 is free but still has
+        // a connection to OP1 from when it was in use.
+        OperatorEnvelope decay = OperatorEnvelope.Adsr(0.005, 0.3, 0.5, 0.2);
+        OperatorMatrixPatch patch = TwoOperators()
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(3)))
+            .WithEdge(new ModulationEdge(2, 1, true, 1.5, decay))
+            .WithEdge(new ModulationEdge(1, 1, true, 0.5))
+            .WithOutputLevel(1, 0.4)
+            .WithEdge(new ModulationEdge(3, 0, true, 3.0));
+
+        OperatorMatrixPatch edited = Done(patch, Fmx6, PatchEdits.DuplicateOperator(1));
+
+        Assert.Equal(patch.Operators[1], edited.Operators[3]);
+        Assert.Equal(0.4, edited.OutputLevels[3]);
+        Assert.Equal(new ModulationEdge(2, 3, true, 1.5, decay), edited.ModulationMatrix.Find(2, 3));
+        Assert.Equal(new ModulationEdge(3, 0, true, 2.0), edited.ModulationMatrix.Find(3, 0));
+        Assert.Equal(new ModulationEdge(3, 3, true, 0.5), edited.ModulationMatrix.Find(3, 3));
+        Assert.Equal(6, edited.ModulationMatrix.Edges.Count);
+
+        // The original and the rest stay as they were.
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.Equal(patch.Operators[i], edited.Operators[i]);
+            Assert.Equal(patch.OutputLevels[i], edited.OutputLevels[i]);
+        }
+
+        Assert.Equal(patch.ModulationMatrix.Find(2, 1), edited.ModulationMatrix.Find(2, 1));
+        Assert.Equal(patch.ModulationMatrix.Find(1, 1), edited.ModulationMatrix.Find(1, 1));
+        Assert.Equal(patch.ModulationMatrix.Find(1, 0), edited.ModulationMatrix.Find(1, 0));
+        Assert.All(edited.Operators.Skip(4), static op => Assert.False(op.Enabled));
+    }
+
+    [Fact]
+    public void DuplicateOperator_WithNoFreeSlot_OrOfAFreeSlot_IsRefused()
+    {
+        OperatorMatrixPatch patch = TwoOperators();
+        Assert.Contains("OP3", Refused(patch, Fmx6, PatchEdits.DuplicateOperator(2)), StringComparison.Ordinal);
+
+        for (int i = 2; i < 6; i++)
+        {
+            patch = patch.WithOperator(i, OperatorPatch.Sine(OperatorFrequency.AtRatio(i)));
+        }
+
+        Assert.Contains("free", Refused(patch, Fmx6, PatchEdits.DuplicateOperator(0)), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DuplicateOperator_OverTheModulationLimit_IsRefused()
+    {
+        // OP1 receives 2 rad from OP2 and 21.5 rad from itself; a copy of OP2 adds another 2.
+        OperatorMatrixPatch patch = TwoOperators().WithEdge(new ModulationEdge(0, 0, true, 21.5));
+        string why = Refused(patch, Fmx6, PatchEdits.DuplicateOperator(1));
+        Assert.Contains("OP1", why, StringComparison.Ordinal);
+
+        // Within the limit it is done, on every profile.
+        foreach (SynthesisProfile profile in new[] { Fm7, Fmx6, Nome6 })
+        {
+            OperatorMatrixPatch edited = Done(TwoOperators(), profile, PatchEdits.DuplicateOperator(1));
+            Assert.Equal(new ModulationEdge(2, 0, true, 2.0), edited.ModulationMatrix.Find(2, 0));
+        }
+    }
+
+    [Fact]
     public void Connect_SelfFeedback()
     {
         OperatorMatrixPatch edited = Done(TwoOperators(), Fmx6, PatchEdits.Connect(1, 1, 0.5));
@@ -490,7 +555,7 @@ public sealed class PatchEditsTests
         }
 
         OperatorWaveform[] waveforms = Enum.GetValues<OperatorWaveform>();
-        switch (random.Next(13))
+        switch (random.Next(14))
         {
             case 0:
             {
@@ -570,6 +635,12 @@ public sealed class PatchEditsTests
             {
                 int op = Op();
                 return ($"SetVoiceSource({op})", PatchEdits.SetVoiceSource(op));
+            }
+
+            case 12:
+            {
+                int op = Op();
+                return ($"DuplicateOperator({op})", PatchEdits.DuplicateOperator(op));
             }
 
             default:

@@ -66,16 +66,7 @@ public static class PatchEdits
             return EditOutcome.Refused(patch, missing);
         }
 
-        int slot = -1;
-        for (int i = 0; i < patch.OperatorCount; i++)
-        {
-            if (!patch.Operators[i].Enabled)
-            {
-                slot = i;
-                break;
-            }
-        }
-
+        int slot = FirstFreeSlot(patch);
         if (slot < 0)
         {
             return EditOutcome.Refused(patch, $"All {patch.OperatorCount} operators are in use; there is no free slot for a new modulator. Remove an operator first.");
@@ -120,6 +111,65 @@ public static class PatchEdits
         OperatorMatrixPatch edited = WithoutConnectionsOf(patch, op)
             .WithOperator(op, patch.Operators[op] with { Enabled = false })
             .WithOutputLevel(op, 0.0);
+        return EditOutcome.Done(edited);
+    };
+
+    /// <summary>
+    /// Duplicates an operator: the first disabled slot becomes a copy of it, with its output level and all its
+    /// connections (the operators that modulate it modulate the copy, the copy modulates what it modulates, and its
+    /// feedback becomes the copy's own). Refused when no slot is free, or when an operator would receive more modulation
+    /// than the profile allows.
+    /// </summary>
+    /// <param name="op">The operator to duplicate.</param>
+    public static PatchEdit DuplicateOperator(int op) => (patch, c) =>
+    {
+        if (MissingOrUnused(patch, op) is { } missing)
+        {
+            return EditOutcome.Refused(patch, missing);
+        }
+
+        int slot = FirstFreeSlot(patch);
+        if (slot < 0)
+        {
+            return EditOutcome.Refused(patch, $"All {patch.OperatorCount} operators are in use; there is no free slot for a copy of OP{op + 1}. Remove an operator first.");
+        }
+
+        // A copy in the slot, without whatever connections the unused slot still had.
+        OperatorMatrixPatch edited = WithoutConnectionsOf(patch, slot)
+            .WithOperator(slot, patch.Operators[op])
+            .WithOutputLevel(slot, patch.OutputLevels[op]);
+        var destinations = new HashSet<int>();
+        foreach (ModulationEdge edge in patch.ModulationMatrix.Edges)
+        {
+            if (!edge.Enabled || (edge.SourceOperator != op && edge.DestinationOperator != op))
+            {
+                continue;
+            }
+
+            int source = edge.SourceOperator == op ? slot : edge.SourceOperator;
+            int destination = edge.DestinationOperator == op ? slot : edge.DestinationOperator;
+            if (RoutingRefusal(c, source, destination) is { } routing)
+            {
+                return EditOutcome.Refused(patch, routing);
+            }
+
+            edited = edited.WithEdge(edge with { SourceOperator = source, DestinationOperator = destination });
+            destinations.Add(destination);
+        }
+
+        if (!c.SupportsCircularFeedback && HasLoop(edited))
+        {
+            return EditOutcome.Refused(patch, $"A copy of OP{op + 1} would close a feedback loop through several operators, which this profile cannot play.");
+        }
+
+        foreach (int destination in destinations.Order())
+        {
+            if (LimitRefusal(edited, destination, c) is { } limit)
+            {
+                return EditOutcome.Refused(patch, limit);
+            }
+        }
+
         return EditOutcome.Done(edited);
     };
 
@@ -520,6 +570,20 @@ public static class PatchEdits
     /// <summary>An enabled operator that is mixed into the output.</summary>
     private static bool IsHeardCarrier(OperatorMatrixPatch patch, int op)
         => patch.Operators[op].Enabled && patch.OutputLevels[op] > 0.0;
+
+    /// <summary>The first disabled operator; -1 when all are in use.</summary>
+    private static int FirstFreeSlot(OperatorMatrixPatch patch)
+    {
+        for (int i = 0; i < patch.OperatorCount; i++)
+        {
+            if (!patch.Operators[i].Enabled)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 
     private static OperatorMatrixPatch WithoutConnectionsOf(OperatorMatrixPatch patch, int op)
     {
