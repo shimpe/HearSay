@@ -37,6 +37,7 @@
               <local:FmDiagram x:Name="Diagram" Patch="{Binding Patch, ElementName=Root}" SharedNoise="{Binding SharedNoise, ElementName=Root}" EmptyText="{Binding EmptyDiagramText, ElementName=Root}" Margin="8"
                                IsEditing="{Binding Editor.HasSound, ElementName=Root, FallbackValue=False}"
                                CanNudge="{Binding Editor.ShowingEdited, ElementName=Root, FallbackValue=False}"
+                               Original="{Binding Editor.EditedFrom, ElementName=Root, FallbackValue={x:Null}}"
                                SelectedPart="{Binding Editor.Selected, ElementName=Root, Mode=TwoWay}" />
               <!-- While the tab shows no sound: a new one, one sine, to build on (below the diagram's placeholder text) -->
               <Button x:Name="StartFromScratchButton" Content="Start from scratch" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="14,6"

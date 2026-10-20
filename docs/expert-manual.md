@@ -487,6 +487,13 @@ follows every edit at once, the code a moment later, with the line *Edited in He
   the edit is shown, *Save result folder…* becomes *Save edited sound…* and saves the edited sound's own folder. In the
   Search tab, the audio loss, the similarity and the per-note similarity shown with an edit are the
   original's, marked *(original)*: they are not computed again; the routing and the matrix follow the edit.
+- **What the edit changed.** While the edit is shown, what differs from the original is outlined in pink. In the
+  diagram: an operator box, the PITCH or NOISE box when anything of that part changed, and a connection amount or an
+  output level when that connection or level changed (a new operator or connection counts as changed; one that was
+  removed is no longer drawn). In the inspector: each number box, menu, toggle and envelope graph whose value differs,
+  with the original value in its tooltip (*Edited; the original is 1*), or every control of a part the edit added
+  (*New: not in the original*). Parts are compared by what they hold, so a value set back by hand is no longer marked.
+  The Original side shows no marks. The selected part's cyan outline is drawn just outside its own pink one.
 - **Favourites from edits.** ☆ on an edit keeps it as a new favourite whose origin reads *edited from* and the
   original's origin; the favourite of the original stays as it was. In the Library tab the edit then moves to the new
   favourite: it is shown and selected, and the sound it was made from goes back to its original, without the edit's

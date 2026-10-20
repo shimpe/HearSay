@@ -19,7 +19,9 @@ namespace HearSay.Studio;
 /// filter has vowel presets (set and speaker menus and a button per vowel) and folds F4 and F5 away; what a part may
 /// have or not (a sweep, a connection envelope, roughness, a pitch envelope, vibrato) is a toggle; envelopes are graphs
 /// with their breakpoints as numbers. Its data context is the tab's <see cref="PatchEditorViewModel"/>. While the
-/// original is shown it shows the original's values and cannot be changed. Refusals go to the status line.
+/// original is shown it shows the original's values and cannot be changed. Refusals go to the status line. While the
+/// edit is shown, every control whose value differs from the original's has an outline in the edited colour, and its
+/// tooltip tells the original value; in a part the edit added (a new operator or connection) all of them have.
 /// </summary>
 public sealed partial class PatchInspector : UserControl
 {
@@ -39,6 +41,7 @@ public sealed partial class PatchInspector : UserControl
 
     private readonly List<NumberBox> _boxes = [];
     private readonly List<EnvelopeEditor> _envelopes = [];
+    private readonly List<Mark> _marks = [];
     private readonly Dictionary<string, EditableValue> _values = [];
     private PatchEditorViewModel? _editor;
 
@@ -124,6 +127,8 @@ public sealed partial class PatchInspector : UserControl
             envelope.Envelope = EnvelopeEdits.Get(patch, new EnvelopeRef(envelope.Part!, envelope.Kind));
         }
 
+        ShowMarks(patch);
+
         // The original cannot be changed; "more formants" still opens and closes, its rows read-only.
         bool editable = !_editor.ShowingOriginal;
         foreach (Control child in Body.Children)
@@ -199,6 +204,7 @@ public sealed partial class PatchInspector : UserControl
             Body.Children.Clear();
             _boxes.Clear();
             _envelopes.Clear();
+            _marks.Clear();
             Title.Text = string.Empty;
             if (_editor is { Editor: { } editor, DisplayedPatch: { } patch, Selected: { } part })
             {
@@ -238,8 +244,8 @@ public sealed partial class PatchInspector : UserControl
                 break;
             case PatchPart.PitchPart:
                 Title.Text = "PITCH";
-                Toggle("PitchEnvelope", "Pitch envelope", patch.Pitch.PitchEnvelope is not null, on => PatchEdits.SetPitchEnvelope(on));
-                Toggle("Vibrato", "Vibrato", patch.Pitch.Vibrato is not null, on => PatchEdits.SetVibrato(on));
+                Toggle("PitchEnvelope", "Pitch envelope", static p => p.Pitch.PitchEnvelope is not null, on => PatchEdits.SetPitchEnvelope(on));
+                Toggle("Vibrato", "Vibrato", static p => p.Pitch.Vibrato is not null, on => PatchEdits.SetVibrato(on));
                 AddRows(_editor!.SelectedValues);
                 AddEnvelopes(patch, part, "Pitch envelope (cents)");
                 break;
@@ -269,12 +275,12 @@ public sealed partial class PatchInspector : UserControl
         IReadOnlyList<OperatorWaveform> waveforms = PatchEdits.WaveformsFor(caps);
         if (waveforms.Count > 1)
         {
-            Menu("Waveform", "waveform", [.. waveforms.Select(w => (PatchDescription.WaveformName(w), (object)w))], o.Waveform, w => PatchEdits.SetWaveform(op, (OperatorWaveform)w));
+            Menu("Waveform", "waveform", [.. waveforms.Select(w => (PatchDescription.WaveformName(w), (object)w))], p => p.Operators[op].Waveform, w => PatchEdits.SetWaveform(op, (OperatorWaveform)w));
         }
 
         if (caps.SupportsRatioFrequency && caps.SupportsFixedFrequency)
         {
-            Menu("FrequencyMode", "frequency", [("ratio", OperatorFrequencyMode.Ratio), ("fixed Hz", OperatorFrequencyMode.Fixed)], o.Frequency.Mode, m => PatchEdits.SetFrequencyMode(op, (OperatorFrequencyMode)m));
+            Menu("FrequencyMode", "frequency", [("ratio", OperatorFrequencyMode.Ratio), ("fixed Hz", OperatorFrequencyMode.Fixed)], p => p.Operators[op].Frequency.Mode, m => PatchEdits.SetFrequencyMode(op, (OperatorFrequencyMode)m));
         }
 
         static bool IsFilter(EditableValue v) => v.Id.Contains(".operatorFilter.", StringComparison.Ordinal);
@@ -286,7 +292,7 @@ public sealed partial class PatchInspector : UserControl
         {
             Heading("Filter");
             (string, object)[] types = [("none", "none"), .. Enum.GetValues<OperatorFilterType>().Select(t => (FilterName(t), (object)t))];
-            Menu("FilterType", "type", types, o.Filter?.Type is { } type ? type : "none", t => PatchEdits.SetFilter(op, t as OperatorFilterType?));
+            Menu("FilterType", "type", types, p => p.Operators[op].Filter?.Type is { } type ? type : "none", t => PatchEdits.SetFilter(op, t as OperatorFilterType?));
             bool formant = o.Filter?.Type == OperatorFilterType.Formant;
             if (formant)
             {
@@ -295,7 +301,7 @@ public sealed partial class PatchInspector : UserControl
 
             if (o.Filter is not null)
             {
-                Toggle("Sweep", "Sweep (an envelope moves the frequency)", o.Filter.Envelope is not null, on => PatchEdits.SetSweep(op, on));
+                Toggle("Sweep", "Sweep (an envelope moves the frequency)", p => p.Operators[op].Filter?.Envelope is not null, on => PatchEdits.SetSweep(op, on));
             }
 
             // F4 and F5 fold away, in their place after F3: the search never sets them, and they matter mostly for the
@@ -338,7 +344,7 @@ public sealed partial class PatchInspector : UserControl
 
         if (PatchEdits.HasSharedNoise(caps) && !o.Waveform.IsNoise())
         {
-            Toggle("Roughness", "Roughness from the shared noise", o.NoisePhase != 0 || o.NoiseM != 0, on => PatchEdits.SetRoughness(op, on));
+            Toggle("Roughness", "Roughness from the shared noise", p => p.Operators[op].NoisePhase != 0 || p.Operators[op].NoiseM != 0, on => PatchEdits.SetRoughness(op, on));
             AddRows(values.Where(IsRoughness));
         }
 
@@ -357,7 +363,7 @@ public sealed partial class PatchInspector : UserControl
         AddRows(_editor!.SelectedValues);
         if (caps.SupportsDynamicModulationMatrix || edge.AmountEnvelope is not null)
         {
-            Toggle("ConnectionEnvelope", "Amount follows an envelope", edge.AmountEnvelope is not null, on => PatchEdits.SetConnectionEnvelope(s, d, on));
+            Toggle("ConnectionEnvelope", "Amount follows an envelope", p => p.ModulationMatrix.Find(s, d)?.AmountEnvelope is not null, on => PatchEdits.SetConnectionEnvelope(s, d, on));
         }
 
         AddEnvelopes(patch, part, "Amount envelope (× the amount)");
@@ -563,6 +569,7 @@ public sealed partial class PatchInspector : UserControl
             var label = new TextBlock { Name = "label:" + id, Text = value.Label, Classes = { "row", "drag" } };
             ToolTip.SetTip(label, "Drag sideways to change; Shift for finer steps" + (value.SnapPoints is null ? "." : ", Ctrl for the musical ratios."));
             box.DragWith(label);
+            AddMark(box, p => Current().Get(p), static v => NumberBox.Format((double)v!));
             AddRow(label, box, value.Unit, into);
         }
     }
@@ -594,7 +601,9 @@ public sealed partial class PatchInspector : UserControl
             k++;
             var editor = new EnvelopeEditor { Kind = reference.Kind, Part = part, Editor = _editor, Height = 96 };
             ToolTip.SetTip(editor, "Drag a point; double-click a line to add one; right-click a point for more");
-            Body.Children.Add(editor);
+            var frame = new Border { Child = editor, Classes = { "mark" } };
+            AddMark(frame, p => EnvelopeEdits.Get(p, reference) is { } e ? HearSayJson.Serialize(e, indented: false) : null, null);
+            Body.Children.Add(frame);
             _envelopes.Add(editor);
             (double low, double high) = EnvelopeEdits.LevelRange(reference.Kind);
             string unit = reference.Kind == EnvelopeKind.Pitch ? "ct" : string.Empty;
@@ -635,6 +644,7 @@ public sealed partial class PatchInspector : UserControl
             Name = FormattableString.Invariant($"envelope:{reference.Kind}:{index}:{what}"),
         };
         _boxes.Add(box);
+        AddMark(box, p => PointOf(p) is { } point ? read(point) : double.NaN, static v => NumberBox.Format((double)v!));
         return box;
     }
 
@@ -645,9 +655,11 @@ public sealed partial class PatchInspector : UserControl
         return Math.Min(20.0, root <= 0 ? 0 : root * root);
     }
 
-    private void Menu(string name, string label, (string Text, object Tag)[] choices, object current, Func<object, PatchEdit> edit)
+    private void Menu(string name, string label, (string Text, object Tag)[] choices, Func<OperatorMatrixPatch, object> read, Func<object, PatchEdit> edit)
     {
+        object current = read(_editor!.DisplayedPatch!);
         var menu = new ComboBox { Name = name };
+        AddMark(menu, read, v => choices.FirstOrDefault(c => Equals(c.Tag, v)).Text ?? string.Empty);
         foreach ((string text, object tag) in choices)
         {
             var item = new ComboBoxItem { Content = text, Tag = tag };
@@ -668,9 +680,9 @@ public sealed partial class PatchInspector : UserControl
         AddRow(new TextBlock { Text = label, Classes = { "row" } }, menu, string.Empty);
     }
 
-    private void Toggle(string name, string text, bool on, Func<bool, PatchEdit> edit)
+    private void Toggle(string name, string text, Func<OperatorMatrixPatch, bool> read, Func<bool, PatchEdit> edit)
     {
-        var toggle = new CheckBox { Name = name, Content = text, IsChecked = on };
+        var toggle = new CheckBox { Name = name, Content = text, IsChecked = read(_editor!.DisplayedPatch!) };
         toggle.IsCheckedChanged += (_, _) =>
         {
             if (!_building)
@@ -678,7 +690,39 @@ public sealed partial class PatchInspector : UserControl
                 Restore(_editor!.Apply(edit(toggle.IsChecked == true)));
             }
         };
-        Body.Children.Add(toggle);
+        var frame = new Border { Child = toggle, Classes = { "mark" } };
+        AddMark(frame, p => read(p), static v => (bool)v! ? "on" : "off");
+        Body.Children.Add(frame);
+    }
+
+    /// <summary>Marks a control while the edit is shown when the value it shows differs from the original's.</summary>
+    /// <param name="target">The control that gets the outline: the box or menu itself, or a frame around a toggle or graph.</param>
+    /// <param name="read">Reads the value from a patch.</param>
+    /// <param name="describe">The value in words for the tooltip; null for no tooltip.</param>
+    private void AddMark(Control target, Func<OperatorMatrixPatch, object?> read, Func<object?, string>? describe)
+        => _marks.Add(new Mark(target, read, describe));
+
+    /// <summary>
+    /// Gives the controls whose value the edit changed the "edited" class and a tooltip with the original value; none
+    /// while the original is shown or nothing is edited.
+    /// </summary>
+    private void ShowMarks(OperatorMatrixPatch patch)
+    {
+        OperatorMatrixPatch? original = _editor?.EditedFrom;
+        bool isNew = original is not null && _editor?.Selected is { } part && EditMarks.IsNew(original, patch, part);
+        foreach (Mark mark in _marks)
+        {
+            object? was = original is null ? null : mark.Read(original);
+            bool edited = original is not null && (isNew || !Equals(mark.Read(patch), was));
+            mark.Target.Classes.Set("edited", edited);
+            if (mark.Describe is { } describe)
+            {
+                string? tip = !edited ? null : isNew ? "New: not in the original" : $"Edited; the original is {Described(describe(was))}";
+                ToolTip.SetTip(mark.Target, tip);
+            }
+        }
+
+        static string Described(string text) => text.Length == 0 ? "not set" : text;
     }
 
     /// <summary>Puts a menu or toggle back when its edit was refused: the controls are built again from the patch.</summary>
@@ -713,6 +757,12 @@ public sealed partial class PatchInspector : UserControl
     private void Heading(string text) => Body.Children.Add(new TextBlock { Text = text, Classes = { "heading" } });
 
     private void Note(string text) => Body.Children.Add(new TextBlock { Text = text, FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "row" } });
+
+    /// <summary>
+    /// A control that shows a value of the patch, marked when the edit changed that value: <see cref="Read"/> takes the
+    /// value from a patch, to compare the edit with the original.
+    /// </summary>
+    private sealed record Mark(Control Target, Func<OperatorMatrixPatch, object?> Read, Func<object?, string>? Describe);
 
     private static string FilterName(OperatorFilterType type) => type switch
     {

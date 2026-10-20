@@ -52,6 +52,37 @@ public sealed class PatchEditorViewModelTests
     }
 
     [Fact]
+    public void EditedFrom_IsTheOriginal_OnlyWhileAnEditIsShown()
+    {
+        PatchEditorViewModel vm = Shown(new EditSessions(), new FakeGains());
+        var changes = new List<OperatorMatrixPatch?>();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PatchEditorViewModel.EditedFrom))
+            {
+                changes.Add(vm.EditedFrom);
+            }
+        };
+        Assert.Null(vm.EditedFrom);
+
+        vm.Apply(SetRatio(2));
+        Assert.Same(vm.Editor!.Original, vm.EditedFrom);
+        Assert.Same(vm.Editor.Original, changes[^1]);
+
+        // The original shown: nothing to mark; back to the edit, marked again.
+        vm.ShowingOriginal = true;
+        Assert.Null(vm.EditedFrom);
+        Assert.Null(changes[^1]);
+        vm.ShowingOriginal = false;
+        Assert.Same(vm.Editor.Original, vm.EditedFrom);
+
+        // Undone: nothing is edited.
+        vm.Undo();
+        Assert.Null(vm.EditedFrom);
+        Assert.Null(changes[^1]);
+    }
+
+    [Fact]
     public async Task MatchLoudness_PlaysTheEditAtItsOwnGain_TheOriginalAtItsGain()
     {
         var gains = new FakeGains();

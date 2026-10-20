@@ -41,6 +41,12 @@ public sealed partial class FmDiagram
     /// </summary>
     public static readonly StyledProperty<bool> CanNudgeProperty = AvaloniaProperty.Register<FmDiagram, bool>(nameof(CanNudge), true);
 
+    /// <summary>
+    /// The original of the patch shown when the patch is an edit of it; null for none. The parts the edit changed
+    /// (<see cref="EditMarks"/>) are outlined in the edited colour, and so are the amounts and output levels it changed.
+    /// </summary>
+    public static readonly StyledProperty<OperatorMatrixPatch?> OriginalProperty = AvaloniaProperty.Register<FmDiagram, OperatorMatrixPatch?>(nameof(Original));
+
     /// <summary>Pixels the pointer moves before a press on a number becomes a drag.</summary>
     private const double DragThreshold = 3;
 
@@ -97,6 +103,13 @@ public sealed partial class FmDiagram
     {
         get => GetValue(CanNudgeProperty);
         set => SetValue(CanNudgeProperty, value);
+    }
+
+    /// <inheritdoc cref="OriginalProperty"/>
+    public OperatorMatrixPatch? Original
+    {
+        get => GetValue(OriginalProperty);
+        set => SetValue(OriginalProperty, value);
     }
 
     /// <summary>
@@ -284,7 +297,8 @@ public sealed partial class FmDiagram
         {
             if (part == selected)
             {
-                context.DrawRectangle(null, SelectionPen, box.Inflate(2), 7, 7);
+                // Clear of the box's own outline, which shows whether the edit changed the part.
+                context.DrawRectangle(null, SelectionPen, box.Inflate(3.5), 8, 8);
             }
         }
     }

@@ -40,6 +40,20 @@
     <Style Selector="CheckBox">
       <Setter Property="MinHeight" Value="24" />
     </Style>
+    <!-- A value the edit changed: its box or menu outlined, a toggle or an envelope graph framed, in the edited colour -->
+    <Style Selector="TextBox.edited, ComboBox.edited">
+      <Setter Property="BorderBrush" Value="{StaticResource EditedBrush}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+    </Style>
+    <Style Selector="Border.mark">
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="2,0" />
+    </Style>
+    <Style Selector="Border.mark.edited">
+      <Setter Property="BorderBrush" Value="{StaticResource EditedBrush}" />
+    </Style>
   </UserControl.Styles>
   <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="10,8,4,8">
     <DockPanel>

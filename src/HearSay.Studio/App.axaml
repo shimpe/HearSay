@@ -22,6 +22,9 @@
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimary}" />
     <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource TextMuted}" />
     <SolidColorBrush x:Key="AmberBrush" Color="{StaticResource Amber}" />
+    <!-- The outline of a value the edit changed, in the inspector and the block diagram -->
+    <Color x:Key="Edited">#F472B6</Color>
+    <SolidColorBrush x:Key="EditedBrush" Color="{StaticResource Edited}" />
     <Color x:Key="SystemAccentColor">#22D3EE</Color>
     <Color x:Key="SystemAccentColorDark1">#06B6D4</Color>
     <Color x:Key="SystemAccentColorDark2">#0891B2</Color>

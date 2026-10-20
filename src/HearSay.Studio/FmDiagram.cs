@@ -48,6 +48,7 @@ public sealed partial class FmDiagram : Control
     private static readonly IBrush FilterFill = new SolidColorBrush(Color.Parse("#3B2A6B"));
     private static readonly Pen FilterPen = new(Violet, 1.2);
     private static readonly Pen BoxPen = new(new SolidColorBrush(Color.Parse("#475569")), 1.2);
+    private static readonly Pen EditedPen = new(new SolidColorBrush(Color.Parse("#F472B6")), 1.6);
     private static readonly Pen EdgePen = new(Accent, 1.5);
     private static readonly Pen FeedbackPen = new(Amber, 1.5, new DashStyle([4, 3], 0));
     private static readonly Pen LoopPen = new(Amber, 1.5);
@@ -65,7 +66,7 @@ public sealed partial class FmDiagram : Control
 
     static FmDiagram()
     {
-        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty, IsEditingProperty, SelectedPartProperty, CanNudgeProperty, EmptyTextProperty);
+        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty, IsEditingProperty, SelectedPartProperty, CanNudgeProperty, EmptyTextProperty, OriginalProperty);
         PatchProperty.Changed.AddClassHandler<FmDiagram>(static (d, _) => d.HideTip());
     }
 
@@ -158,6 +159,11 @@ public sealed partial class FmDiagram : Control
         int n = patch.OperatorCount;
         bool editing = IsEditing;
         bool[] audible = patch.FindAudibleOperators();
+
+        // What the edit changed, against the original when the patch is an edit of it.
+        OperatorMatrixPatch? original = Original;
+        bool Edited(PatchPart part) => original is not null && EditMarks.IsEdited(original, patch, part);
+        bool OutputEdited(int op) => original is not null && (original.OutputLevels[op] != patch.OutputLevels[op] || EditMarks.IsNew(original, patch, new PatchPart.OperatorPart(op)));
         // While editing, every operator in use is drawn, and every connection between them, heard or not.
         bool[] drawn = editing ? [.. patch.Operators.Select(static o => o.Enabled)] : audible;
         bool[] carrier = [.. Enumerable.Range(0, n).Select(i => audible[i] && patch.OutputLevels[i] != 0.0)];
@@ -294,7 +300,7 @@ public sealed partial class FmDiagram : Control
 
         // Amounts and levels are drawn last, over everything else, so that no edge runs through them.
         // Each with the value it shows, while editing, and whether it is heard.
-        var labels = new List<(string Text, Point At, IBrush Brush, ModulationEdge? Edge, (string Id, PatchPart Part)? Value, bool Unheard)>();
+        var labels = new List<(string Text, Point At, IBrush Brush, ModulationEdge? Edge, (string Id, PatchPart Part)? Value, bool Unheard, bool Edited)>();
 
         // Output bus and the carriers feeding it; under the bottom row when an edit left no carrier.
         double[] carrierX = [.. shown.Where(i => carrier[i] || (!carrier.Any(static c => c) && level[i] == 0)).Select(i => centers[i].X)];
@@ -307,7 +313,7 @@ public sealed partial class FmDiagram : Control
             var to = new Point(centers[i].X, busY);
             context.DrawLine(OutputPen, from, to);
             DrawArrowHead(context, OutputPen.Brush!, from, to);
-            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted, null, (FormattableString.Invariant($"op{i + 1}.output.level"), new PatchPart.OperatorPart(i)), false));
+            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted, null, (FormattableString.Invariant($"op{i + 1}.output.level"), new PatchPart.OperatorPart(i)), false, OutputEdited(i)));
         }
 
         // Straight lines the curves should stay off: edges to the row below and the output lines.
@@ -330,6 +336,7 @@ public sealed partial class FmDiagram : Control
             string amount = e.Amount.ToString("0.##", CultureInfo.InvariantCulture);
             (string, PatchPart) value = (FormattableString.Invariant($"edge.{e.SourceOperator + 1}>{e.DestinationOperator + 1}.amount"), new PatchPart.ConnectionPart(e.SourceOperator, e.DestinationOperator));
             bool unheard = !audible[e.DestinationOperator] || e.Amount == 0.0;
+            bool edgeEdited = Edited(new PatchPart.ConnectionPart(e.SourceOperator, e.DestinationOperator));
             using IDisposable? pale = Unheard(context, unheard);
             if (e.IsSelfFeedback)
             {
@@ -337,7 +344,7 @@ public sealed partial class FmDiagram : Control
                 var start = new Point(s.X + (boxW / 2), s.Y);
                 var end = new Point(s.X + (boxW / 2) - 10, s.Y - (boxH / 2));
                 DrawArrowCurve(context, LoopPen, Amber, start, new Point(start.X + 28, start.Y), new Point(end.X + 10, end.Y - 28), end);
-                labels.Add((amount, new Point(start.X + 16, end.Y - 26), Amber, e, value, unheard));
+                labels.Add((amount, new Point(start.X + 16, end.Y - 26), Amber, e, value, unheard, edgeEdited));
             }
             else if (level[e.SourceOperator] == level[e.DestinationOperator])
             {
@@ -353,7 +360,7 @@ public sealed partial class FmDiagram : Control
                     var to = new Point(d.X - (direction * boxW / 2), y);
                     context.DrawLine(pen, from, to);
                     DrawArrowHead(context, brush, from, to);
-                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, direction > 0 ? y - 15 : y + 2), brush, e, value, unheard));
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, direction > 0 ? y - 15 : y + 2), brush, e, value, unheard, edgeEdited));
                 }
                 else
                 {
@@ -363,7 +370,7 @@ public sealed partial class FmDiagram : Control
                     double peak = from.Y - 26 - (10 * arcs++);
                     DrawArrowCurve(context, pen, brush, from, new Point(from.X, peak), new Point(to.X, peak), to);
                     double highest = from.Y + (0.75 * (peak - from.Y));
-                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, highest - 15), brush, e, value, unheard));
+                    labels.Add((amount, new Point(((from.X + to.X) / 2) - 10, highest - 15), brush, e, value, unheard, edgeEdited));
                 }
             }
             else if (!feedback.Contains(e) && level[e.SourceOperator] == level[e.DestinationOperator] + 1)
@@ -372,7 +379,7 @@ public sealed partial class FmDiagram : Control
                 var to = new Point(d.X, d.Y - (boxH / 2));
                 context.DrawLine(EdgePen, from, to);
                 DrawArrowHead(context, Accent, from, to);
-                labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent, e, value, unheard));
+                labels.Add((amount, new Point(((from.X + to.X) / 2) + 5, ((from.Y + to.Y) / 2) - 7), Accent, e, value, unheard, edgeEdited));
             }
             else
             {
@@ -418,7 +425,7 @@ public sealed partial class FmDiagram : Control
                 DrawArrowCurve(context, back ? FeedbackPen : EdgePen, brush, start, new Point(apex, start.Y), new Point(apex, end.Y), end);
                 // Beside the middle of the curve, on its outer side.
                 Point middle = Bezier(start, new Point(apex, start.Y), new Point(apex, end.Y), end, 0.5);
-                labels.Add((amount, new Point(chosen > 0 ? middle.X + 4 : middle.X - 30, middle.Y - 7 + (12 * (stacked % 3))), brush, e, value, unheard));
+                labels.Add((amount, new Point(chosen > 0 ? middle.X + 4 : middle.X - 30, middle.Y - 7 + (12 * (stacked % 3))), brush, e, value, unheard, edgeEdited));
             }
         }
 
@@ -436,7 +443,7 @@ public sealed partial class FmDiagram : Control
             // Left of the arrowhead, above the box it points into: clear of the boxes the line may pass behind and of the
             // edges that arrive at the middle of the box.
             double labelWidth = new FormattedText(use, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Muted).Width;
-            labels.Add((use, new Point(to.X - 6 - labelWidth, to.Y - 15), Muted, null, null, !audible[op]));
+            labels.Add((use, new Point(to.X - 6 - labelWidth, to.Y - 15), Muted, null, null, !audible[op], false));
         }
 
         // Operator boxes over the edges; while editing, an operator that is not heard is greyed.
@@ -444,7 +451,7 @@ public sealed partial class FmDiagram : Control
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
             using IDisposable? pale = Unheard(context, !audible[i]);
-            context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, BoxPen, rect, 6, 6);
+            context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, Edited(new PatchPart.OperatorPart(i)) ? EditedPen : BoxPen, rect, 6, 6);
             _hitBoxes.Add((rect, i));
             AddPart(rect, new PatchPart.OperatorPart(i));
             var envelopeStrip = new Rect(rect.X + 7, rect.Y + 45, boxW - 14, EnvelopeH - 3);
@@ -476,7 +483,7 @@ public sealed partial class FmDiagram : Control
 
         if (pitchH > 0)
         {
-            context.DrawRectangle(NoiseFill, BoxPen, pitchBox, 6, 6);
+            context.DrawRectangle(NoiseFill, Edited(new PatchPart.PitchPart()) ? EditedPen : BoxPen, pitchBox, 6, 6);
             _hitBoxes.Add((pitchBox, -2));
             AddPart(pitchBox, new PatchPart.PitchPart());
             DrawText(context, "PITCH", new Point(pitchBox.X + 7, pitchBox.Y + 2), 11, Text, FontWeight.SemiBold);
@@ -498,7 +505,7 @@ public sealed partial class FmDiagram : Control
         // While editing, the NOISE box of a profile with shared noise is there even when nothing uses it, empty.
         if (noiseUsers.Count > 0 || (editing && SharedNoise))
         {
-            context.DrawRectangle(NoiseFill, NoisePen, noiseBox, 6, 6);
+            context.DrawRectangle(NoiseFill, Edited(new PatchPart.NoisePart()) ? EditedPen : NoisePen, noiseBox, 6, 6);
             _hitBoxes.Add((noiseBox, -1));
             AddPart(noiseBox, new PatchPart.NoisePart());
             DrawText(context, "NOISE", new Point(noiseBox.X + 7, noiseBox.Y + 2), 11, Text, FontWeight.SemiBold);
@@ -512,7 +519,7 @@ public sealed partial class FmDiagram : Control
         // follows an envelope has its sketch beside it; the pointer on an edge amount tells the edge.
         const double SketchW = 22;
         var taken = _hitBoxes.Select(static b => b.Box).ToList();
-        foreach ((string text, Point anchor, IBrush brush, ModulationEdge? edge, (string Id, PatchPart Part)? value, bool unheard) in labels)
+        foreach ((string text, Point anchor, IBrush brush, ModulationEdge? edge, (string Id, PatchPart Part)? value, bool unheard, bool edited) in labels)
         {
             var formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, brush);
             double extra = edge?.AmountEnvelope is null ? 0 : SketchW + 3;
@@ -520,7 +527,7 @@ public sealed partial class FmDiagram : Control
             var back = new Rect(at.X - 2, at.Y, formatted.Width + 4 + extra, formatted.Height);
             taken.Add(back.Inflate(1));
             using IDisposable? pale = Unheard(context, unheard);
-            context.DrawRectangle(LabelBackground, null, back, 3, 3);
+            context.DrawRectangle(LabelBackground, edited ? EditedPen : null, back, 3, 3);
             context.DrawText(formatted, at);
             if (value is { } number)
             {

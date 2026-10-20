@@ -109,6 +109,12 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     /// <summary>True when the edit is what is displayed: edited, and not switched to the original.</summary>
     public bool ShowsEdit => _isEdited && !ShowingOriginal;
 
+    /// <summary>
+    /// The original that the edit shown is marked against (<see cref="EditMarks"/>): the original while the edit is
+    /// shown; null while the original is shown or nothing is edited, so that nothing is marked.
+    /// </summary>
+    public OperatorMatrixPatch? EditedFrom => ShowsEdit ? _editor?.Original : null;
+
     /// <summary>True when there is a step to undo.</summary>
     public bool CanUndo => _editor?.CanUndo ?? false;
 
@@ -558,6 +564,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShowingOriginal));
         OnPropertyChanged(nameof(ShowingEdited));
         OnPropertyChanged(nameof(ShowsEdit));
+        OnPropertyChanged(nameof(EditedFrom));
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
         OnPropertyChanged(nameof(OriginalGain));
