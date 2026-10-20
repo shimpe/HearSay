@@ -67,6 +67,7 @@ public sealed class SearchBasin
         if (evaluation.Loss < Best.Loss)
         {
             Best = evaluation;
+            BestChanged?.Invoke(this);
             return true;
         }
 
@@ -80,7 +81,11 @@ public sealed class SearchBasin
         Best = evaluation;
         Start = evaluation.Patch;
         Runs.Clear();
+        BestChanged?.Invoke(this);
     }
+
+    /// <summary>Called whenever <see cref="Best"/> changes, after the change; the search draws its course from it.</summary>
+    internal Action<SearchBasin>? BestChanged { get; set; }
 }
 
 /// <summary>Which group of smooth parameters a continuous optimization works on.</summary>

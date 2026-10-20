@@ -143,6 +143,17 @@ public sealed record SearchStageSummary(string Name, int Evaluations, double Bes
 /// <param name="Loss">The new best total loss at that level.</param>
 public sealed record LossImprovement(int Evaluations, EvaluationLevel Level, double Loss);
 
+/// <summary>
+/// One point of the course of a search, for drawing it: a screened hypothesis, or a basin whose best loss improved.
+/// </summary>
+/// <param name="Evaluations">Evaluations used when it happened.</param>
+/// <param name="Basin">The basin (<see cref="BasinSummary.Id"/>); 0 for a hypothesis evaluated during screening.</param>
+/// <param name="Stage">The stage: hypothesis screening, survivor optimization, deep optimization, finalist optimization or local refinement.</param>
+/// <param name="Level">Its evaluation level. Losses compare within a stage and a level only: screening and the first
+/// survivor optimization of a target set judge the reference note alone.</param>
+/// <param name="Loss">The total loss.</param>
+public sealed record SearchTracePoint(int Evaluations, int Basin, string Stage, EvaluationLevel Level, double Loss);
+
 /// <summary>What happened to one basin.</summary>
 /// <param name="Id">Basin number.</param>
 /// <param name="Origin">Hypothesis and mutations.</param>
@@ -188,6 +199,9 @@ public sealed record SearchSummary
 
     /// <summary>Every new best total loss of the target set, per evaluation level, in the order they were found.</summary>
     public IReadOnlyList<LossImprovement> Improvements { get; init; } = [];
+
+    /// <summary>The course of the search: every screened hypothesis, and every improvement of every basin.</summary>
+    public IReadOnlyList<SearchTracePoint> Trace { get; init; } = [];
 
     /// <summary>All basins that received deep optimization.</summary>
     public required IReadOnlyList<BasinSummary> Basins { get; init; }

@@ -30,6 +30,9 @@ public sealed record SearchProgress(string Stage, int EvaluationsUsed, int Evalu
     /// <summary>Share of the preparation before the search proper (building a structure library) that is done; null during the search.</summary>
     public double? Preparation { get; init; }
 
+    /// <summary>The course of this run so far (<see cref="SearchSummary.Trace"/>), for drawing it while it runs.</summary>
+    public IReadOnlyList<SearchTracePoint> Trace { get; init; } = [];
+
     /// <summary>Share of the whole job that is done, all runs counted.</summary>
     public double Fraction => (Run - 1 + ((double)EvaluationsUsed / Math.Max(1, EvaluationBudget))) / Math.Max(1, RunCount);
 }
@@ -238,13 +241,19 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         double[] scales = screeningBudget >= hypotheses.Count * 3 ? [1.0, 0.5, 2.0] : [1.0];
         var screened = new List<(PatchHypothesis Hypothesis, PatchEvaluation Evaluation)>();
         int usedBefore = evaluator.Used;
+
+        // The course of the search, for drawing it: every screened hypothesis, then every improvement of every basin.
+        var trace = new List<SearchTracePoint>();
+        string traceStage = "hypothesis screening";
         foreach (double scale in scales)
         {
             var patches = hypotheses.Select(h => ScaleAmounts(h.Patch, scale, capabilities)).ToList();
+            int batchStart = evaluator.Used;
             IReadOnlyList<PatchEvaluation> results = screening.Evaluate(patches, EvaluationLevel.Coarse);
             for (int i = 0; i < results.Count; i++)
             {
                 screened.Add((hypotheses[i], results[i]));
+                trace.Add(new SearchTracePoint(Math.Min(evaluator.Used, batchStart + i + 1), 0, traceStage, EvaluationLevel.Coarse, results[i].Loss));
             }
         }
 
@@ -277,16 +286,17 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         }
 
         stages.Add(new SearchStageSummary("hypothesis screening", evaluator.Used - usedBefore, survivors[0].Evaluation.Loss, EvaluationLevel.Coarse, $"{hypotheses.Count} hypotheses at {scales.Length} modulation scales, {survivors.Count} survive"));
-        progress?.Report(new SearchProgress("hypothesis screening", evaluator.Used, evaluator.Budget, survivors[0].Evaluation.Loss));
+        Report(new SearchProgress("hypothesis screening", evaluator.Used, evaluator.Budget, survivors[0].Evaluation.Loss));
 
         // Survivors: first normal-level evaluation, then a short continuous optimization.
         usedBefore = evaluator.Used;
+        traceStage = "survivor optimization";
         IReadOnlyList<PatchEvaluation> firstNormal = screening.Evaluate([.. survivors.Select(static s => s.Evaluation.Patch)], EvaluationLevel.Normal);
         var basins = new List<SearchBasin>();
         int nextBasinId = 1;
         for (int i = 0; i < firstNormal.Count; i++)
         {
-            basins.Add(new SearchBasin(nextBasinId++, survivors[i].Hypothesis.Origin, firstNormal[i]));
+            basins.Add(Track(new SearchBasin(nextBasinId++, survivors[i].Hypothesis.Origin, firstNormal[i])));
         }
 
         if (basins.Count == 0)
@@ -306,10 +316,11 @@ public sealed class OperatorMatrixPatchSearchCoordinator
 
             RunCycle(screeningOptimizer, basin, perSurvivor, tuningMatters, NextSeed, 1.0, includeDetail: false);
             basin.Fate = "survivor";
-            progress?.Report(new SearchProgress("survivor optimization", evaluator.Used, evaluator.Budget, basins.Min(static b => b.Best.Loss)));
+            Report(new SearchProgress("survivor optimization", evaluator.Used, evaluator.Budget, basins.Min(static b => b.Best.Loss)));
         }
 
         basins = SelectBasins(basins, options);
+        traceStage = "deep optimization";
         int basinCount = Math.Max(options.BasinCount, basins.Count);
 
         // From here on every candidate is judged on the whole set. The losses change scale, so the basins are
@@ -368,7 +379,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                             break;
                         }
 
-                        var child = new SearchBasin(nextBasinId++, basin.Origin + "; " + variant.Description, first) { Evaluations = 1 };
+                        var child = Track(new SearchBasin(nextBasinId++, basin.Origin + "; " + variant.Description, first) { Evaluations = 1 });
                         RunCycle(optimizer, child, Math.Max(0, (mutationBudget / Math.Max(1, variants.Count)) - 1), tuningMatters, NextSeed, 1.0, includeDetail: false);
                         if (bestChild is null || child.Best.Loss < bestChild.Best.Loss)
                         {
@@ -389,7 +400,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                 }
 
                 basins[b].Stagnated = !improved;
-                progress?.Report(new SearchProgress($"deep optimization round {round + 1}", evaluator.Used, evaluator.Budget, basins.Min(static x => x.Best.Loss)));
+                Report(new SearchProgress($"deep optimization round {round + 1}", evaluator.Used, evaluator.Budget, basins.Min(static x => x.Best.Loss)));
             }
 
             List<SearchBasin> distinct = Distinct(basins, basins.Count);
@@ -408,6 +419,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
         // Finalists: one long, uninterrupted run each. A covariance that has adapted to a basin is worth more than
         // several fresh starts, so the better a finalist ranks, the longer its run; unused budget flows on.
         usedBefore = evaluator.Used;
+        traceStage = "finalist optimization";
         int finalistBudget = (int)(evaluator.Remaining * options.FinalistShare);
         double weightSum = 0;
         for (int b = 0; b < basins.Count; b++)
@@ -435,7 +447,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                     break;
                 }
 
-                var child = new SearchBasin(nextBasinId++, basins[b].Origin + "; " + variant.Description, first) { Evaluations = 1, Fate = "finalist variant, not adopted" };
+                var child = Track(new SearchBasin(nextBasinId++, basins[b].Origin + "; " + variant.Description, first) { Evaluations = 1, Fate = "finalist variant, not adopted" });
                 RunCycle(optimizer, child, Math.Max(0, (int)(share * 0.3 / variants.Count) - 1), tuningMatters, NextSeed, 0.5, includeDetail: true);
                 retired.Add(child);
                 if (bestChild is null || child.Best.Loss < bestChild.Best.Loss)
@@ -455,7 +467,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             }
 
             RunCycle(optimizer, basins[b], (int)(share * 0.1), tuningMatters, NextSeed, 0.5, includeDetail: true);
-            progress?.Report(new SearchProgress("finalist optimization", evaluator.Used, evaluator.Budget, basins.Min(static x => x.Best.Loss)));
+            Report(new SearchProgress("finalist optimization", evaluator.Used, evaluator.Budget, basins.Min(static x => x.Best.Loss)));
         }
 
         Retire(basins, retired, options.FinalistCount);
@@ -464,6 +476,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
 
         // Local refinement of the finalists at the detailed level, with regime-specific models.
         usedBefore = evaluator.Used;
+        traceStage = "local refinement";
         var store = new RegimeModelStore();
         var refiner = new LocalRefiner(evaluator, capabilities, store);
         int accepted = 0;
@@ -502,7 +515,7 @@ public sealed class OperatorMatrixPatchSearchCoordinator
                 optimizer.Optimize(basin, polish[0], Math.Min(share / 2, evaluator.Remaining), 0.05, NextSeed(), EvaluationLevel.Detailed);
             }
 
-            progress?.Report(new SearchProgress("local refinement", evaluator.Used, evaluator.Budget, basins.Min(static x => x.Best.Loss)));
+            Report(new SearchProgress("local refinement", evaluator.Used, evaluator.Budget, basins.Min(static x => x.Best.Loss)));
         }
 
         stages.Add(new SearchStageSummary("local refinement", evaluator.Used - usedBefore, basins.Where(static b => b.Best.Level == EvaluationLevel.Detailed).Select(static b => b.Best.Loss).DefaultIfEmpty(double.NaN).Min(), EvaluationLevel.Detailed, $"{accepted} guidance steps accepted, {store.Regimes.Count} regime models"));
@@ -530,10 +543,22 @@ public sealed class OperatorMatrixPatchSearchCoordinator
             HypothesisCount = hypotheses.Count,
             Stages = stages,
             Improvements = evaluator.Improvements,
+            Trace = trace,
             Basins = [.. ranked.Concat(retired.OrderBy(static b => b.Id)).Select(static b => new BasinSummary(b.Id, b.Origin, b.Regime.Value, b.Best.Loss, b.Evaluations, b.Restarts, b.Fate))],
             Elapsed = stopwatch.Elapsed,
         };
         return new SearchOutcome(candidates, analysis, request, summary, store) { Analyses = prepared.Select(static p => p.Analysis).ToList(), Requests = requests };
+
+        // A basin's course: where it starts, then every change of its best evaluation.
+        SearchBasin Track(SearchBasin basin)
+        {
+            basin.BestChanged = b => trace.Add(new SearchTracePoint(evaluator.Used, b.Id, traceStage, b.Best.Level, b.Best.Loss));
+            trace.Add(new SearchTracePoint(evaluator.Used, basin.Id, traceStage, basin.Best.Level, basin.Best.Loss));
+            return basin;
+        }
+
+        // Progress carries the course so far.
+        void Report(SearchProgress report) => progress?.Report(report with { Trace = [.. trace] });
     }
 
     /// <summary>One optimization cycle over the continuous stages. Returns true when the basin improved.</summary>
