@@ -34,7 +34,7 @@ Contents
 
 The release builds of HearSay Studio are self-contained: unpack and start, nothing else to install. This manual and
 the expert manual come with them as PDF files, `HearSay-Studio-Manual.pdf` and `HearSay-Expert-Manual.pdf`, and so
-does the design of the search, `HearSay-Patch-Matching.pdf`.
+do the design of the search, `HearSay-Patch-Matching.pdf`, and the library reference, `HearSay-Library-Reference.pdf`.
 
 - **Windows:** unzip and start `HearSay.Studio.exe`. SmartScreen may warn about an unknown publisher: *More info*,
   *Run anyway*.

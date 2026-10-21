@@ -9,8 +9,8 @@ dotnet run -c Release --project samples/HearSay.Tutorial          # all steps
 dotnet run -c Release --project samples/HearSay.Tutorial -- 9     # only step 9
 ```
 
-The [README](../README.md) is the reference (what each metric means, how confidences are computed, limitations). This
-document is about *how to use it*.
+The [library reference](library-reference.md) is the reference (what each metric means, how confidences are
+computed, limitations). This document is about *how to use it*.
 
 **Contents**
 
@@ -378,7 +378,7 @@ the attack knob does the reverse, and how strongly. Nothing was assumed; it was 
 attack knob by 10 % of its range changes the measured attack time by about 30 ms. The huge `+106.8 dB` for the high
 band is a *local* slope at cutoff 1500 Hz, where the band is nearly empty — the filter is steep there. It will be much
 smaller at 5000 Hz. That is why every estimate is tied to a reference state and why observations near that state count
-most (details in the README).
+most (details in the [library reference](library-reference.md)).
 
 **Reading a confidence.** 0.64 after a single probe is "measured once, cleanly". It rises with more observations that
 agree, and falls when parameters were changed together (their effects cannot be separated), when the step was tiny,
@@ -592,5 +592,6 @@ was made.
 | Sensitivities differ wildly between runs | Non-repeatable renders (see above) or probe steps below the synth's resolution; raise `RecommendedMinStep`. |
 | Loss stalls above zero | Your synth may simply be unable to make the target. The remaining `Differences` tell you what it lacks. |
 
-Where to go next: the [README](../README.md) for definitions and formulas, `samples/HearSay.OptimizationDemo` for a
-larger five-parameter loop with noise, and the XML documentation on the types for every option.
+Where to go next: the [library reference](library-reference.md) for definitions and formulas,
+`samples/HearSay.OptimizationDemo` for a larger five-parameter loop with noise, and the XML documentation on the types
+for every option.

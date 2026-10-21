@@ -123,15 +123,15 @@ jobs:
           name: manuals
           path: manuals
 
-      # The Studio gets all three manuals, the command line the expert manual and the patch-matching design.
+      # The Studio gets every manual, the command line every manual but the Studio one.
       - name: Publish
         shell: bash
         run: |
           common="-c Release -r $RID --self-contained true -p:Version=$VERSION -p:DebugType=None -p:DebugSymbols=false"
           dotnet publish src/HearSay.Studio/HearSay.Studio.csproj $common -o publish/studio
           dotnet publish src/HearSay.Cli/HearSay.Cli.csproj $common -o publish/cli
-          cp LICENSE README.md manuals/HearSay-Studio-Manual.pdf manuals/HearSay-Expert-Manual.pdf manuals/HearSay-Patch-Matching.pdf publish/studio/
-          cp LICENSE README.md manuals/HearSay-Expert-Manual.pdf manuals/HearSay-Patch-Matching.pdf publish/cli/
+          cp LICENSE README.md manuals/*.pdf publish/studio/
+          cp LICENSE README.md manuals/HearSay-Expert-Manual.pdf manuals/HearSay-Patch-Matching.pdf manuals/HearSay-Library-Reference.pdf publish/cli/
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -217,8 +217,9 @@ jobs:
           local application data); turn it off with the Library check box or `--library 0`.
 
           The manuals come as PDF files with the programs: `HearSay-Studio-Manual.pdf` for the desktop app,
-          `HearSay-Expert-Manual.pdf` for the search, the command line and the library, and `HearSay-Patch-Matching.pdf`,
-          the design of the audio-to-patch solver and the evidence behind it.
+          `HearSay-Expert-Manual.pdf` for the search, the command line and the library, `HearSay-Patch-Matching.pdf`,
+          the design of the audio-to-patch solver and the evidence behind it, and `HearSay-Library-Reference.pdf`,
+          HearSay as a C# library.
 
           - **Windows:** unzip and start `HearSay.Studio.exe`. SmartScreen may warn about an unknown publisher: More info, Run anyway.
           - **macOS:** unzip; the folder `HearSay Studio` holds the app and the manuals. Move `HearSay Studio.app` to Applications. The app is not notarized: the first time,
