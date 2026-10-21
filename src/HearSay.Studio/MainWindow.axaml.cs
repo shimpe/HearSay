@@ -23,6 +23,12 @@ public sealed partial class MainWindow : Window
     /// <summary>Asks whether a new sound that is not kept may be replaced, in a dialog over this window: true for Replace.</summary>
     private Task<bool> AskToReplaceAsync() => new ReplaceSoundDialog().ShowDialog<bool>(this);
 
+    /// <summary>Asks whether structure libraries may be built now, before a search: Build, Search without it or Cancel.</summary>
+    private Task<LibraryBuildAnswer> AskToBuildBeforeSearchAsync(LibraryBuildQuestion question) => new LibraryBuildDialog(question, beforeSearch: true).ShowDialog<LibraryBuildAnswer>(this);
+
+    /// <summary>Asks whether the library the Library tab is about to show may be built now: Build or Not now.</summary>
+    private Task<LibraryBuildAnswer> AskToBuildInLibraryAsync(LibraryBuildQuestion question) => new LibraryBuildDialog(question, beforeSearch: false).ShowDialog<LibraryBuildAnswer>(this);
+
     private bool _keyboardCentred;
 
     /// <summary>True once the user chose to close despite unsaved edits, or while the question is open.</summary>
@@ -82,6 +88,8 @@ public sealed partial class MainWindow : Window
             // Both tabs ask here before a new sound that is not kept is replaced.
             viewModel.AskToReplace = AskToReplaceAsync;
             viewModel.Library.AskToReplace = AskToReplaceAsync;
+            viewModel.AskToBuildLibrary = AskToBuildBeforeSearchAsync;
+            viewModel.Library.AskToBuildLibrary = AskToBuildInLibraryAsync;
 
             // A two-way binding would not put the selector back on none after the device chosen could not be opened:
             // the view model's value did not change. The selector is set from it whenever it says so.

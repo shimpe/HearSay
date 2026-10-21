@@ -218,7 +218,8 @@ jobs:
           > 600 000 sounds once, on every core at full speed, so fans spin up and the machine gets warm. That is expected,
           > not malware. It takes under a minute for FM7, about 11 minutes for Nome6 and 20 for FMX6 on a 24-thread desktop
           > (longer with fewer cores), shows its progress, and stores 86 to 175 MB in the local application data. After
-          > that it is reused; starting the Studio never builds anything. Skip it with the Library check box or `--library 0`.
+          > that it is reused; starting the Studio never builds anything, and the Studio asks before it starts a build.
+          > The command line builds without asking; skip it there with `--library 0`.
 
           The manuals come as PDF files with the programs: `HearSay-Studio-Manual.pdf` for the desktop app,
           `HearSay-Expert-Manual.pdf` for the search, the command line and the library, `HearSay-Patch-Matching.pdf`,

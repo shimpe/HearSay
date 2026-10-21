@@ -136,7 +136,12 @@
             </Grid>
           </Grid>
           <Border Grid.Column="1" CornerRadius="6" ClipToBounds="True">
-            <local:LibraryGraph x:Name="Graph" Nodes="{Binding Nodes}" Edges="{Binding Edges}" SelectedIndex="{Binding SelectedIndex}" Message="{Binding GraphMessage}" NodeClicked="OnNodeClicked" NodeOpened="OnNodeOpened" />
+            <Panel>
+              <local:LibraryGraph x:Name="Graph" Nodes="{Binding Nodes}" Edges="{Binding Edges}" SelectedIndex="{Binding SelectedIndex}" Message="{Binding GraphMessage}" NodeClicked="OnNodeClicked" NodeOpened="OnNodeOpened" />
+              <!-- A library the user put off building: built on request, without asking again -->
+              <Button x:Name="BuildLibraryButton" Content="Build the library now" Command="{Binding BuildLibraryCommand}" IsVisible="{Binding CanBuildLibrary}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" Padding="14,6" />
+            </Panel>
           </Border>
         </Grid>
       </Grid>

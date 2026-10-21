@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using HearSay.Analysis;
 using HearSay.Editing;
+using HearSay.OperatorMatrix.Priors;
 using HearSay.OperatorMatrix.Search;
 using HearSay.Playing;
 using HearSay.Synthesis.Patches;
@@ -160,6 +161,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>What each kept result was searched with (<see cref="SearchInputs"/>); a search with the same inputs reuses it.</summary>
     private readonly Dictionary<string, string> _resultInputs = new(StringComparer.Ordinal);
 
+    /// <summary>The profiles the user chose to search without their structure library, for the rest of the session.</summary>
+    private readonly HashSet<string> _withoutLibrary = new(StringComparer.Ordinal);
+
     /// <param name="favourites">Where the favourites are kept; the user's local application data when null.</param>
     /// <param name="studioSettingsPath">Where the Studio settings (the MIDI device) are kept; the user's local application data when null.</param>
     /// <param name="gainOf">The gain a sound is played at, for the editing of both tabs; the live mixer's when null.</param>
@@ -191,7 +195,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
         };
         Notes = new NotePlayer(Live.Device);
-        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowInSearchAsync, favourites, sessions, gainOf, openLibrary);
+        Library = new LibraryViewModel(Live, s => Status = s, p => Progress = p, ShowInSearchAsync, favourites, sessions, gainOf, openLibrary) { LibraryConsent = LibraryConsent };
         Library.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(LibraryViewModel.ShownPatch) or nameof(LibraryViewModel.CurrentSound))
@@ -316,6 +320,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// true for Replace and false for Cancel. Null replaces without asking.
     /// </summary>
     public Func<Task<bool>>? AskToReplace { get; set; }
+
+    /// <summary>
+    /// Asks the user whether structure libraries that are not built yet may be built now, before a search would build
+    /// them; set by the window, which shows the question. Null builds without asking.
+    /// </summary>
+    public Func<LibraryBuildQuestion, Task<LibraryBuildAnswer>>? AskToBuildLibrary { get; set; }
+
+    /// <summary>The libraries the user agreed to build while the Studio runs, shared with the Library tab.</summary>
+    public LibraryBuildConsent LibraryConsent { get; } = new();
+
+    /// <summary>
+    /// How many sounds the structure library of a profile still needs; 0 when it is built. The library files on disk by
+    /// default; replaced in tests.
+    /// </summary>
+    public Func<SynthesisProfile, int> LibrarySoundsToRender { get; set; } = static p => StructureLibrary.SoundsToRender(p, new PatchMatchOptions().StructureLibrarySize);
 
     /// <summary>
     /// Whether an action may replace the sound shown here: true at once when nothing needs asking, else the answer of
@@ -930,6 +949,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        if (!await ConfirmLibrariesAsync() || Targets.Count == 0 || IsRunning)
+        {
+            return;
+        }
+
         IsRunning = true;
         Progress = 0;
         SetResult(null);
@@ -939,15 +963,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             List<AudioTarget> targets = [.. Targets.Select(static t => t.ToTarget())];
             int seeds = Seeds;
-            string inputs = SearchInputs();
+            string allInputs = SearchInputs();
             CancellationToken token = _cancellation.Token;
             var done = new List<PatchMatchResult>();
+            var without = new List<string>();
             int searched = 0;
             for (int i = 0; i < profiles.Count && !token.IsCancellationRequested; i++)
             {
                 SynthesisProfile profile = profiles[i];
                 int index = i;
                 string prefix = profiles.Count > 1 ? ProfileNameConverter.Short(profile.Name) + " · " : string.Empty;
+                bool library = UseStructureLibrary && !_withoutLibrary.Contains(profile.Name);
+                string inputs = allInputs + (library == UseStructureLibrary ? string.Empty : " (without its library)");
 
                 // The search is reproducible: the same inputs would give the same result again, so the kept one is shown.
                 if (_results.TryGetValue(profile.Name, out PatchMatchResult? kept) && _resultInputs.GetValueOrDefault(profile.Name) == inputs)
@@ -959,7 +986,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     continue;
                 }
 
-                var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = profile, StructureLibrarySize = UseStructureLibrary ? new PatchMatchOptions().StructureLibrarySize : 0 };
+                var options = new PatchMatchOptions { EvaluationBudget = Budget, RandomSeed = Seed, SynthesisProfile = profile, StructureLibrarySize = library ? new PatchMatchOptions().StructureLibrarySize : 0 };
                 var progress = new Progress<SearchProgress>(p =>
                 {
                     // While a structure library is built, the bar shows the build, then the search.
@@ -992,6 +1019,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 done.Add(result);
                 OnPropertyChanged(nameof(ResultsKept));
                 SetResult(result);
+                if (!library && UseStructureLibrary)
+                {
+                    without.Add(ProfileNameConverter.Short(profile.Name));
+                }
             }
 
             Progress = 1;
@@ -1006,6 +1037,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 Status = token.IsCancellationRequested ? "Stopped; showing the best patch found so far." : searched == 0 ? "Nothing changed since the last search of this target; its result is shown." : "Done.";
             }
+
+            if (without.Count > 0)
+            {
+                Status += $" Searched without the {string.Join(" and ", without)} {(without.Count == 1 ? "library" : "libraries")}, as chosen; build {(without.Count == 1 ? "it" : "them")} by opening {(without.Count == 1 ? "it" : "them")} in the Library tab.";
+            }
         }
         catch (Exception e) when (e is IOException or InvalidDataException or ArgumentException or NotSupportedException)
         {
@@ -1016,6 +1052,57 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             _cancellation.Dispose();
             _cancellation = null;
             IsRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// Whether a search may go ahead, as far as the structure libraries go: when it would build one that is not built yet,
+    /// the user is asked first (<see cref="AskToBuildLibrary"/>), once. Build goes on and is remembered for both tabs;
+    /// Search without it goes on without those libraries, also for the rest of the session; Cancel stops. A question that
+    /// fails counts as Cancel, and the status line says why.
+    /// </summary>
+    private async Task<bool> ConfirmLibrariesAsync()
+    {
+        if (!UseStructureLibrary || AskToBuildLibrary is not { } ask)
+        {
+            return true;
+        }
+
+        // Only the targets this search would search: a kept result of the same inputs is shown as it is.
+        string inputs = SearchInputs();
+        IEnumerable<SynthesisProfile> searched = SelectedSynthesisTarget.Profiles
+            .Where(p => !_withoutLibrary.Contains(p.Name) && !(_results.ContainsKey(p.Name) && _resultInputs.GetValueOrDefault(p.Name) == inputs));
+        if (LibraryBuild.Question(searched, new PatchMatchOptions().StructureLibrarySize, LibrarySoundsToRender, LibraryConsent) is not { } question)
+        {
+            return true;
+        }
+
+        LibraryBuildAnswer answer;
+        try
+        {
+            answer = await ask(question);
+        }
+        catch (Exception e)
+        {
+            Status = "The search did not start: the question about the structure library could not be asked (" + e.Message + ").";
+            return false;
+        }
+
+        switch (answer)
+        {
+            case LibraryBuildAnswer.Build:
+                LibraryConsent.Confirm(question.Profiles);
+                return true;
+            case LibraryBuildAnswer.WithoutLibrary:
+                foreach (SynthesisProfile profile in question.Profiles)
+                {
+                    _withoutLibrary.Add(profile.Name);
+                }
+
+                return true;
+            default:
+                Status = $"The search did not start; the {question.Names} library is not built.";
+                return false;
         }
     }
 

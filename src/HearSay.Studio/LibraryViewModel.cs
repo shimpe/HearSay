@@ -92,6 +92,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     private int _loadVersion;
     private int _navVersion;
     private bool _loaded;
+    private bool _canBuildLibrary;
     private Task _loading = Task.CompletedTask;
     private IReadOnlyList<GraphNode>? _nodes;
     private IReadOnlyList<GraphEdge>? _edges;
@@ -127,6 +128,8 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(live);
         Edits = new PatchEditorViewModel(sessions ?? new EditSessions(), gainOf ?? live.Mixer.GainAsync);
         StartFromScratchCommand = new RelayCommand(StartFromScratch, () => CanStartFromScratch);
+        BuildLibraryCommand = new RelayCommand(() => _ = BuildLibraryAsync(), () => true);
+        LibrarySoundsToRender = p => _openLibrary is null ? StructureLibrary.SoundsToRender(p, _size) : 0;
         Edits.PropertyChanged += OnEditsChanged;
         _favouriteStore = favourites ?? new FavouriteSounds();
         Imports.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSideList));
@@ -274,6 +277,41 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
     /// gives true for Replace and false for Cancel. Null replaces without asking.
     /// </summary>
     public Func<Task<bool>>? AskToReplace { get; set; }
+
+    /// <summary>
+    /// Asks the user whether a structure library that is not built yet may be built now, before the tab builds it; set
+    /// by the window, which shows the question. Null builds without asking.
+    /// </summary>
+    public Func<LibraryBuildQuestion, Task<LibraryBuildAnswer>>? AskToBuildLibrary { get; set; }
+
+    /// <summary>The libraries the user agreed to build while the Studio runs; the Search tab shares its own.</summary>
+    public LibraryBuildConsent LibraryConsent { get; init; } = new();
+
+    /// <summary>
+    /// How many sounds the structure library of a profile still needs; 0 when it is built (always 0 with a library given
+    /// to the constructor). The library files on disk by default; replaced in tests.
+    /// </summary>
+    public Func<SynthesisProfile, int> LibrarySoundsToRender { get; set; }
+
+    /// <summary>True while the library shown is not built because the user said not now: the tab offers to build it.</summary>
+    public bool CanBuildLibrary
+    {
+        get => _canBuildLibrary;
+        private set => Set(ref _canBuildLibrary, value);
+    }
+
+    /// <summary>Builds the library of the profile shown, which the user put off, without asking again.</summary>
+    public RelayCommand BuildLibraryCommand { get; }
+
+    /// <summary>Builds the library of the profile shown, which the user put off, without asking again, and shows it.</summary>
+    public Task BuildLibraryAsync()
+    {
+        CanBuildLibrary = false;
+        LibraryConsent.Confirm([_profile]);
+        _loaded = true;
+        _loading = LoadAsync();
+        return _loading;
+    }
 
     /// <summary>
     /// Whether an action may replace the selected sound: true at once when nothing needs asking, else the answer of
@@ -1158,8 +1196,39 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
         FilterSummary = null;
         OnPropertyChanged(nameof(HasFilter));
 
+        // Not built yet: asked first. Not now leaves the tab empty, with a button to build it later.
+        CanBuildLibrary = false;
+        if (AskToBuildLibrary is { } ask && LibraryBuild.Question([profile], _size, LibrarySoundsToRender, LibraryConsent) is { } question)
+        {
+            GraphMessage = $"The {name} library is not built yet.";
+            LibraryBuildAnswer answer;
+            try
+            {
+                answer = await ask(question);
+            }
+            catch (Exception e)
+            {
+                _status("The library was not built: the question about it could not be asked (" + e.Message + ").");
+                answer = LibraryBuildAnswer.Cancel;
+            }
+
+            if (version != _loadVersion)
+            {
+                return;
+            }
+
+            if (answer != LibraryBuildAnswer.Build)
+            {
+                GraphMessage = $"Not built yet. {question.Text} Build it with the button when it suits you.";
+                CanBuildLibrary = true;
+                return;
+            }
+
+            LibraryConsent.Confirm(question.Profiles);
+        }
+
         // Building takes minutes: the graph says what is rendered, the share done and the time left.
-        int toRender = _openLibrary is null ? StructureLibrary.SoundsToRender(profile, _size) : 0;
+        int toRender = LibrarySoundsToRender(profile);
         string building = toRender < StructureLibrary.CountFor(profile.Capabilities, _size)
             ? string.Create(CultureInfo.InvariantCulture, $"Adding {toRender:N0} noise-free sounds to the {name} library, once")
             : string.Create(CultureInfo.InvariantCulture, $"Building the {name} library: {toRender:N0} sounds to render, once");

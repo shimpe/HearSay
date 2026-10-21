@@ -52,8 +52,8 @@ To play the exported patches in SuperCollider you need the plugin of the synthes
 > once, on every core at full speed, so fans spin up and the machine gets warm. That is expected, not malware. It takes
 > under a minute for FM7, about 11 minutes for Nome6 and 20 for FMX6 on a 24-thread desktop (longer with fewer
 > cores), shows its progress and the time left, and stores 86 to 175 MB in the local application data. After that the
-> library is reused, and starting the Studio itself never builds anything. To skip it, turn off the *Library* check box
-> before searching (searches are then somewhat less good), and leave its Library tab closed.
+> library is reused, and starting the Studio itself never builds anything. **The Studio asks before it starts a build**,
+> with the estimate for your computer: build it now, search without it, or not now.
 
 ## Manuals
 

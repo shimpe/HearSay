@@ -79,6 +79,10 @@ internal static class Program
         using var main = new MainViewModel(new FavouriteSounds(Path.Combine(scratch, "favourites")), Path.Combine(scratch, "studio-settings.json"));
         var window = new MainWindow { DataContext = main, Width = 1600, Height = 1040 };
         window.Show();
+
+        // The libraries this tool uses are built without asking (a dialog would wait for a click no one gives).
+        main.AskToBuildLibrary = null;
+        main.Library.AskToBuildLibrary = null;
         Pump();
 
         SearchTab(repository, main, window);
@@ -202,6 +206,12 @@ internal static class Program
         Pump();
         Capture(close, "close-dialog.png");
         close.Close();
+
+        var build = new LibraryBuildDialog(LibraryBuild.Question([SynthesisProfiles.SuperColliderFmx6], 300_000, static _ => 600_000, processors: 24)!, beforeSearch: true);
+        _ = build.ShowDialog<LibraryBuildAnswer>(window);
+        Pump();
+        Capture(build, "library-build-dialog.png");
+        build.Close();
         Pump();
     }
 

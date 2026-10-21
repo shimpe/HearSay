@@ -55,8 +55,20 @@ sc3-plugins for FM7, the FMX6 plugin for FMX6, the Nome6 plugin for Nome6 (exper
 > once, on every core at full speed, so fans spin up and the machine gets warm. That is expected, not malware. It takes
 > under a minute for FM7, about 11 minutes for Nome6 and 20 for FMX6 on a 24-thread desktop (longer with fewer
 > cores), shows its progress and the time left, and stores 86 to 175 MB in the local application data. After that the
-> library is reused, and starting the Studio itself never builds anything. To skip it, turn off the *Library* check box
-> before searching (searches are then somewhat less good), and leave its Library tab closed.
+> library is reused, and starting the Studio itself never builds anything. **The Studio asks before it starts a build**,
+> with the estimate for your computer: build it now, search without it, or not now.
+
+![Build the FMX6 library first?](images/studio/library-build-dialog.png)
+
+*Asked before a search that would build a library: what it costs on this computer, and what you can do instead.*
+
+- **Before a search** that would build a library, the Studio asks: **Build and search** (the default) builds it and
+  searches with it; **Search without it** searches without that library, now and for the rest of the session (the
+  status line says so after each search); **Cancel** starts nothing. With *All* targets it asks once for every library
+  still missing. With the *Library* check box off it never asks.
+- **Before the Library tab** shows a library that is not built, it asks: **Build now**, or **Not now**, which leaves
+  the tab empty with a **Build the library now** button for later.
+- Once you said yes, neither tab asks again for that library while the Studio runs.
 
 The library makes searches better and is what the Library tab shows. While it is built, the status line and the
 progress bar show the share done and the time left (section 11 for the Library tab).
@@ -414,7 +426,8 @@ coloured from dark (blue) to bright (yellow); each is joined to its two nearest 
   (*saw or square*, and *low-pass*). Each choice shows how many sounds would match. **Clear** returns to all sounds.
 
 The first time a library is opened its families are grouped (under a minute) and kept next to the library. A library
-that is not on disk yet is built first, and the graph shows the share done and the time left.
+that is not on disk yet is built first, after asking (section 1), and the graph shows the share done and the time left.
+Put off with *Not now*, the tab says what building it costs and offers a **Build the library now** button.
 
 ## 12. Files and settings
 

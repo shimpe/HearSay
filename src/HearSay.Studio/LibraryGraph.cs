@@ -101,7 +101,9 @@ public sealed class LibraryGraph : Control
         IReadOnlyList<GraphNode>? nodes = Nodes;
         if (!string.IsNullOrEmpty(Message) || nodes is null || nodes.Count == 0)
         {
-            DrawText(context, Message ?? string.Empty, new Point(14, 14), 12, Muted);
+            // Wrapped to the width of the graph: a message can be a few sentences (a library not built yet).
+            var message = new FormattedText(Message ?? string.Empty, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 12, Muted) { MaxTextWidth = Math.Max(50, Bounds.Width - 28) };
+            context.DrawText(message, new Point(14, 14));
             return;
         }
 
