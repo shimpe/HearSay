@@ -31,6 +31,10 @@ public sealed class App : Application
 
             var viewModel = new MainViewModel();
 
+            // Closing: from here on the D-Bus race at shutdown ends the process normally (see ShutdownGuard).
+            desktop.ShutdownRequested += (_, _) => ShutdownGuard.Closing();
+            desktop.Exit += (_, _) => ShutdownGuard.Closing();
+
             // The live output goes before the audio device it plays on, and the MIDI device is closed.
             desktop.Exit += (_, _) => viewModel.Dispose();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
