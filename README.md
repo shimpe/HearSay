@@ -44,8 +44,16 @@ Download HearSay Studio for Windows, macOS or Linux from the
 nothing else to install. The manuals come with them as PDF files.
 
 To play the exported patches in SuperCollider you need the plugin of the synthesis target: sc3-plugins for FM7, the
-[FMX6 plugin](https://github.com/shimpe/fmx6) for FMX6, the Nome6 plugin for Nome6. The first search of a synthesis
-target builds its structure library once, which takes from under a minute (FM7) to about 20 minutes (FMX6).
+[FMX6 plugin](https://github.com/shimpe/fmx6) for FMX6, the Nome6 plugin for Nome6.
+
+> [!WARNING]
+> **The first use of each synthesis target keeps your CPU busy for a while.** The first search with FM7, FMX6 or Nome6
+> (or the first look at its Library tab) builds that target's structure library: it renders 300 000 to 600 000 sounds
+> once, on every core at full speed, so fans spin up and the machine gets warm. That is expected, not malware. It takes
+> under a minute for FM7, about 11 minutes for Nome6 and 20 for FMX6 on a 24-thread desktop (longer with fewer
+> cores), shows its progress and the time left, and stores 86 to 175 MB in the local application data. After that the
+> library is reused, and starting the Studio itself never builds anything. To skip it, turn off the *Library* check box
+> before searching (searches are then somewhat less good), and leave its Library tab closed.
 
 ## Manuals
 

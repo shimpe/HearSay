@@ -212,9 +212,13 @@ jobs:
           else to install. To play the exported patches you need SuperCollider with the plugin of the synthesis target:
           sc3-plugins for FM7, the FMX6 plugin for FMX6, the Nome6 plugin for Nome6.
 
-          The first search for a synthesis target builds its structure library once (FM7 under a minute, Nome6 and FMX6 10 to
-          20 minutes; 86 to 175 MB in the
-          local application data); turn it off with the Library check box or `--library 0`.
+          > [!WARNING]
+          > **The first use of each synthesis target keeps your CPU busy for a while.** The first search with FM7, FMX6
+          > or Nome6 (or the first look at its Library tab) builds that target's structure library: it renders 300 000 to
+          > 600 000 sounds once, on every core at full speed, so fans spin up and the machine gets warm. That is expected,
+          > not malware. It takes under a minute for FM7, about 11 minutes for Nome6 and 20 for FMX6 on a 24-thread desktop
+          > (longer with fewer cores), shows its progress, and stores 86 to 175 MB in the local application data. After
+          > that it is reused; starting the Studio never builds anything. Skip it with the Library check box or `--library 0`.
 
           The manuals come as PDF files with the programs: `HearSay-Studio-Manual.pdf` for the desktop app,
           `HearSay-Expert-Manual.pdf` for the search, the command line and the library, `HearSay-Patch-Matching.pdf`,

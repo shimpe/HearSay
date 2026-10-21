@@ -405,6 +405,9 @@ internal static class Program
         p:has(> img) { text-align: center; break-inside: avoid; break-after: avoid; margin: 4mm 0 1mm 0; }
         p:has(> img) + p > em:only-child { display: block; text-align: center; font-size: 9pt; color: #475569; }
         blockquote { margin: 3mm 0; padding: 1mm 4mm; border-left: 3px solid #22d3ee; background: #f0fdff; }
+        .markdown-alert { margin: 3mm 0; padding: 2mm 4mm; border-left: 4px solid #d97706; background: #fffbeb; border-radius: 3px; break-inside: avoid; }
+        .markdown-alert p { margin: 1mm 0; }
+        .markdown-alert-title { font-weight: 600; color: #b45309; }
         hr { border: none; border-top: 1px solid #cbd5e1; }
         .version { float: right; margin: 2mm 0 0 0; color: #64748b; }
         """;

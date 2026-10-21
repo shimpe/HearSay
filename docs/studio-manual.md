@@ -49,10 +49,17 @@ everything else works. To play the exported patches you need SuperCollider with 
 sc3-plugins for FM7, the FMX6 plugin for FMX6, the Nome6 plugin for Nome6 (expert manual,
 [section 8](expert-manual.md#8-playing-the-export-in-supercollider)).
 
-**The first search of a synthesis target** builds its structure library once: under a minute for FM7, about 11
-minutes for Nome6 and 20 for FMX6 on a fast machine (24 threads), and 86 to 175 MB in the local application data. The status line says so. The
-library makes searches better and is what the Library tab shows; turn it off for a search with the *Library* check
-box (section 3).
+> [!WARNING]
+> **The first use of each synthesis target keeps your CPU busy for a while.** The first search with FM7, FMX6 or Nome6
+> (or the first look at its Library tab) builds that target's structure library: it renders 300 000 to 600 000 sounds
+> once, on every core at full speed, so fans spin up and the machine gets warm. That is expected, not malware. It takes
+> under a minute for FM7, about 11 minutes for Nome6 and 20 for FMX6 on a 24-thread desktop (longer with fewer
+> cores), shows its progress and the time left, and stores 86 to 175 MB in the local application data. After that the
+> library is reused, and starting the Studio itself never builds anything. To skip it, turn off the *Library* check box
+> before searching (searches are then somewhat less good), and leave its Library tab closed.
+
+The library makes searches better and is what the Library tab shows. While it is built, the status line and the
+progress bar show the share done and the time left (section 11 for the Library tab).
 
 ## 2. The window
 
