@@ -163,6 +163,44 @@ public sealed class PatchEditsTests
     }
 
     [Fact]
+    public void CopyOperator_CopiesTheSettings_KeepsOutputAndConnections()
+    {
+        // OP1 a plain sine heard at 1, OP2 a filtered saw modulating it, OP3 a sine heard at 0.3.
+        OperatorPatch saw = OperatorPatch.Sine(OperatorFrequency.AtRatio(3), OperatorEnvelope.Adsr(0.05, 0.6, 0.2, 0.4))
+            .WithWaveform(OperatorWaveform.Saw) with { HarmonicLimit = 32, Filter = OperatorFilter.LowPass(4), VelocitySensitivity = 0.6, FineTuneCents = 7 };
+        OperatorMatrixPatch patch = TwoOperators()
+            .WithOperator(1, saw)
+            .WithOperator(2, OperatorPatch.Sine(OperatorFrequency.AtRatio(5)))
+            .WithOutputLevel(2, 0.3);
+
+        OperatorMatrixPatch edited = Done(patch, Fmx6, PatchEdits.CopyOperator(1, 2));
+
+        // OP3 sounds like OP2 now, but keeps its own output level and its place in the routing.
+        Assert.Equal(saw, edited.Operators[2]);
+        Assert.Equal(0.3, edited.OutputLevels[2]);
+        Assert.Equal(patch.ModulationMatrix.Edges, edited.ModulationMatrix.Edges);
+        Assert.Equal(patch.Operators[1], edited.Operators[1]);
+
+        // Onto a modulator: the connections stay too.
+        OperatorMatrixPatch modulator = Done(patch, Fmx6, PatchEdits.CopyOperator(2, 1));
+        Assert.Equal(patch.Operators[2], modulator.Operators[1]);
+        Assert.Equal(new ModulationEdge(1, 0, true, 2.0), modulator.ModulationMatrix.Find(1, 0));
+    }
+
+    [Fact]
+    public void CopyOperator_IsRefused_FromItself_FromAFreeOperator_OntoAFreeOperator_OrWhatTheProfileCannotPlay()
+    {
+        OperatorMatrixPatch patch = TwoOperators();
+        Assert.Contains("itself", Refused(patch, Fm7, PatchEdits.CopyOperator(1, 1)), StringComparison.Ordinal);
+        Assert.Contains("OP4 is not in use", Refused(patch, Fm7, PatchEdits.CopyOperator(3, 0)), StringComparison.Ordinal);
+        Assert.Contains("OP5 is not in use", Refused(patch, Fm7, PatchEdits.CopyOperator(0, 4)), StringComparison.Ordinal);
+
+        // A saw cannot go onto an FM7 operator: the editor's validation refuses it and the patch stays.
+        OperatorMatrixPatch withSaw = patch.WithOperator(1, patch.Operators[1].WithWaveform(OperatorWaveform.Saw));
+        Assert.False(string.IsNullOrWhiteSpace(Refused(withSaw, Fm7, PatchEdits.CopyOperator(1, 0))));
+    }
+
+    [Fact]
     public void DuplicateOperator_IgnoresConnectionsWithFreeOperators()
     {
         // OP3 was removed by a search step that kept its connection to OP1, and OP1 modulates the free OP4: the copy of
@@ -574,7 +612,7 @@ public sealed class PatchEditsTests
         }
 
         OperatorWaveform[] waveforms = Enum.GetValues<OperatorWaveform>();
-        switch (random.Next(14))
+        switch (random.Next(15))
         {
             case 0:
             {
@@ -660,6 +698,13 @@ public sealed class PatchEditsTests
             {
                 int op = Op();
                 return ($"DuplicateOperator({op})", PatchEdits.DuplicateOperator(op));
+            }
+
+            case 13:
+            {
+                int from = Op();
+                int to = Op();
+                return ($"CopyOperator({from}, {to})", PatchEdits.CopyOperator(from, to));
             }
 
             default:

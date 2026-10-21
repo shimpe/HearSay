@@ -115,6 +115,29 @@ public static class PatchEdits
     };
 
     /// <summary>
+    /// Copies the settings of one operator onto another: waveform, frequency, tuning, envelope, filter, velocity and key
+    /// scaling, roughness, everything the operator itself holds. The target keeps its output level and its connections,
+    /// so its place in the routing stays. Refused onto itself, from or onto an operator that is not in use, and when the
+    /// profile cannot play the result (the editor checks it).
+    /// </summary>
+    /// <param name="from">The operator whose settings are copied.</param>
+    /// <param name="to">The operator that gets them.</param>
+    public static PatchEdit CopyOperator(int from, int to) => (patch, _) =>
+    {
+        if ((MissingOrUnused(patch, from) ?? MissingOrUnused(patch, to)) is { } missing)
+        {
+            return EditOutcome.Refused(patch, missing);
+        }
+
+        if (from == to)
+        {
+            return EditOutcome.Refused(patch, $"OP{from + 1} cannot be copied onto itself.");
+        }
+
+        return EditOutcome.Done(patch.WithOperator(to, patch.Operators[from]));
+    };
+
+    /// <summary>
     /// Duplicates an operator: the first disabled slot becomes a copy of it, with its output level and all its
     /// connections (the operators that modulate it modulate the copy, the copy modulates what it modulates, and its
     /// feedback becomes the copy's own). Refused when no slot is free, or when an operator would receive more modulation

@@ -310,6 +310,7 @@ public sealed partial class PatchInspector : UserControl
             ConnectButton("ModulateTo", "Modulate…", $"Let OP{op + 1} modulate another operator, or itself", op, outgoing: true),
             ConnectButton("ModulatedBy", "Modulated by…", $"Let another operator, or OP{op + 1} itself, modulate OP{op + 1}", op, outgoing: false),
             Action("Duplicate", "Duplicate", $"A copy of OP{op + 1} in the first free operator, with all its connections", () => ApplyAndSelectAdded(PatchEdits.DuplicateOperator(op))),
+            CopyFromButton(op),
             Action("Remove", "Remove", $"Remove OP{op + 1} and its connections", () => Deselect(_editor!.Apply(PatchEdits.RemoveOperator(op)))));
 
         // Listening without it: no edit, so also on the original side.
@@ -504,6 +505,51 @@ public sealed partial class PatchInspector : UserControl
 
         // A vowel needs a source with many equally strong harmonics for its formants to shape.
         Buttons(Action("VoiceSource", "Voice source", "Make this operator a vowel source: a narrow pulse (1 %) with 64 harmonics", () => _editor!.Apply(PatchEdits.SetVoiceSource(op))));
+    }
+
+    /// <summary>
+    /// A button whose menu copies the settings of another operator in use onto the selected one (its waveform,
+    /// frequency, envelope, filter and the rest; its output level and connections stay). The menu is built on each click,
+    /// from the patch as it is then.
+    /// </summary>
+    private Button CopyFromButton(int op)
+    {
+        var button = new Button { Name = "CopyFrom", Content = "Copy from…" };
+        ToolTip.SetTip(button, $"Give OP{op + 1} the settings of another operator: waveform, frequency, envelope, filter and the rest. Its output level and connections stay.");
+        button.Click += (_, _) =>
+        {
+            if (_editor?.DisplayedPatch is not { } patch)
+            {
+                return;
+            }
+
+            var menu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
+            for (int i = 0; i < patch.OperatorCount; i++)
+            {
+                if (i == op || !patch.Operators[i].Enabled)
+                {
+                    continue;
+                }
+
+                int source = i;
+                OperatorPatch other = patch.Operators[i];
+                string frequency = other.Frequency.Mode == OperatorFrequencyMode.Fixed
+                    ? string.Create(CultureInfo.InvariantCulture, $"{other.Frequency.FixedFrequencyHz:0.##} Hz")
+                    : string.Create(CultureInfo.InvariantCulture, $"×{other.Frequency.Ratio:0.###}");
+                string filter = other.Filter is { } f ? ", " + PatchDescription.FilterLabel(f) : string.Empty;
+                var item = new MenuItem { Name = "CopyFrom:" + (i + 1).ToString(CultureInfo.InvariantCulture), Header = $"OP{i + 1} ({PatchDescription.WaveformName(other.Waveform)} {frequency}{filter})" };
+                item.Click += (_, _) => _editor.Apply(PatchEdits.CopyOperator(source, op));
+                menu.Items.Add(item);
+            }
+
+            if (menu.Items.Count == 0)
+            {
+                menu.Items.Add(new MenuItem { Header = "No other operator is in use.", IsEnabled = false });
+            }
+
+            menu.ShowAt(button);
+        };
+        return button;
     }
 
     /// <summary>

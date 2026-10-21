@@ -260,9 +260,9 @@ keeps its loudness when you mute, so the remaining operators do not get louder.
 
 *The inspector of OP1: the buttons that change the structure, its numbers, and its amplitude envelope.*
 
-- **An operator** has *Add modulator*, *Modulate…*, *Modulated by…*, *Duplicate* and *Remove*, menus for the waveform
-  and the frequency mode (ratio or fixed Hz), its numbers, a filter section (type and *Sweep*) and, on Nome6,
-  *Roughness from the shared noise*.
+- **An operator** has *Add modulator*, *Modulate…*, *Modulated by…*, *Duplicate*, *Copy from…* and *Remove*, menus
+  for the waveform and the frequency mode (ratio or fixed Hz), its numbers, a filter section (type and *Sweep*) and,
+  on Nome6, *Roughness from the shared noise*.
   - *Add modulator* takes the first free operator: a sine at ratio 1 with a short decaying envelope, modulating the
     selected operator by 1 rad and not heard on its own.
   - *Modulate…* lets the selected operator modulate another one, or itself (feedback); *Modulated by…* lets another
@@ -273,6 +273,10 @@ keeps its loudness when you mute, so the remaining operators do not get louder.
     connections: what modulates the original modulates the copy, the copy modulates what the original modulates, and
     the original's feedback becomes the copy's own. The sound changes until you change the copy (detune it, give it
     another ratio). The copy is selected; one undo removes it.
+  - *Copy from…* gives the operator the settings of another one in use, chosen from a menu that names each with its
+    waveform, frequency and filter: waveform, frequency, tuning, envelope, filter, velocity and key scaling,
+    roughness. Its output level and its connections stay, so its place in the routing does not change. One undo
+    brings the operator back.
   - *Remove* switches the operator off with its connections; the last operator that is heard cannot be removed.
 - **A connection** has *Disconnect*, its amount and *Amount follows an envelope*.
 - **NOISE** has its colour and cutoff, and says which operators use the noise (*Used by OP2 (plays it), OP1 (roughness
