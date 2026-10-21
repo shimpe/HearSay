@@ -1136,7 +1136,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// here, at the gain of the library's reference note; an edit of either at the original's gain or its matched gain;
     /// null when nothing is shown.
     /// </summary>
-    private Sound? SearchSound() => Edits.DisplayedSound;
+    private Sound? SearchSound() => Edits.PlayedSound;
 
     /// <summary>The sound of the visible tab, which a new note plays.</summary>
     private Sound? VisibleSound() => SelectedTab == 1 ? Library.CurrentSound : SearchSound();
@@ -1468,7 +1468,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged(nameof(ShownPatch));
                 ScheduleDetails();
                 break;
-            case nameof(PatchEditorViewModel.DisplayedSound):
+            case nameof(PatchEditorViewModel.PlayedSound):
                 Live.SoundChanged();
                 break;
             case nameof(PatchEditorViewModel.DisplayedGain):

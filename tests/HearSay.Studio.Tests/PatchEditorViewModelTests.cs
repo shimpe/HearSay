@@ -52,6 +52,63 @@ public sealed class PatchEditorViewModelTests
     }
 
     [Fact]
+    public void Mute_ChangesWhatIsPlayed_NotThePatch_AtTheSameGain()
+    {
+        // OP1 heard, OP2 modulating it.
+        OperatorMatrixPatch original = Original()
+            .WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2), OperatorEnvelope.Adsr(0.01, 0.2, 0.5, 0.1)))
+            .WithEdge(new ModulationEdge(1, 0, true, 2.0));
+        PatchEditorViewModel vm = Shown(new EditSessions(), new FakeGains(), original);
+        var changes = new List<string?>();
+        vm.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+        Assert.Same(vm.DisplayedSound, vm.PlayedSound);
+
+        vm.ToggleMute(1);
+        Assert.True(vm.IsMuted(1));
+        Assert.Contains(nameof(PatchEditorViewModel.PlayedSound), changes);
+        Assert.Contains(nameof(PatchEditorViewModel.MutedOperators), changes);
+
+        // The patch, the code and the edit state stay; what is played has no OP2, at the gain of the unmuted sound.
+        Assert.Same(original, vm.DisplayedPatch);
+        Assert.False(vm.IsEdited);
+        Sound played = vm.PlayedSound!;
+        Assert.DoesNotContain(played.Patch.ModulationMatrix.Edges, static e => e.SourceOperator == 1);
+        Assert.Equal(OriginalGain, played.FixedGain);
+
+        // An edit keeps the mute, played at the edit's gain; the original side too.
+        vm.Apply(SetRatio(2));
+        Assert.True(vm.IsMuted(1));
+        Assert.DoesNotContain(vm.PlayedSound!.Patch.ModulationMatrix.Edges, static e => e.SourceOperator == 1);
+        Assert.Equal(vm.DisplayedGain, vm.PlayedSound.FixedGain);
+        vm.ShowingOriginal = true;
+        Assert.DoesNotContain(vm.PlayedSound!.Patch.ModulationMatrix.Edges, static e => e.SourceOperator == 1);
+
+        // Unmute: played as displayed again.
+        vm.ToggleMute(1);
+        Assert.False(vm.IsMuted(1));
+        Assert.Same(vm.DisplayedSound, vm.PlayedSound);
+
+        // Another sound: no mutes.
+        vm.ToggleMute(0);
+        vm.Show(Original(3), Fmx6, StructureLibrary.ReferenceRequest, "other", OriginalGain);
+        Assert.Empty(vm.MutedOperators);
+    }
+
+    [Fact]
+    public void Mute_OfAnOperatorThatGoes_IsForgotten()
+    {
+        OperatorMatrixPatch original = Original().WithOperator(1, OperatorPatch.Sine(OperatorFrequency.AtRatio(2))).WithEdge(new ModulationEdge(1, 0, true, 1.0));
+        PatchEditorViewModel vm = Shown(new EditSessions(), new FakeGains(), original);
+        vm.ToggleMute(1);
+        vm.Apply(PatchEdits.RemoveOperator(1));
+        Assert.Empty(vm.MutedOperators);
+
+        // A new modulator in that slot is heard.
+        vm.Apply(PatchEdits.AddModulator(0));
+        Assert.False(vm.IsMuted(1));
+    }
+
+    [Fact]
     public void EditedFrom_IsTheOriginal_OnlyWhileAnEditIsShown()
     {
         PatchEditorViewModel vm = Shown(new EditSessions(), new FakeGains());

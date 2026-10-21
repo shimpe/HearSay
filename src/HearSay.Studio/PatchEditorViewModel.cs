@@ -41,6 +41,10 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     }
 
     private readonly EditSessions _sessions;
+
+    /// <summary>The muted operators (<see cref="MutedOperators"/>), and the copy the property hands out.</summary>
+    private readonly HashSet<int> _muted = [];
+    private IReadOnlySet<int> _mutedView = new HashSet<int>();
     private readonly Func<Sound, Task<float>> _gainOf;
 
     /// <summary>The gains of the originals shown before, so that coming back to an edit plays it at once.</summary>
@@ -176,6 +180,75 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// What a new note plays: <see cref="DisplayedSound"/>, with the muted operators silent
+    /// (<see cref="OperatorMute"/>) at the gain the sound plays at unmuted, so that muting one operator does not make the
+    /// others louder. Null while that gain is not known yet.
+    /// </summary>
+    public Sound? PlayedSound
+    {
+        get
+        {
+            if (DisplayedSound is not { } sound || _muted.Count == 0)
+            {
+                return DisplayedSound;
+            }
+
+            return DisplayedGain is float gain ? sound with { Patch = OperatorMute.Apply(sound.Patch, _muted), FixedGain = gain } : null;
+        }
+    }
+
+    /// <summary>
+    /// The operators muted to listen without them, zero-based: they are silent in <see cref="PlayedSound"/> but stay in
+    /// the patch, the code and everything saved. Kept across edits and the Original ⇄ Edited switch; cleared when
+    /// another sound is shown, and an operator that goes out of use is unmuted.
+    /// </summary>
+    public IReadOnlySet<int> MutedOperators => _mutedView;
+
+    /// <summary>True when an operator is muted.</summary>
+    /// <param name="op">Operator, zero-based.</param>
+    public bool IsMuted(int op) => _muted.Contains(op);
+
+    /// <summary>Mutes an operator in use, or unmutes it.</summary>
+    /// <param name="op">Operator, zero-based.</param>
+    public void ToggleMute(int op)
+    {
+        if (!_muted.Remove(op))
+        {
+            if (DisplayedPatch is not { } patch || (uint)op >= (uint)patch.OperatorCount || !patch.Operators[op].Enabled)
+            {
+                return;
+            }
+
+            _muted.Add(op);
+        }
+
+        OnMutedChanged();
+    }
+
+    /// <summary>Unmutes the operators that are no longer in use in either version, so a new one in their slot is heard.</summary>
+    private void ForgetUnusedMutes()
+    {
+        if (_editor is not { } editor)
+        {
+            return;
+        }
+
+        if (_muted.RemoveWhere(op => (uint)op >= (uint)editor.Current.OperatorCount
+            || !(editor.Current.Operators[op].Enabled || editor.Original.Operators[op].Enabled)
+            || (!editor.ShowingOriginal && !editor.Current.Operators[op].Enabled)) > 0)
+        {
+            OnMutedChanged();
+        }
+    }
+
+    private void OnMutedChanged()
+    {
+        _mutedView = new HashSet<int>(_muted);
+        OnPropertyChanged(nameof(MutedOperators));
+        OnPropertyChanged(nameof(PlayedSound));
+    }
+
+    /// <summary>
     /// The gain <see cref="DisplayedSound"/> plays at, once known: its fixed gain (an edit's, or a favourite's), else the
     /// gain the live player computed for the original. Null while it is not known yet, when nothing is shown, and when
     /// the original's gain could not be computed.
@@ -284,6 +357,12 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
 
             _editor = editor;
             _selected = null;
+            if (_muted.Count > 0)
+            {
+                _muted.Clear();
+                OnMutedChanged();
+            }
+
             OnPropertyChanged(nameof(Selected));
             OnPropertyChanged(nameof(Editor));
             OnPropertyChanged(nameof(HasSound));
@@ -555,6 +634,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanMatchLoudness));
         OnPropertyChanged(nameof(MatchedGain));
         OnPropertyChanged(nameof(DisplayedSound));
+        OnPropertyChanged(nameof(PlayedSound));
         OnPropertyChanged(nameof(DisplayedGain));
     }
 
@@ -562,6 +642,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
     private void Refresh()
     {
         _isEdited = _editor?.IsEdited ?? false;
+        ForgetUnusedMutes();
         OnPropertyChanged(nameof(DisplayedPatch));
         OnPropertyChanged(nameof(IsEdited));
         OnPropertyChanged(nameof(ShowingOriginal));
@@ -574,6 +655,7 @@ public sealed class PatchEditorViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanMatchLoudness));
         OnPropertyChanged(nameof(MatchedGain));
         OnPropertyChanged(nameof(DisplayedSound));
+        OnPropertyChanged(nameof(PlayedSound));
         OnPropertyChanged(nameof(DisplayedGain));
         OnPropertyChanged(nameof(FavouriteOrigin));
         UpdateSelectedValues(force: false);

@@ -42,6 +42,12 @@ public sealed partial class FmDiagram
     public static readonly StyledProperty<bool> CanNudgeProperty = AvaloniaProperty.Register<FmDiagram, bool>(nameof(CanNudge), true);
 
     /// <summary>
+    /// The operators muted to listen without them (zero-based): drawn pale with their connections and output, their mute
+    /// button lit. Every operator box has the button while editing; a click on it raises <see cref="MuteClicked"/>.
+    /// </summary>
+    public static readonly StyledProperty<IReadOnlySet<int>?> MutedOperatorsProperty = AvaloniaProperty.Register<FmDiagram, IReadOnlySet<int>?>(nameof(MutedOperators));
+
+    /// <summary>
     /// The original of the patch shown when the patch is an edit of it; null for none. The parts the edit changed
     /// (<see cref="EditMarks"/>) are outlined in the edited colour, and so are the amounts and output levels it changed.
     /// </summary>
@@ -58,6 +64,12 @@ public sealed partial class FmDiagram
     // What the pointer can pick in the last render: the parts, and the numbers that can be dragged with their part.
     private readonly List<(Rect Box, PatchPart Part)> _parts = [];
     private readonly List<(Rect Box, string Id, PatchPart Part)> _numbers = [];
+    private readonly List<(Rect Box, int Op)> _mutes = [];
+
+    private static readonly IBrush MuteFill = new SolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly IBrush MuteInk = new SolidColorBrush(Color.Parse("#0B1220"));
+    private static readonly IBrush MuteGlyph = new SolidColorBrush(Color.Parse("#94A3B8"));
+    private static readonly Pen MuteOutline = new(new SolidColorBrush(Color.Parse("#475569")), 1);
 
     private bool _pressed;
     private Point _pressAt;
@@ -71,6 +83,9 @@ public sealed partial class FmDiagram
     /// <see cref="SelectedPart"/> is already set.
     /// </summary>
     public event EventHandler<PatchPart?>? PartClicked;
+
+    /// <summary>The mute button of an operator was clicked: its index, zero-based. The selection does not change.</summary>
+    public event EventHandler<int>? MuteClicked;
 
     /// <summary>A drag of a number began, with the id of its value; its part is selected.</summary>
     public event EventHandler<string>? NudgeStarted;
@@ -96,6 +111,13 @@ public sealed partial class FmDiagram
     {
         get => GetValue(SelectedPartProperty);
         set => SetValue(SelectedPartProperty, value);
+    }
+
+    /// <inheritdoc cref="MutedOperatorsProperty"/>
+    public IReadOnlySet<int>? MutedOperators
+    {
+        get => GetValue(MutedOperatorsProperty);
+        set => SetValue(MutedOperatorsProperty, value);
     }
 
     /// <inheritdoc cref="CanNudgeProperty"/>
@@ -128,6 +150,13 @@ public sealed partial class FmDiagram
 
         EndPress(cancel: false);
         _pressAt = e.GetPosition(this);
+        if (_mutes.FindLastIndex(m => m.Box.Contains(_pressAt)) is var hit and >= 0)
+        {
+            MuteClicked?.Invoke(this, _mutes[hit].Op);
+            e.Handled = true;
+            return;
+        }
+
         _pressedNumber = NumberAt(_pressAt);
         _pressed = true;
         _pointer = e.Pointer;
@@ -258,6 +287,49 @@ public sealed partial class FmDiagram
     {
         _parts.Clear();
         _numbers.Clear();
+        _mutes.Clear();
+    }
+
+    /// <summary>
+    /// The mute button of an operator box, in its top-right corner: a small speaker, struck through and amber while the
+    /// operator is muted. Only while editing.
+    /// </summary>
+    private void DrawMuteButton(DrawingContext context, Rect box, int op, bool muted)
+    {
+        if (!IsEditing)
+        {
+            return;
+        }
+
+        var button = new Rect(box.Right - 19, box.Y + 3, 16, 13);
+        _mutes.Add((button, op));
+        context.DrawRectangle(muted ? MuteFill : null, muted ? null : MuteOutline, button, 3, 3);
+        IBrush ink = muted ? MuteInk : MuteGlyph;
+        double x = button.X + 3, y = button.Y + 3.5;
+        var speaker = new StreamGeometry();
+        using (StreamGeometryContext g = speaker.Open())
+        {
+            g.BeginFigure(new Point(x, y + 1.5), true);
+            g.LineTo(new Point(x + 2, y + 1.5));
+            g.LineTo(new Point(x + 5, y - 1));
+            g.LineTo(new Point(x + 5, y + 7));
+            g.LineTo(new Point(x + 2, y + 4.5));
+            g.LineTo(new Point(x, y + 4.5));
+            g.EndFigure(true);
+        }
+
+        context.DrawGeometry(ink, null, speaker);
+        var stroke = new Pen(ink, 1.2);
+        if (muted)
+        {
+            context.DrawLine(stroke, new Point(x + 6.5, y + 0.5), new Point(x + 10, y + 5.5));
+            context.DrawLine(stroke, new Point(x + 10, y + 0.5), new Point(x + 6.5, y + 5.5));
+        }
+        else
+        {
+            context.DrawLine(stroke, new Point(x + 7, y + 1), new Point(x + 7.8, y + 3));
+            context.DrawLine(stroke, new Point(x + 7.8, y + 3), new Point(x + 7, y + 5));
+        }
     }
 
     private void AddPart(Rect box, PatchPart part)

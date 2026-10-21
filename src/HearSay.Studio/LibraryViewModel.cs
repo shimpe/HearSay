@@ -1051,9 +1051,9 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// The sound the keyboard plays: the last clicked one, at the gain of the library's reference note, or its edit at the
-    /// original's gain or its matched gain; null before a click.
+    /// original's gain or its matched gain, with its muted operators silent; null before a click.
     /// </summary>
-    public Sound? CurrentSound => Edits.DisplayedSound;
+    public Sound? CurrentSound => Edits.PlayedSound;
 
     /// <summary>The notes that sound now, lit on the keyboard.</summary>
     public IReadOnlyCollection<int> SoundingNotes => _live.SoundingNotes;
@@ -1129,7 +1129,7 @@ public sealed class LibraryViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ShownPatch));
                 ScheduleCode();
                 break;
-            case nameof(PatchEditorViewModel.DisplayedSound):
+            case nameof(PatchEditorViewModel.PlayedSound):
                 OnPropertyChanged(nameof(CurrentSound));
                 break;
             case nameof(PatchEditorViewModel.DisplayedGain):

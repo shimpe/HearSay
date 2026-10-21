@@ -244,6 +244,16 @@ cyan, and the **inspector** beside the diagram shows all its values. Clicking em
 closes it. While a sound is shown the PITCH box is always there (empty when the pitch does not move), and so is the
 NOISE box on Nome6, so that a pitch envelope, vibrato or noise can be added.
 
+### Muting operators
+
+Every operator box has a small speaker in its top-right corner. Click it to listen without that operator: its output
+and its modulation of other operators fall silent, and the box, its connections and its output line turn pale; the
+speaker turns amber with a cross. Click it again to hear the operator again. The inspector of an operator has the same
+switch, **Mute**. Muting only changes what you hear: the patch, its code, Copy, Save, ☆ and Undo are not affected, and
+nothing is marked as edited. It works on the Original side too, and muted operators stay muted across edits and the
+Original ⇄ Edited switch, so you can compare both without them; another sound starts with nothing muted. The sound
+keeps its loudness when you mute, so the remaining operators do not get louder.
+
 ### The inspector
 
 ![The inspector of an operator](images/studio/inspector.png)

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -43,6 +44,9 @@ public sealed partial class PatchInspector : UserControl
     private readonly List<EnvelopeEditor> _envelopes = [];
     private readonly List<Mark> _marks = [];
 
+    /// <summary>The mute toggle of the operator shown, with its operator; null for other parts.</summary>
+    private (ToggleButton Toggle, int Op)? _mute;
+
     /// <summary>The "more formants" fold of the part shown; null when it has none.</summary>
     private Expander? _moreFormants;
     private readonly Dictionary<string, EditableValue> _values = [];
@@ -78,7 +82,7 @@ public sealed partial class PatchInspector : UserControl
     private void OnEditorChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(PatchEditorViewModel.DisplayedPatch) or nameof(PatchEditorViewModel.SelectedValues) or nameof(PatchEditorViewModel.Selected)
-            or nameof(PatchEditorViewModel.ShowingOriginal) or nameof(PatchEditorViewModel.Editor))
+            or nameof(PatchEditorViewModel.ShowingOriginal) or nameof(PatchEditorViewModel.Editor) or nameof(PatchEditorViewModel.MutedOperators))
         {
             Update();
         }
@@ -131,6 +135,12 @@ public sealed partial class PatchInspector : UserControl
         }
 
         ShowMarks(patch);
+        if (_mute is ({ } toggle, int muted) && toggle.IsChecked == true != _editor.IsMuted(muted))
+        {
+            _building = true;
+            toggle.IsChecked = _editor.IsMuted(muted);
+            _building = false;
+        }
 
         // The original cannot be changed; "more formants" still opens and closes, its rows read-only.
         bool editable = !_editor.ShowingOriginal;
@@ -143,8 +153,9 @@ public sealed partial class PatchInspector : UserControl
             }
             else
             {
-                // Values that change nothing in this sound (the colour of a noise nothing uses) are greyed as well.
-                child.IsEnabled = editable && !child.Classes.Contains("unused");
+                // Values that change nothing in this sound (the colour of a noise nothing uses) are greyed as well; what
+                // only changes what is heard (mute) works on either side.
+                child.IsEnabled = child.Classes.Contains("listen") || (editable && !child.Classes.Contains("unused"));
             }
         }
 
@@ -212,6 +223,7 @@ public sealed partial class PatchInspector : UserControl
             _boxes.Clear();
             _envelopes.Clear();
             _marks.Clear();
+            _mute = null;
             _moreFormants = null;
             Title.Text = string.Empty;
             if (_editor is { Editor: { } editor, DisplayedPatch: { } patch, Selected: { } part })
@@ -299,6 +311,21 @@ public sealed partial class PatchInspector : UserControl
             ConnectButton("ModulatedBy", "Modulated by…", $"Let another operator, or OP{op + 1} itself, modulate OP{op + 1}", op, outgoing: false),
             Action("Duplicate", "Duplicate", $"A copy of OP{op + 1} in the first free operator, with all its connections", () => ApplyAndSelectAdded(PatchEdits.DuplicateOperator(op))),
             Action("Remove", "Remove", $"Remove OP{op + 1} and its connections", () => Deselect(_editor!.Apply(PatchEdits.RemoveOperator(op)))));
+
+        // Listening without it: no edit, so also on the original side.
+        var mute = new ToggleButton { Name = "Mute", Content = "Mute", IsChecked = _editor!.IsMuted(op) };
+        ToolTip.SetTip(mute, $"Listen without OP{op + 1}: its output and its modulation are silent until you unmute it. The patch, its code and what you save do not change.");
+        mute.IsCheckedChanged += (_, _) =>
+        {
+            if (!_building && mute.IsChecked == true != _editor.IsMuted(op))
+            {
+                _editor.ToggleMute(op);
+            }
+        };
+        var listen = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4), Classes = { "listen" } };
+        listen.Children.Add(mute);
+        Body.Children.Add(listen);
+        _mute = (mute, op);
 
         IReadOnlyList<OperatorWaveform> waveforms = PatchEdits.WaveformsFor(caps);
         if (waveforms.Count > 1)

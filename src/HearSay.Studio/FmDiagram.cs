@@ -66,7 +66,7 @@ public sealed partial class FmDiagram : Control
 
     static FmDiagram()
     {
-        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty, IsEditingProperty, SelectedPartProperty, CanNudgeProperty, EmptyTextProperty, OriginalProperty);
+        AffectsRender<FmDiagram>(PatchProperty, SharedNoiseProperty, IsEditingProperty, SelectedPartProperty, CanNudgeProperty, EmptyTextProperty, OriginalProperty, MutedOperatorsProperty);
         PatchProperty.Changed.AddClassHandler<FmDiagram>(static (d, _) => d.HideTip());
     }
 
@@ -159,6 +159,10 @@ public sealed partial class FmDiagram : Control
         int n = patch.OperatorCount;
         bool editing = IsEditing;
         bool[] audible = patch.FindAudibleOperators();
+
+        // Muted operators are drawn pale, with what they send: their output and their connections.
+        IReadOnlySet<int> mutedSet = MutedOperators ?? new HashSet<int>();
+        bool IsMuted(int op) => editing && mutedSet.Contains(op);
 
         // What the edit changed, against the original when the patch is an edit of it.
         OperatorMatrixPatch? original = Original;
@@ -311,9 +315,10 @@ public sealed partial class FmDiagram : Control
         {
             var from = new Point(centers[i].X, centers[i].Y + (boxH / 2));
             var to = new Point(centers[i].X, busY);
+            using IDisposable? paleOutput = Unheard(context, IsMuted(i));
             context.DrawLine(OutputPen, from, to);
             DrawArrowHead(context, OutputPen.Brush!, from, to);
-            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted, null, (FormattableString.Invariant($"op{i + 1}.output.level"), new PatchPart.OperatorPart(i)), false, OutputEdited(i)));
+            labels.Add((patch.OutputLevels[i].ToString("0.##", CultureInfo.InvariantCulture), new Point(centers[i].X + 5, busY - 15), Muted, null, (FormattableString.Invariant($"op{i + 1}.output.level"), new PatchPart.OperatorPart(i)), IsMuted(i), OutputEdited(i)));
         }
 
         // Straight lines the curves should stay off: edges to the row below and the output lines.
@@ -335,7 +340,7 @@ public sealed partial class FmDiagram : Control
             Point s = centers[e.SourceOperator], d = centers[e.DestinationOperator];
             string amount = e.Amount.ToString("0.##", CultureInfo.InvariantCulture);
             (string, PatchPart) value = (FormattableString.Invariant($"edge.{e.SourceOperator + 1}>{e.DestinationOperator + 1}.amount"), new PatchPart.ConnectionPart(e.SourceOperator, e.DestinationOperator));
-            bool unheard = !audible[e.DestinationOperator] || e.Amount == 0.0;
+            bool unheard = !audible[e.DestinationOperator] || e.Amount == 0.0 || IsMuted(e.SourceOperator);
             bool edgeEdited = Edited(new PatchPart.ConnectionPart(e.SourceOperator, e.DestinationOperator));
             using IDisposable? pale = Unheard(context, unheard);
             if (e.IsSelfFeedback)
@@ -450,7 +455,7 @@ public sealed partial class FmDiagram : Control
         foreach (int i in shown)
         {
             var rect = new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH);
-            using IDisposable? pale = Unheard(context, !audible[i]);
+            using IDisposable? pale = Unheard(context, !audible[i] || IsMuted(i));
             context.DrawRectangle(carrier[i] ? CarrierFill : BoxFill, Edited(new PatchPart.OperatorPart(i)) ? EditedPen : BoxPen, rect, 6, 6);
             _hitBoxes.Add((rect, i));
             AddPart(rect, new PatchPart.OperatorPart(i));
@@ -479,6 +484,12 @@ public sealed partial class FmDiagram : Control
                 DrawFrequencyLine(context, shownOp, i, new Point(rect.X + 7, rect.Y + 18), boxW - 10);
                 DrawText(context, tuning, new Point(rect.X + 7, rect.Y + 31), 10, Muted, maxWidth: boxW - 10);
             }
+        }
+
+        // The mute buttons over the boxes, at full strength also on a muted (pale) box.
+        foreach (int i in shown)
+        {
+            DrawMuteButton(context, new Rect(centers[i].X - (boxW / 2), centers[i].Y - (boxH / 2), boxW, boxH), i, IsMuted(i));
         }
 
         if (pitchH > 0)

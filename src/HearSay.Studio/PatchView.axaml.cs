@@ -51,6 +51,7 @@ public sealed partial class PatchView : UserControl
     {
         InitializeComponent();
         Diagram.PartClicked += OnPartClicked;
+        Diagram.MuteClicked += (_, op) => Editor?.ToggleMute(op);
         Diagram.NudgeStarted += OnNudgeStarted;
         Diagram.Nudged += OnNudged;
         Diagram.NudgeEnded += (_, _) => EndNudge(cancel: false);

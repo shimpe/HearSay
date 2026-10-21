@@ -37,6 +37,11 @@
     <Style Selector="Button">
       <Setter Property="Padding" Value="8,3" />
     </Style>
+    <!-- Mute on: amber, as its button in the block diagram -->
+    <Style Selector="ToggleButton#Mute:checked /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource AmberBrush}" />
+      <Setter Property="Foreground" Value="#0B1220" />
+    </Style>
     <Style Selector="CheckBox">
       <Setter Property="MinHeight" Value="24" />
     </Style>
