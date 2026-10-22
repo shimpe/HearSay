@@ -22,7 +22,11 @@ namespace HearSay.Synthesis.Nome6Compatible.Rendering;
 /// The whole matrix at twice the host rate: every edge has a delay of one internal sample, and the six outputs are
 /// decimated by the UGen's 31-tap half-band filter.
 /// </item>
-/// <item>Double-precision phase in cycles; frequency, amplitude and matrix held for each control block at the value the block reads, not ramped as in FM7.</item>
+/// <item>
+/// Double-precision phase in cycles; frequency, amplitude and matrix ramped linearly across each control block, from
+/// the values of the previous block (the construction values for the first) to the values the block reads, as in FM7;
+/// the elliptic parameter, the morph and the noise settings are held.
+/// </item>
 /// <item>No warm-up sample: the first internal sample is at the initial phase.</item>
 /// <item>
 /// One noise source for all operators at the internal rate, drawn only while an operator uses it: xorshift white noise

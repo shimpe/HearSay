@@ -208,9 +208,9 @@ public sealed class StructureLibraryTests
     }
 
     [Fact]
-    public void Nome6_HasANewLibraryVersionThatReusesTheOldOne_AndFm7KeepsVersion1()
+    public void Nome6_HasLibraryVersion3WithoutReuse_AndFm7KeepsVersion1()
     {
-        Assert.Equal((2, 1), (SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion, SynthesisProfiles.SuperColliderNome6.StructureLibraryReusedVersion));
+        Assert.Equal((3, (int?)null), (SynthesisProfiles.SuperColliderNome6.StructureLibraryVersion, SynthesisProfiles.SuperColliderNome6.StructureLibraryReusedVersion));
         Assert.Equal((1, (int?)null), (SynthesisProfiles.SuperColliderFm7.StructureLibraryVersion, SynthesisProfiles.SuperColliderFm7.StructureLibraryReusedVersion));
     }
 
@@ -267,7 +267,7 @@ public sealed class StructureLibraryTests
         Directory.CreateDirectory(directory);
         try
         {
-            // The reuse as FMX6 version 3 had it (Nome6 still does): the sounds of version 2 are the regular ones of 3.
+            // The reuse as FMX6 version 3 had it (and Nome6 version 2): the sounds of version 2 are the regular ones of 3.
             SynthesisProfile profile = Fmx6 with { Name = "test-fmx6-" + Guid.NewGuid().ToString("N"), StructureLibraryVersion = 3, StructureLibraryReusedVersion = 2 };
             SynthesisProfile old = profile with { StructureLibraryVersion = 2, StructureLibraryReusedVersion = null };
             Assert.Equal(80, StructureLibrary.SoundsToRender(profile, 40, directory));

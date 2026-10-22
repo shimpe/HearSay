@@ -82,6 +82,20 @@ public sealed class Nome6Tests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Attack_RampsAcrossEachBlock_InsteadOfSteppingAndClicking()
+    {
+        // A 100 Hz sine rising in 10 ms: held per block, the level would jump by 13 % at every block boundary, a step of
+        // up to 0.13 between two samples; ramped, no step is much steeper than the sine at full level (2π · 100 / 48 000).
+        OperatorMatrixPatch patch = OperatorMatrixPatch.Silent(6)
+            .WithOperator(0, OperatorPatch.Sine(OperatorFrequency.AtRatio(1), OperatorEnvelope.Adsr(0.01, 0.1, 1.0, 0.1)))
+            .WithOutputLevel(0, 1.0);
+        float[] samples = Render(patch);
+        double steepest = Enumerable.Range(1, 960).Max(i => Math.Abs(samples[i] - samples[i - 1]));
+        output.WriteLine($"steepest step in the first 20 ms {steepest:F4}");
+        Assert.True(steepest < 0.02, $"steepest step {steepest:F4}");
+    }
+
+    [Fact]
     public void Nome_RoundTripsTheParameter()
     {
         foreach (double m in new[] { 0.0, 0.1, 0.5, 0.9, 0.99, 0.9999, OperatorPatch.MaxEllipticM })

@@ -176,8 +176,9 @@ public static class SynthesisProfiles
         ControlBlockSize: 64,
         "Six Jacobi elliptic phase-modulation operators (sine at m = 0) and a shared filtered noise source, full 6x6 matrix, 2x oversampled, SuperCollider Nome6 UGen.")
     {
-        StructureLibraryVersion = 2,
-        StructureLibraryReusedVersion = 1,
+        // Version 3: the UGen ramps its controls across each block instead of holding them, so every sound changes and
+        // no older file is reused; version 2 added the noisy sounds to those of version 1.
+        StructureLibraryVersion = 3,
     };
 
     /// <summary>

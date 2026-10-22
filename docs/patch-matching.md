@@ -975,10 +975,11 @@ are closest to the target, each as it is and with the envelopes of the target, i
   ones, whose band-limited waveforms cost more to render than noise (measured on library version 3); for Nome6 5 and 6 minutes (24 threads). The CLI
   and the Studio opt out of the Windows efficiency mode (`ProcessSpeed`), which otherwise runs a process that is not in
   the foreground on the efficiency cores: the noise-free FMX6 patches took 36 minutes there.
-  The version of a profile's library (`SynthesisProfile.StructureLibraryVersion`: FM7 1, FMX6 8, Nome6 2) is part of
-  the file name, so a change of the random patches rebuilds that library once. A profile whose regular sounds are
-  those of an older version names it (`StructureLibraryReusedVersion`): Nome6 v2 reads the sounds of v1 when that file
-  is on disk and renders only the noise-free ones. FMX6 v8 reuses nothing, because its formant sounds differ from
+  The version of a profile's library (`SynthesisProfile.StructureLibraryVersion`: FM7 1, FMX6 8, Nome6 3) is part of
+  the file name, so a change of the random patches or of the renderer rebuilds that library once. A profile whose
+  regular sounds are those of an older version names it (`StructureLibraryReusedVersion`): Nome6 v2 read the sounds of
+  v1 and rendered only the noise-free ones; Nome6 v3 reuses nothing, because its renderer ramps the controls that v2
+  held per block. FMX6 v8 reuses nothing, because its formant sounds differ from
   those of every earlier version. The first search of a profile reports the build as its first progress stages, with
   the share done and the time left (`RemainingTime`, from the pace since the first report); the Library tab does the
   same in its graph.
@@ -1238,7 +1239,9 @@ It plugged in along the five steps above, with these choices:
 
 - **Patch model.** One new waveform, `Elliptic`, whose `Shape` is m (0..`OperatorPatch.MaxEllipticM`) and whose new
   `Morph` is the sn-to-sd family. A sine operator is exported with m = 0, so every FM7 patch is also a Nome6 patch
-  (it sounds a little different: 2x oversampling, controls held per block instead of ramped). The shared noise is a
+  (it sounds a little different: 2x oversampling). The UGen ramps frequency, amplitude and matrix across each control
+  block as FM7 does; it first held them per block, which clicked at the start and the release of every note. The
+  shared noise is a
   patch-level `SharedNoise` (`Color` −1..1, `CutoffHz`); a `Noise` operator plays it with its amplitude envelope (the
   exporter moves the amplitude into the row's noiseAmp field), and two new operator fields roughen the others:
   `NoisePhase` (radians per unit of noise) and `NoiseM` (m excursion, −1..1, elliptic operators only). A capability,

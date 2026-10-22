@@ -34,11 +34,16 @@ internal sealed class Nome6Voice : ControlBlockVoice
     private double[] _next = [];
     private double[] _pm = [];
     private double[] _dPhase = [];
+    private double[] _freq = [];
+    private double[] _freqInc = [];
     private double[] _amp = [];
+    private double[] _ampInc = [];
     private double[] _noiseAmp = [];
+    private double[] _noiseAmpInc = [];
     private int[] _partials = [];
     private HalfbandDecimator[] _decimators = [];
     private double[] _mod = [];
+    private double[] _modInc = [];
     private bool _anyRoughness;
     private SharedNoiseSource _noise = null!;
     private double _noiseColor;
@@ -76,11 +81,16 @@ internal sealed class Nome6Voice : ControlBlockVoice
         _next = new double[n];
         _pm = new double[n];
         _dPhase = new double[n];
+        _freq = new double[n];
+        _freqInc = new double[n];
         _amp = new double[n];
+        _ampInc = new double[n];
         _noiseAmp = new double[n];
+        _noiseAmpInc = new double[n];
         _partials = new int[n];
         _decimators = new HalfbandDecimator[n];
-        _mod = new double[_edges];
+        _mod = [.. controls.EdgeAmounts.Select(static a => (double)a)];
+        _modInc = new double[_edges];
         _anyRoughness = false;
         for (int k = 0; k < n; k++)
         {
@@ -102,6 +112,14 @@ internal sealed class Nome6Voice : ControlBlockVoice
             _prepared[k] = Prepare(m);
             _anyRoughness |= Math.Abs(_noisePhase[k]) > 1.0e-15 || depth > 1.0e-12;
             _decimators[k] = new HalfbandDecimator();
+        }
+
+        // The first block ramps from the construction values.
+        for (int k = 0; k < n; k++)
+        {
+            _freq[k] = FrequencyOf(k, controls.Frequencies);
+            _amp[k] = AmplitudeOf(k, controls.Amplitudes);
+            _noiseAmp[k] = NoiseAmplitudeOf(k, controls.Amplitudes);
         }
 
         _noise = new SharedNoiseSource(controls.NoiseCutoffHz, _internalRate);
@@ -126,11 +144,16 @@ internal sealed class Nome6Voice : ControlBlockVoice
         double[] next = _next;
         double[] pm = _pm;
         double[] dPhase = _dPhase;
+        double[] freq = _freq;
+        double[] freqInc = _freqInc;
         double[] amp = _amp;
+        double[] ampInc = _ampInc;
         double[] noiseAmp = _noiseAmp;
+        double[] noiseAmpInc = _noiseAmpInc;
         int[] partials = _partials;
         HalfbandDecimator[] decimators = _decimators;
         double[] mod = _mod;
+        double[] modInc = _modInc;
         SharedNoiseSource noise = _noise;
         double noiseColor = _noiseColor;
         float[] frequencies = controls.Frequencies;
@@ -140,29 +163,33 @@ internal sealed class Nome6Voice : ControlBlockVoice
         int[] source = controls.EdgeSources;
         int[] destination = controls.EdgeDestinations;
 
-        // The UGen reads its control-rate inputs once, at the start of the block, and holds them for the block.
-        bool noiseEnabled = _anyRoughness;
+        // The UGen ramps frequency, amplitude and matrix linearly across the block, from the values of the previous
+        // block to the ones it reads now, using each value before stepping it.
+        double slope = 1.0 / block.Length;
         for (int k = 0; k < n; k++)
         {
-            double freq = isNoise[k] ? 0.0 : frequencies[k];
-            double level = amplitudes[k];
-
-            // A noise operator is a row whose amplitude drives the shared noise instead of the oscillator.
-            amp[k] = isNoise[k] ? 0.0 : level;
-            noiseAmp[k] = isNoise[k] ? level : 0.0;
-            noiseEnabled |= Math.Abs(noiseAmp[k]) > 1.0e-15;
-            dPhase[k] = freq / internalRate;
-            int active = preparedLow[k] is { } low ? Math.Max(low.ActivePartials, preparedHigh[k]!.ActivePartials) : prepared[k].ActivePartials;
-            partials[k] = Math.Min(PartialCount(freq, internalRate), active);
+            freqInc[k] = (FrequencyOf(k, frequencies) - freq[k]) * slope;
+            ampInc[k] = (AmplitudeOf(k, amplitudes) - amp[k]) * slope;
+            noiseAmpInc[k] = (NoiseAmplitudeOf(k, amplitudes) - noiseAmp[k]) * slope;
         }
 
         for (int e = 0; e < edges; e++)
         {
-            mod[e] = amounts[e];
+            modInc[e] = (amounts[e] - mod[e]) * slope;
         }
 
         for (int position = 0; position < block.Length; position++)
         {
+            // The UGen derives these from its controls every host sample.
+            bool noiseEnabled = _anyRoughness;
+            for (int k = 0; k < n; k++)
+            {
+                noiseEnabled |= Math.Abs(noiseAmp[k]) > 1.0e-15;
+                dPhase[k] = freq[k] / internalRate;
+                int active = preparedLow[k] is { } low ? Math.Max(low.ActivePartials, preparedHigh[k]!.ActivePartials) : prepared[k].ActivePartials;
+                partials[k] = Math.Min(PartialCount(freq[k], internalRate), active);
+            }
+
             float mix = 0f;
             for (int sub = 0; sub < Oversample; sub++)
             {
@@ -214,12 +241,43 @@ internal sealed class Nome6Voice : ControlBlockVoice
             }
 
             block[position] = mix;
+            for (int k = 0; k < n; k++)
+            {
+                freq[k] += freqInc[k];
+                amp[k] += ampInc[k];
+                noiseAmp[k] += noiseAmpInc[k];
+            }
+
+            for (int e = 0; e < edges; e++)
+            {
+                mod[e] += modInc[e];
+            }
+        }
+
+        // The next block starts exactly at the values read now.
+        for (int k = 0; k < n; k++)
+        {
+            freq[k] = FrequencyOf(k, frequencies);
+            amp[k] = AmplitudeOf(k, amplitudes);
+            noiseAmp[k] = NoiseAmplitudeOf(k, amplitudes);
+        }
+
+        for (int e = 0; e < edges; e++)
+        {
+            mod[e] = amounts[e];
         }
 
         // The output buffers swap every internal sample; keep the one that holds the latest outputs.
         _prevOut = prevOut;
         _next = next;
     }
+
+    // A noise operator is a row whose amplitude drives the shared noise instead of the oscillator.
+    private double FrequencyOf(int k, float[] frequencies) => _isNoise[k] ? 0.0 : frequencies[k];
+
+    private double AmplitudeOf(int k, float[] amplitudes) => _isNoise[k] ? 0.0 : amplitudes[k];
+
+    private double NoiseAmplitudeOf(int k, float[] amplitudes) => _isNoise[k] ? amplitudes[k] : 0.0;
 
     /// <summary>
     /// The shared noise of the UGen: xorshift white noise, a one-pole low-pass at the cutoff, and the colour
