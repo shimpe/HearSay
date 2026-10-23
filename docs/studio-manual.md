@@ -465,6 +465,12 @@ Everything else works; save the sound and play its `preview.wav`.
 speed), or the status line warns that the audio device mixes in large blocks: OpenAL Soft did not read the
 `alsoft.ini` shipped next to the program.
 
+**Notes wait longer after the SuperCollider server starts (Linux).** The server is a JACK client, and PipeWire or
+JACK then takes audio in larger blocks (1024 samples or more). The first notes after that may drop out once or
+twice while Studio lengthens its queue to match, and the status line says how long notes then wait. A smaller
+block brings the wait back down: `PIPEWIRE_QUANTUM=256/48000` in the environment of SuperCollider under PipeWire,
+or a period of 256 for `jackd` (`-p 256`); the queue does not shrink again until Studio restarts.
+
 **The MIDI device is not in the list.** Open the list again (it is read every time it opens), and check that no
 other program holds the device: on Windows most MIDI drivers let only one program open an input at a time.
 

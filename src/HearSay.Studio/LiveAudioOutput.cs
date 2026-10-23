@@ -8,8 +8,8 @@ namespace HearSay.Studio;
 /// <summary>
 /// Plays the live notes of a <see cref="VoiceMixer"/>: a streaming OpenAL source on the device and context of an
 /// <see cref="AudioPlayer"/>, beside its one-shot source, fed with <see cref="BufferCount"/> queued buffers of
-/// <see cref="BufferSamples"/> mono 16-bit samples at <see cref="SampleRate"/> Hz (5.3 ms each) by a thread of its own
-/// at above-normal priority.
+/// <see cref="BufferSamples"/> mono 16-bit samples at <see cref="SampleRate"/> Hz (5.3 ms each), or more for a device
+/// that takes more at a time, by a thread of its own at above-normal priority.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,18 +21,22 @@ namespace HearSay.Studio;
 /// one ran.
 /// </para>
 /// <para>
-/// Only a real underrun, the source having run dry and stopped while voices were fed, drops the oldest voice
-/// (<see cref="VoiceMixer.Shed"/>), counts in <see cref="Underruns"/>, and restarts the source after refilling it; a
-/// queue that is merely short is refilled at once. A search running on every core keeps its full speed, and the notes
-/// may stutter then. The thread never throws: an error is counted in <see cref="Errors"/>, and the thread stops the
-/// source and starts again with the next note.
+/// Only a real underrun, the source having run dry and stopped while voices were fed, counts in
+/// <see cref="Underruns"/> and restarts the source after refilling it; a queue that is merely short is refilled at once.
+/// An underrun doubles the queue, up to <see cref="MaxBufferCount"/> buffers, so that a device that takes more audio at a
+/// time than the queue holds is fed from then on; only a queue that runs dry at its longest drops the oldest voice
+/// (<see cref="VoiceMixer.Shed"/>), as the mixer then cannot keep up. A search running on every core keeps its full
+/// speed, and the notes may stutter then. The thread never throws: an error is counted in <see cref="Errors"/>, and the
+/// thread stops the source and starts again with the next note.
 /// </para>
 /// <para>
 /// The device adds its own buffering: OpenAL Soft mixes in updates of the period_size in the shipped alsoft.ini
 /// (256 samples asked for; Windows mixes every 10 ms in shared mode, and OpenAL Soft keeps 22 ms there), and without that
-/// file in updates of 960 samples, nearly the whole queue, so that the source keeps running dry. <see cref="Warning"/>
-/// says so when the device mixes more than <see cref="LongestDeviceUpdate"/> samples at a time, or when the first second
-/// of live notes runs dry <see cref="StormUnderruns"/> times or more.
+/// file in updates of 960 samples, nearly the whole queue; the queue then starts long enough for twice an update. The
+/// sound server may take more still: on Linux a JACK client such as the SuperCollider server makes PipeWire or JACK ask
+/// for 1024 samples or more at a time. <see cref="Warning"/> says so when the queue starts or grows longer than
+/// <see cref="BufferCount"/> buffers, or when the first second of live notes runs dry <see cref="StormUnderruns"/> times
+/// or more at its longest.
 /// </para>
 /// <para>Dispose it before the <see cref="AudioPlayer"/>, whose context it plays in.</para>
 /// </remarks>
@@ -44,11 +48,11 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     /// <summary>Samples per buffer.</summary>
     public const int BufferSamples = 256;
 
-    /// <summary>Buffers queued on the source.</summary>
+    /// <summary>Buffers queued on the source at first, when the device mixes no more than half of them at a time.</summary>
     public const int BufferCount = 4;
 
-    /// <summary>Longest device update the queue copes with: half of it, so that a refill fits between two updates.</summary>
-    private const int LongestDeviceUpdate = BufferCount * BufferSamples / 2;
+    /// <summary>Most buffers queued on the source: 8192 samples, 171 ms.</summary>
+    public const int MaxBufferCount = 32;
 
     /// <summary>Buffers in the first second of live notes, within which <see cref="StormUnderruns"/> raises <see cref="Warning"/>.</summary>
     private const int FirstSecondBuffers = SampleRate / BufferSamples;
@@ -71,21 +75,24 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     private readonly AudioPlayer _device;
     private readonly VoiceMixer _mixer;
     private readonly uint _source;
-    private readonly uint[] _buffers = new uint[BufferCount];
+    private readonly uint[] _buffers = new uint[MaxBufferCount];
     private readonly delegate* unmanaged[Cdecl]<uint, int, double*, void> _getSourceDoubles;
     private readonly AutoResetEvent _wake = new(false);
     private readonly Thread? _thread;
     private readonly Action _onSoundingNotesChanged;
 
     // Owned by the feeding thread.
-    private readonly Stack<uint> _free = new(BufferCount);
+    private readonly Stack<uint> _free = new(MaxBufferCount);
     private readonly float[] _mix = new float[BufferSamples];
     private readonly short[] _pcm = new short[BufferSamples];
+
+    // Owned by the feeding thread: the buffers in use, the first ones of _buffers.
+    private int _bufferCount = BufferCount;
 
     private volatile bool _stopping;
     private volatile bool _deviceLost;
     private long _nextConnectionCheck;
-    private double _latencySeconds = BufferCount * BufferSamples / (double)SampleRate;
+    private double _latencySeconds;
     private int _underruns;
     private int _errors;
     private long _longestRenderTicks;
@@ -124,7 +131,7 @@ public sealed unsafe class LiveAudioOutput : IDisposable
         _source = _al.GenSource();
         fixed (uint* buffers = _buffers)
         {
-            _al.GenBuffers(BufferCount, buffers);
+            _al.GenBuffers(MaxBufferCount, buffers);
         }
 
         if (_al.GetError() != AudioError.NoError)
@@ -139,14 +146,17 @@ public sealed unsafe class LiveAudioOutput : IDisposable
             _getSourceDoubles = (delegate* unmanaged[Cdecl]<uint, int, double*, void>)_al.GetProcAddress("alGetSourcedvSOFT");
         }
 
-        foreach (uint buffer in _buffers)
+        // A refill must fit between two updates of the device: the queue holds at least twice an update.
+        while (_bufferCount < MaxBufferCount && _bufferCount * BufferSamples < 2 * device.DeviceUpdateSamples)
         {
-            _free.Push(buffer);
+            _bufferCount *= 2;
         }
 
-        if (device.DeviceUpdateSamples > LongestDeviceUpdate)
+        _latencySeconds = QueueSeconds;
+        Rewind();
+        if (_bufferCount > BufferCount)
         {
-            _warning = $"The audio device mixes {device.DeviceUpdateSamples} samples at a time, too many for the live notes, which will stutter: OpenAL Soft did not take the settings shipped in alsoft.ini.";
+            _warning = $"The audio device mixes {device.DeviceUpdateSamples} samples at a time, so the live notes wait {1000 * QueueSeconds:F0} ms in their queue: OpenAL Soft did not take the settings shipped in alsoft.ini.";
         }
 
         IsAvailable = true;
@@ -173,8 +183,8 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     public double MeasuredLatencyMilliseconds => 1000 * Volatile.Read(ref _latencySeconds);
 
     /// <summary>
-    /// Number of times the source ran dry while voices were fed and a voice was dropped, since
-    /// <see cref="ResetStatistics"/>.
+    /// Number of times the source ran dry while voices were fed, since <see cref="ResetStatistics"/>: the queue grew, or,
+    /// at its longest, a voice was dropped.
     /// </summary>
     public int Underruns => Volatile.Read(ref _underruns);
 
@@ -185,10 +195,10 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     public double LongestRenderMilliseconds => Volatile.Read(ref _longestRenderTicks) * 1000.0 / Stopwatch.Frequency;
 
     /// <summary>
-    /// Why the live notes will stutter, for the status line; null while nothing is known to be wrong. Set when the
-    /// output is created, if the device mixes more than half the queue at a time (OpenAL Soft did not read the shipped
-    /// alsoft.ini), or during the first second of live notes, if the source runs dry 5 times or more in it. Once set it
-    /// stays.
+    /// Why the live notes wait longer than usual or stutter, for the status line; null while nothing is known to be
+    /// wrong. Set when the output is created, if the device mixes more than half the first queue at a time (OpenAL Soft
+    /// did not read the shipped alsoft.ini), whenever the queue grows, and during the first second of live notes, if the
+    /// source runs dry 5 times or more in it at the longest queue. Once set it stays until another replaces it.
     /// </summary>
     public string? Warning => _warning;
 
@@ -249,9 +259,12 @@ public sealed unsafe class LiveAudioOutput : IDisposable
         _al.DeleteSource(_source);
         fixed (uint* buffers = _buffers)
         {
-            _al.DeleteBuffers(BufferCount, buffers);
+            _al.DeleteBuffers(MaxBufferCount, buffers);
         }
     }
+
+    /// <summary>Length of the queue, in seconds.</summary>
+    private double QueueSeconds => _bufferCount * BufferSamples / (double)SampleRate;
 
     private void Run()
     {
@@ -327,7 +340,7 @@ public sealed unsafe class LiveAudioOutput : IDisposable
             }
 
             Reclaim(al);
-            int queued = BufferCount - _free.Count;
+            int queued = _bufferCount - _free.Count;
             if (_mixer.ActiveVoices == 0)
             {
                 if (queued == 0 && !playing)
@@ -401,16 +414,29 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     }
 
     /// <summary>
-    /// The source ran dry while voices were fed: drops the oldest voice, and warns when it happens again and again in
-    /// the first second of live notes.
+    /// The source ran dry while voices were fed: doubles the queue, for a device that takes more at a time than it held;
+    /// at its longest, the mixer cannot keep up, so drops the oldest voice, and warns when that happens again and again
+    /// in the first second of live notes.
     /// </summary>
     private void Underrun()
     {
-        _mixer.Shed(1);
         Interlocked.Increment(ref _underruns);
-        if (_firstSecondBuffers < FirstSecondBuffers && ++_firstSecondUnderruns >= StormUnderruns && _warning is null)
+        if (_bufferCount < MaxBufferCount)
         {
-            _warning = $"The live notes ran dry {_firstSecondUnderruns} times in their first second and will stutter: the audio device mixes too much at a time, or OpenAL Soft did not take the settings shipped in alsoft.ini.";
+            for (int i = _bufferCount; i < 2 * _bufferCount; i++)
+            {
+                _free.Push(_buffers[i]);
+            }
+
+            _bufferCount *= 2;
+            _warning = $"The audio device takes more at a time than the live notes had queued, so they now wait {1000 * QueueSeconds:F0} ms in their queue; on Linux a JACK client, such as the SuperCollider server, can make the sound server do so.";
+            return;
+        }
+
+        _mixer.Shed(1);
+        if (_firstSecondBuffers < FirstSecondBuffers && ++_firstSecondUnderruns >= StormUnderruns)
+        {
+            _warning = $"The live notes ran dry {_firstSecondUnderruns} times in their first second and will stutter: the computer cannot render them fast enough, or the audio device takes too much at a time.";
         }
     }
 
@@ -449,8 +475,8 @@ public sealed unsafe class LiveAudioOutput : IDisposable
     private void Reclaim(AL al)
     {
         al.GetSourceProperty(_source, GetSourceInteger.BuffersProcessed, out int processed);
-        uint* buffers = stackalloc uint[BufferCount];
-        processed = Math.Min(processed, BufferCount - _free.Count);
+        uint* buffers = stackalloc uint[MaxBufferCount];
+        processed = Math.Min(processed, _bufferCount - _free.Count);
         if (processed <= 0)
         {
             return;
@@ -477,9 +503,9 @@ public sealed unsafe class LiveAudioOutput : IDisposable
         }
 
         _free.Clear();
-        foreach (uint buffer in _buffers)
+        for (int i = 0; i < _bufferCount; i++)
         {
-            _free.Push(buffer);
+            _free.Push(_buffers[i]);
         }
     }
 
